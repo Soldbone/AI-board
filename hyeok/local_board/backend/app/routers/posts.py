@@ -5,7 +5,7 @@ from app.database import get_db
 from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.post import PostCreate, PostListItem, PostRead
+from app.schemas.post import PostCreate, PostListItem, PostRead, PostUpdate
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -57,5 +57,51 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="게시글을 찾을 수 없습니다.",
         )
+
+    return post
+
+
+@router.patch("/{post_id}", response_model=PostRead)
+def update_post(
+    post_id: int,
+    post_data: PostUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    post = (
+        db.query(Post)
+        .filter(Post.id == post_id, Post.deleted_at.is_(None))
+        .first()
+    )
+
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="게시글을 찾을 수 없습니다.",
+        )
+
+    if post.author_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="게시글을 수정할 권한이 없습니다.",
+        )
+
+    if post_data.title is not None:
+        post.title = post_data.title
+
+    if post_data.content is not None:
+        post.content = post_data.content
+
+    if post_data.region is not None:
+        post.region = post_data.region
+
+    if post_data.store_name is not None:
+        post.store_name = post_data.store_name
+
+    if post_data.category is not None:
+        post.category = post_data.category
+
+    db.commit()
+    db.refresh(post)
 
     return post
