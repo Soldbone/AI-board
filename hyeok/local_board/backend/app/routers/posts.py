@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -42,3 +42,20 @@ def read_posts(db: Session = Depends(get_db)):
     )
 
     return posts
+
+
+@router.get("/{post_id}", response_model=PostRead)
+def read_post(post_id: int, db: Session = Depends(get_db)):
+    post = (
+        db.query(Post)
+        .filter(Post.id == post_id, Post.deleted_at.is_(None))
+        .first()
+    )
+
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="게시글을 찾을 수 없습니다.",
+        )
+
+    return post
