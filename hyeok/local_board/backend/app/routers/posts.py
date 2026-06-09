@@ -5,7 +5,7 @@ from app.database import get_db
 from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.post import PostCreate, PostRead
+from app.schemas.post import PostCreate, PostListItem, PostRead
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -30,3 +30,15 @@ def create_post(
     db.refresh(new_post)
 
     return new_post
+
+
+@router.get("", response_model=list[PostListItem])
+def read_posts(db: Session = Depends(get_db)):
+    posts = (
+        db.query(Post)
+        .filter(Post.deleted_at.is_(None))
+        .order_by(Post.created_at.desc())
+        .all()
+    )
+
+    return posts
