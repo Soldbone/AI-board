@@ -2,9 +2,15 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import check_db_connection, get_db
+from app.database import Base, check_db_connection, engine, get_db
+from app.models import user
+from app.routers import auth
 
 app = FastAPI(title="Local Board API")
+
+Base.metadata.create_all(bind=engine)
+
+app.include_router(auth.router)
 
 
 @app.get("/health")
