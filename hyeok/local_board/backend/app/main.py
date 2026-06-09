@@ -4,13 +4,14 @@ from sqlalchemy.orm import Session
 
 from app.database import Base, check_db_connection, engine, get_db
 from app.models import user
-from app.routers import auth
+from app.routers import auth, users
 
 app = FastAPI(title="Local Board API")
 
 Base.metadata.create_all(bind=engine)
 
 app.include_router(auth.router)
+app.include_router(users.router)
 
 
 @app.get("/health")
