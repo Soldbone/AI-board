@@ -11,6 +11,10 @@ class Settings:
     def __init__(self) -> None:
         self.app_name = os.getenv("APP_NAME", "Figure Community API")
         self.api_prefix = os.getenv("API_PREFIX", "/api/v1")
+        self.database_url = os.getenv(
+            "DATABASE_URL",
+            "postgresql://figure_user:figure_password@localhost:5432/figure_community",
+        )
         self.backend_cors_origins = self._parse_origins(
             os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
         )
