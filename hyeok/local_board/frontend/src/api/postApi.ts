@@ -1,4 +1,4 @@
-import { apiGet } from './client'
+import { apiGet, apiPatch, apiPost } from './client'
 
 export type PostListItem = {
   id: number
@@ -10,6 +10,11 @@ export type PostListItem = {
   created_at: string
 }
 
+export type PostRead = PostListItem & {
+  content: string
+  updated_at: string
+}
+
 export type PostListResponse = {
   items: PostListItem[]
   total_count: number
@@ -18,6 +23,47 @@ export type PostListResponse = {
   total_pages: number
 }
 
-export function getPosts() {
-  return apiGet<PostListResponse>('/posts?page=1&size=10')
+export type PostFormPayload = {
+  title: string
+  content: string
+  region: string | null
+  store_name: string | null
+  category: string | null
+  tag_names?: string[]
+}
+
+type PostListParams = {
+  page?: number
+  size?: number
+  keyword?: string
+  tag?: string
+}
+
+export function getPosts(params: PostListParams = {}) {
+  const query = new URLSearchParams({
+    page: String(params.page ?? 1),
+    size: String(params.size ?? 10),
+  })
+
+  if (params.keyword) {
+    query.set('keyword', params.keyword)
+  }
+
+  if (params.tag) {
+    query.set('tag', params.tag)
+  }
+
+  return apiGet<PostListResponse>(`/posts?${query.toString()}`)
+}
+
+export function getPost(postId: number) {
+  return apiGet<PostRead>(`/posts/${postId}`)
+}
+
+export function createPost(data: PostFormPayload, token: string) {
+  return apiPost<PostRead>('/posts', data, token)
+}
+
+export function updatePost(postId: number, data: PostFormPayload, token: string) {
+  return apiPatch<PostRead>(`/posts/${postId}`, data, token)
 }
