@@ -116,10 +116,50 @@ def read_comments(post_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    return [
+    comment_items = [
         build_comment_response(comment, author)
         for comment, author in comment_rows
     ]
+
+    parent_comments = [
+        comment
+        for comment in comment_items
+        if comment["parent_id"] is None
+    ]
+
+    reply_comments = [
+        comment
+        for comment in comment_items
+        if comment["parent_id"] is not None
+    ]
+
+    replies_by_parent_id = {}
+
+    for reply in reply_comments:
+        parent_id = reply["parent_id"]
+
+        if parent_id not in replies_by_parent_id:
+            replies_by_parent_id[parent_id] = []
+
+        replies_by_parent_id[parent_id].append(reply)
+
+    ordered_comments = []
+
+    for parent in parent_comments:
+        ordered_comments.append(parent)
+        ordered_comments.extend(replies_by_parent_id.get(parent["id"], []))
+
+    parent_ids = {parent["id"] for parent in parent_comments}
+
+    orphan_replies = [
+        reply
+        for reply in reply_comments
+        if reply["parent_id"] not in parent_ids
+    ]
+
+    ordered_comments.extend(orphan_replies)
+
+    return ordered_comments
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentRead)
