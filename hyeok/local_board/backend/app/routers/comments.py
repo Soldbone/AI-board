@@ -6,7 +6,7 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.comment import CommentCreate, CommentRead
+from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
 
 router = APIRouter(tags=["comments"])
 
@@ -88,3 +88,36 @@ def read_comments(post_id: int, db: Session = Depends(get_db)):
     )
 
     return comments
+
+
+@router.patch("/comments/{comment_id}", response_model=CommentRead)
+def update_comment(
+    comment_id: int,
+    comment_data: CommentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    comment = (
+        db.query(Comment)
+        .filter(Comment.id == comment_id, Comment.deleted_at.is_(None))
+        .first()
+    )
+
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="댓글을 찾을 수 없습니다.",
+        )
+
+    if comment.author_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="댓글을 수정할 권한이 없습니다.",
+        )
+
+    comment.content = comment_data.content
+
+    db.commit()
+    db.refresh(comment)
+
+    return comment
