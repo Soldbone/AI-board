@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, check_db_connection, engine, get_db
-from app.models import comment, post, user
+from app.models import comment, post, user, tag
 from app.routers import auth, comments, posts, users
 
 app = FastAPI(title="Local Board API")
