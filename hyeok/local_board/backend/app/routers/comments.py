@@ -64,3 +64,27 @@ def create_comment(
     db.refresh(new_comment)
 
     return new_comment
+
+
+@router.get("/posts/{post_id}/comments", response_model=list[CommentRead])
+def read_comments(post_id: int, db: Session = Depends(get_db)):
+    post = (
+        db.query(Post)
+        .filter(Post.id == post_id, Post.deleted_at.is_(None))
+        .first()
+    )
+
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="게시글을 찾을 수 없습니다.",
+        )
+
+    comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id, Comment.deleted_at.is_(None))
+        .order_by(Comment.created_at.asc())
+        .all()
+    )
+
+    return comments
