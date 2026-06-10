@@ -1,122 +1,84 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState } from "react";
+
+import "./App.css";
+import { API_BASE_URL, healthCheck } from "./api/client";
+
+
+const STATUS_LABEL = {
+  loading: "loading",
+  connected: "connected",
+  failed: "failed",
+};
+
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [connectionStatus, setConnectionStatus] = useState("loading");
+  const [healthResponse, setHealthResponse] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function checkBackendConnection() {
+      try {
+        const data = await healthCheck();
+
+        if (!ignore) {
+          setHealthResponse(data);
+          setConnectionStatus("connected");
+        }
+      } catch (error) {
+        if (!ignore) {
+          setConnectionStatus("failed");
+          setErrorMessage(error.message);
+        }
+      }
+    }
+
+    checkBackendConnection();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+    <main className="app-shell">
+      <section className="status-panel" aria-labelledby="app-title">
+        <div className="phase-label">Phase 0</div>
+        <h1 id="app-title">Figure Community</h1>
+        <p className="subtitle">Frontend + Backend connection</p>
+
+        <dl className="status-list">
+          <div>
+            <dt>API base URL</dt>
+            <dd>{API_BASE_URL}</dd>
+          </div>
+          <div>
+            <dt>Health check</dt>
+            <dd>
+              <span className={`status-pill ${connectionStatus}`}>
+                {STATUS_LABEL[connectionStatus]}
+              </span>
+            </dd>
+          </div>
+        </dl>
+
+        {connectionStatus === "connected" && (
+          <pre className="response-box">
+            {JSON.stringify(healthResponse, null, 2)}
+          </pre>
+        )}
+
+        {connectionStatus === "failed" && (
+          <p className="error-text">
+            Backend connection failed: {errorMessage}
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        )}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    </main>
+  );
 }
 
-export default App
+
+export default App;

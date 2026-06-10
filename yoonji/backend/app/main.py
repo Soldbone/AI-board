@@ -1,16 +1,13 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Figure Community API")
+from app.core.config import settings
+from app.core.cors import configure_cors
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-@app.get("/api/v1/health")
+app = FastAPI(title=settings.app_name)
+configure_cors(app, settings.backend_cors_origins)
+
+
+@app.get(f"{settings.api_prefix}/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "figure-community-api"}
