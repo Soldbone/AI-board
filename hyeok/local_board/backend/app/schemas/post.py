@@ -49,3 +49,9 @@ class PostListItem(BaseModel):
     }
 
 
+class PostListResponse(BaseModel):
+    items: list[PostListItem]
+    total_count: int
+    page: int
+    size: int
+    total_pages: int

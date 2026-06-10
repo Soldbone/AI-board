@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.post import PostCreate, PostListItem, PostRead, PostUpdate
+from app.schemas.post import PostCreate, PostListItem, PostListResponse, PostRead, PostUpdate
 from app.models.tag import Tag, post_tags
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -66,8 +66,7 @@ def create_post(
 
     return new_post
 
-
-@router.get("", response_model=list[PostListItem])
+@router.get("", response_model=PostListResponse)
 def read_posts(
     keyword: str | None = None,
     tag: str | None = None,
@@ -112,6 +111,8 @@ def read_posts(
             detail="size는 1 이상 50 이하이어야 합니다.",
         )
 
+    total_count = query.count()
+    total_pages = (total_count + size - 1) // size
     offset = (page - 1) * size
 
     posts = (
@@ -122,7 +123,13 @@ def read_posts(
         .all()
     )
 
-    return posts
+    return {
+        "items": posts,
+        "total_count": total_count,
+        "page": page,
+        "size": size,
+        "total_pages": total_pages,
+    }
 
 
 @router.get("/{post_id}", response_model=PostRead)
