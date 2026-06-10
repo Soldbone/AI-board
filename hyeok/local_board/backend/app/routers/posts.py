@@ -71,6 +71,8 @@ def create_post(
 def read_posts(
     keyword: str | None = None,
     tag: str | None = None,
+    page: int = 1,
+    size: int = 10,
     db: Session = Depends(get_db),
 ):
     query = db.query(Post).filter(Post.deleted_at.is_(None))
@@ -98,7 +100,27 @@ def read_posts(
             .filter(Tag.name == tag_name)
         )
 
-    posts = query.order_by(Post.created_at.desc()).all()
+    if page < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="page는 1 이상이어야 합니다.",
+        )
+
+    if size < 1 or size > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="size는 1 이상 50 이하이어야 합니다.",
+        )
+
+    offset = (page - 1) * size
+
+    posts = (
+        query
+        .order_by(Post.created_at.desc())
+        .offset(offset)
+        .limit(size)
+        .all()
+    )
 
     return posts
 
