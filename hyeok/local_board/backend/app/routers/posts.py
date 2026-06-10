@@ -67,10 +67,12 @@ def create_post(
     return new_post
 
 
-
-
 @router.get("", response_model=list[PostListItem])
-def read_posts(keyword: str | None = None, db: Session = Depends(get_db)):
+def read_posts(
+    keyword: str | None = None,
+    tag: str | None = None,
+    db: Session = Depends(get_db),
+):
     query = db.query(Post).filter(Post.deleted_at.is_(None))
 
     if keyword and keyword.strip():
@@ -84,6 +86,16 @@ def read_posts(keyword: str | None = None, db: Session = Depends(get_db)):
                 Post.store_name.ilike(search_keyword),
                 Post.category.ilike(search_keyword),
             )
+        )
+    
+    if tag and tag.strip():
+        tag_name = tag.strip()
+
+        query = (
+            query
+            .join(post_tags, Post.id == post_tags.c.post_id)
+            .join(Tag, Tag.id == post_tags.c.tag_id)
+            .filter(Tag.name == tag_name)
         )
 
     posts = query.order_by(Post.created_at.desc()).all()
