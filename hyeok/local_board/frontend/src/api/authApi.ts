@@ -18,3 +18,18 @@ type UserResponse = {
 export function signup(data: SignupRequest) {
   return apiPost<UserResponse>('/auth/signup', data)
 }
+
+
+type LoginRequest = {
+  email: string
+  password: string
+}
+
+type TokenResponse = {
+  access_token: string
+  token_type: string
+}
+
+export function login(data: LoginRequest) {
+  return apiPost<TokenResponse>('/auth/login', data)
+}
