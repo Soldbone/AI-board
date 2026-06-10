@@ -6,11 +6,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   async signup(signupDto: SignupDto) {
     const existingUser = await this.prismaService.user.findUnique({
@@ -57,11 +61,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return {
-      id: user.id,
+    const payload = {
+      sub: user.id,
       email: user.email,
-      nickname: user.nickname,
-      createdAt: user.createdAt,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        nickname: user.nickname,
+        createdAt: user.createdAt,
+      },
     };
   }
 }
