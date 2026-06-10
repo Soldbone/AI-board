@@ -1,3 +1,4 @@
+from sqlalchemy import or_
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -69,13 +70,23 @@ def create_post(
 
 
 @router.get("", response_model=list[PostListItem])
-def read_posts(db: Session = Depends(get_db)):
-    posts = (
-        db.query(Post)
-        .filter(Post.deleted_at.is_(None))
-        .order_by(Post.created_at.desc())
-        .all()
-    )
+def read_posts(keyword: str | None = None, db: Session = Depends(get_db)):
+    query = db.query(Post).filter(Post.deleted_at.is_(None))
+
+    if keyword and keyword.strip():
+        search_keyword = f"%{keyword.strip()}%"
+
+        query = query.filter(
+            or_(
+                Post.title.ilike(search_keyword),
+                Post.content.ilike(search_keyword),
+                Post.region.ilike(search_keyword),
+                Post.store_name.ilike(search_keyword),
+                Post.category.ilike(search_keyword),
+            )
+        )
+
+    posts = query.order_by(Post.created_at.desc()).all()
 
     return posts
 
