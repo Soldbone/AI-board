@@ -1,30 +1,86 @@
-import { useEffect, useState } from 'react'
-import { apiGet } from './api/client'
-
-type HealthResponse = {
-  status: string
-}
+import { useState } from 'react'
+import { signup } from './api/authApi'
 
 function App() {
-  const [message, setMessage] = useState('API 확인 중...')
+  const [email, setEmail] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [password, setPassword] = useState('')
+  const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    apiGet<HealthResponse>('/health')
-      .then((data) => {
-        setMessage(`백엔드 연결 성공: ${data.status}`)
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    try {
+      const user = await signup({
+        email,
+        nickname,
+        password,
       })
-      .catch((error) => {
-        setMessage(`백엔드 연결 실패: ${error.message}`)
-      })
-  }, [])
+
+      setMessage(`${user.nickname}님 회원가입 성공`)
+      setEmail('')
+      setNickname('')
+      setPassword('')
+    } catch (error) {
+      if (error instanceof Error) {
+        setMessage(error.message)
+      } else {
+        setMessage('회원가입에 실패했습니다.')
+      }
+    }
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 p-8">
-      <section className="mx-auto max-w-xl rounded-lg bg-white p-6 shadow">
-        <h1 className="text-3xl font-bold text-blue-600">
-          API Client 테스트
-        </h1>
-        <p className="mt-3 text-gray-600">{message}</p>
+      <section className="mx-auto max-w-md rounded-lg bg-white p-6 shadow">
+        <h1 className="text-2xl font-bold text-slate-900">회원가입</h1>
+
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              이메일
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="hyeok@example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              닉네임
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+              value={nickname}
+              onChange={(event) => setNickname(event.target.value)}
+              placeholder="hyeok"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              비밀번호
+            </label>
+            <input
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="8자 이상"
+            />
+          </div>
+
+          <button className="w-full rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700">
+            가입하기
+          </button>
+        </form>
+
+        {message && (
+          <p className="mt-4 text-sm text-slate-700">{message}</p>
+        )}
       </section>
     </main>
   )
