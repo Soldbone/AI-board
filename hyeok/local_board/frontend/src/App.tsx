@@ -1,102 +1,67 @@
-import { useState } from 'react'
-import { login } from './api/authApi'
-import {
-  getAccessToken,
-  removeAccessToken,
-  saveAccessToken,
-} from './utils/tokenStorage'
+import { useEffect, useState } from 'react'
+import { getPosts, type PostListItem } from './api/postApi'
 
 function App() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
-  const [accessToken, setAccessToken] = useState(() => getAccessToken())
+  const [posts, setPosts] = useState<PostListItem[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [message, setMessage] = useState('게시글 목록을 불러오는 중입니다.')
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    try {
-      const token = await login({
-        email,
-        password,
+  useEffect(() => {
+    getPosts()
+      .then((data) => {
+        setPosts(data.items)
+        setTotalCount(data.total_count)
+        setTotalPages(data.total_pages)
+        setMessage('')
       })
-
-      saveAccessToken(token.access_token)
-      setAccessToken(token.access_token)
-      setMessage(`로그인 성공: ${token.token_type}`)
-      setEmail('')
-      setPassword('')
-    } catch (error) {
-      if (error instanceof Error) {
-        setMessage(error.message)
-      } else {
-        setMessage('로그인에 실패했습니다.')
-      }
-    }
-  }
-
-  function handleLogout() {
-    removeAccessToken()
-    setAccessToken(null)
-    setMessage('로그아웃되었습니다.')
-  }
+      .catch((error) => {
+        if (error instanceof Error) {
+          setMessage(error.message)
+        } else {
+          setMessage('게시글 목록을 불러오지 못했습니다.')
+        }
+      })
+  }, [])
 
   return (
     <main className="min-h-screen bg-slate-100 p-8">
-      <section className="mx-auto max-w-md rounded-lg bg-white p-6 shadow">
-        <h1 className="text-2xl font-bold text-slate-900">로그인</h1>
-
-        {accessToken ? (
-          <div className="mt-4 rounded-md bg-green-50 p-3 text-sm text-green-700">
-            로그인 상태입니다.
-            <button
-              className="ml-3 font-medium text-green-900 underline"
-              type="button"
-              onClick={handleLogout}
-            >
-              로그아웃
-            </button>
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-slate-600">
-            로그인 후 토큰이 브라우저에 저장됩니다.
+      <section className="mx-auto max-w-3xl">
+        <header className="mb-6">
+          <h1 className="text-3xl font-bold text-slate-900">동네 게시판</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            전체 {totalCount}개 게시글, 총 {totalPages}페이지
           </p>
-        )}
-
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              이메일
-            </label>
-            <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="hyeok@example.com"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              비밀번호
-            </label>
-            <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="12345678"
-            />
-          </div>
-
-          <button className="w-full rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700">
-            로그인
-          </button>
-        </form>
+        </header>
 
         {message && (
-          <p className="mt-4 text-sm text-slate-700">{message}</p>
+          <div className="rounded-md bg-white p-4 text-sm text-slate-700 shadow">
+            {message}
+          </div>
         )}
+
+        <div className="space-y-3">
+          {posts.map((post) => (
+            <article
+              className="rounded-lg bg-white p-5 shadow"
+              key={post.id}
+            >
+              <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+                {post.region && <span>{post.region}</span>}
+                {post.category && <span>{post.category}</span>}
+                {post.store_name && <span>{post.store_name}</span>}
+              </div>
+
+              <h2 className="text-lg font-semibold text-slate-900">
+                {post.title}
+              </h2>
+
+              <p className="mt-3 text-xs text-slate-400">
+                작성일: {new Date(post.created_at).toLocaleString()}
+              </p>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
   )
