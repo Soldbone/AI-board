@@ -7,8 +7,21 @@ from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.post import PostCreate, PostListItem, PostRead, PostUpdate
+from app.models.tag import Tag, post_tags
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+
+
+def normalize_tag_names(tag_names: list[str]) -> list[str]:
+    normalized_names = []
+
+    for tag_name in tag_names:
+        cleaned_name = tag_name.strip()
+
+        if cleaned_name and cleaned_name not in normalized_names:
+            normalized_names.append(cleaned_name)
+
+    return normalized_names
 
 
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
@@ -30,7 +43,29 @@ def create_post(
     db.commit()
     db.refresh(new_post)
 
+    normalized_tag_names = normalize_tag_names(post_data.tag_names)
+
+    for tag_name in normalized_tag_names:
+        tag = db.query(Tag).filter(Tag.name == tag_name).first()
+
+        if not tag:
+            tag = Tag(name=tag_name)
+            db.add(tag)
+            db.commit()
+            db.refresh(tag)
+
+        db.execute(
+            post_tags.insert().values(
+                post_id=new_post.id,
+                tag_id=tag.id,
+            )
+        )
+
+    db.commit()
+
     return new_post
+
+
 
 
 @router.get("", response_model=list[PostListItem])
