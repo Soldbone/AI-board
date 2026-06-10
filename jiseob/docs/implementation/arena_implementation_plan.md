@@ -1,0 +1,520 @@
+# Arena 구현 순서 문서
+
+> 목적: Arena MVP를 실제로 구현할 때 어떤 순서로 만들지 정리한다.  
+> 기준: React + Vite, NestJS, TypeScript, PostgreSQL, TypeORM, pgvector, JWT  
+> 원칙: 기본 게시판 기능을 먼저 안정화하고, AI 기능은 상태값 기반으로 단계적으로 붙인다.
+
+---
+
+## 0. 구현 전략 요약
+
+Arena는 처음부터 AI 기능을 구현하려고 하면 복잡해진다. 따라서 다음 순서로 구현한다.
+
+```text
+인증 없는 게시판 골격
+→ 인증/권한
+→ 댓글/대댓글
+→ 영상 상태값
+→ 자막/임베딩
+→ AI 댓글 분석
+→ RAG 근거 후보
+→ 댓글 스레드 요약
+→ 관리자 기능
+→ 테스트/문서 정리
+```
+
+핵심 원칙은 다음과 같다.
+
+```text
+게시판 기능은 반드시 동작한다.
+외부 API와 AI 기능은 실패해도 상태값으로 표현한다.
+```
+
+---
+
+## Phase 1. 프로젝트 초기 설정
+
+### 목표
+
+NestJS 백엔드 프로젝트를 실행 가능한 상태로 만든다.
+
+### 작업 목록
+
+- NestJS 프로젝트 생성
+- ESLint / Prettier 설정 확인
+- 환경 변수 구조 정의
+- PostgreSQL 연결 준비
+- TypeORM 설정
+- Docker Compose로 PostgreSQL 실행
+- Health check API 작성
+
+### 완료 기준
+
+- 서버가 로컬에서 실행된다.
+- `/api/v1/health` 요청에 성공한다.
+- PostgreSQL 연결이 정상적으로 된다.
+
+### 직접 했다면 접근법
+
+처음에는 비즈니스 로직을 만들지 말고 “서버가 켜지고 DB에 연결되는지”만 확인한다. 이 단계에서 인증, 게시글, AI를 동시에 시작하면 문제 원인을 분리하기 어렵다.
+
+### 유의사항
+
+- `.env`와 `.env.example`을 분리한다.
+- 실제 API key를 Git에 올리지 않는다.
+- TypeORM `synchronize: true`는 초반 로컬 실험에서만 사용하고, 팀 공유/제출용으로는 migration을 준비한다.
+
+---
+
+## Phase 2. 공통 기반 구현
+
+### 목표
+
+프로젝트 전체에서 반복해서 사용할 기반 코드를 만든다.
+
+### 작업 목록
+
+- 공통 `BaseModel` 또는 `BaseEntity` 작성
+- ULID 생성 유틸 작성
+- 공통 enum 정의
+- 공통 응답/예외 처리 방식 정리
+- 인증 Guard, Role Guard의 골격 준비
+
+### 필요한 enum 예시
+
+- UserRole
+- MetadataStatus
+- TranscriptStatus
+- EmbeddingStatus
+- CommentType
+- AiAnalysisStatus
+- RagStatus
+- ModerationStatus
+- SummaryStatus
+- SummaryTargetType
+
+### 완료 기준
+
+- Entity에서 ULID를 자동 생성할 수 있다.
+- 공통 상태값을 중복 없이 import해서 사용할 수 있다.
+
+### 직접 했다면 접근법
+
+먼저 enum을 전부 완벽하게 만들려고 하지 말고, 현재 문서에서 확정된 상태값만 만든다. 구현 중 새 상태가 필요해지면 추가한다.
+
+### 유의사항
+
+- TypeScript enum을 DB enum으로 직접 매핑할지, varchar로 저장할지 결정해야 한다.
+- MVP에서는 DB enum보다 varchar + application enum이 migration 부담이 적을 수 있다.
+- 단, 값이 흔들리지 않도록 코드 상수는 반드시 중앙에서 관리한다.
+
+---
+
+## Phase 3. User / Auth 구현
+
+### 목표
+
+로그인 기반 기능을 만들기 위한 인증 구조를 구현한다.
+
+### API
+
+```http
+POST   /api/v1/auth/signup
+POST   /api/v1/auth/login
+GET    /api/v1/users/me
+DELETE /api/v1/users/me
+```
+
+### 작업 목록
+
+- User Entity 작성
+- 회원가입 DTO 작성
+- 비밀번호 해시 처리
+- 로그인 구현
+- JWT 발급
+- JwtAuthGuard 구현
+- 내 정보 조회 구현
+- 회원탈퇴 soft delete 구현
+
+### 테스트 기준
+
+- 이메일 중복 가입은 실패한다.
+- 비밀번호는 평문 저장되지 않는다.
+- 로그인 성공 시 accessToken을 반환한다.
+- 잘못된 비밀번호는 401을 반환한다.
+- 토큰 없이 내 정보 조회 시 401을 반환한다.
+- 탈퇴한 회원은 로그인할 수 없다.
+
+### 직접 했다면 접근법
+
+가장 먼저 “회원가입 → 로그인 → 내 정보 조회” 흐름 하나만 완성한다. 이 흐름이 안정되면 게시글/댓글 권한 검증을 붙이기 쉬워진다.
+
+### 유의사항
+
+- 응답에 passwordHash를 절대 포함하지 않는다.
+- 로그인 실패 메시지는 이메일 존재 여부를 노출하지 않도록 통일한다.
+- 회원탈퇴 후 기존 글의 작성자는 “탈퇴한 회원”으로 표시해야 한다.
+
+---
+
+## Phase 4. Post / Tag / Video 기본 구현
+
+### 목표
+
+유튜브 링크 기반 게시글을 작성하고 조회할 수 있게 만든다.
+
+### API
+
+```http
+GET    /api/v1/posts
+POST   /api/v1/posts
+GET    /api/v1/posts/:postId
+PATCH  /api/v1/posts/:postId
+DELETE /api/v1/posts/:postId
+GET    /api/v1/tags
+GET    /api/v1/videos/:videoId
+```
+
+### 작업 목록
+
+- Post Entity 작성
+- Video Entity 작성
+- Tag Entity 작성
+- PostTag 관계 작성
+- 게시글 작성 구현
+- 유튜브 URL에서 youtubeVideoId 추출
+- 동일 youtubeVideoId의 Video 재사용
+- 게시글 작성 시 Video 상태값 PENDING 반환
+- 게시글 목록 조회 구현
+- 게시글 상세 조회 구현
+- 게시글 검색/태그 필터 구현
+- 게시글 수정/삭제 권한 구현
+
+### 완료 기준
+
+- 로그인 사용자는 게시글을 작성할 수 있다.
+- 비회원은 게시글을 작성할 수 없다.
+- 게시글 작성 시 Video가 생성되거나 재사용된다.
+- 게시글 작성 API는 YouTube API를 기다리지 않는다.
+- 게시글 작성 응답의 video 상태는 PENDING이다.
+- 게시글 작성자만 수정/삭제할 수 있다.
+
+### 직접 했다면 접근법
+
+처음에는 YouTube API를 붙이지 말고, URL 파싱과 Video row 생성까지만 구현한다. 그다음 영상 메타데이터 수집을 별도 service로 추가한다.
+
+### 유의사항
+
+- 게시글 작성 후 youtubeUrl 변경은 MVP에서 막는 것이 좋다.
+- youtubeUrl 변경을 허용하면 Video, TranscriptChunk, RAG 결과를 다시 계산해야 한다.
+- 목록 조회에서 content 전체, 댓글 전체, 자막 전체를 내려주지 않는다.
+
+---
+
+## Phase 5. Comment / Reply 구현
+
+### 목표
+
+게시글에 댓글과 대댓글을 작성할 수 있게 만든다.
+
+### API
+
+```http
+GET    /api/v1/posts/:postId/comments
+POST   /api/v1/posts/:postId/comments
+POST   /api/v1/comments/:commentId/replies
+PATCH  /api/v1/comments/:commentId
+DELETE /api/v1/comments/:commentId
+```
+
+### 작업 목록
+
+- Comment Entity 작성
+- 최상위 댓글 작성 구현
+- 대댓글 작성 구현
+- 대댓글 깊이 제한 구현
+- 댓글 목록 조회 구현
+- 댓글 수정 구현
+- 댓글 soft delete 구현
+- 삭제된 댓글 표시 정책 구현
+
+### 완료 기준
+
+- 로그인 사용자는 댓글을 작성할 수 있다.
+- 로그인 사용자는 대댓글을 작성할 수 있다.
+- 대댓글의 대댓글은 작성할 수 없다.
+- 댓글 작성자만 수정/삭제할 수 있다.
+- 삭제된 댓글의 대댓글은 유지된다.
+
+### 직접 했다면 접근법
+
+먼저 최상위 댓글만 구현하고, 그 다음 대댓글을 추가한다. 처음부터 무한 depth 트리를 구현하려고 하지 않는다.
+
+### 유의사항
+
+- 대댓글 작성 시 부모 댓글이 삭제되었는지 확인한다.
+- 부모 댓글이 이미 대댓글이면 답글 생성을 막는다.
+- 댓글 삭제는 실제 삭제가 아니라 soft delete다.
+
+---
+
+## Phase 6. 영상 메타데이터 / 자막 / 임베딩 처리
+
+### 목표
+
+게시글에 연결된 Video에 대해 외부 처리 상태를 관리한다.
+
+### 작업 목록
+
+- McpModule 또는 YoutubeToolService 작성
+- 유튜브 메타데이터 수집 service 작성
+- 자막 수집 service 작성
+- 자막 청킹 service 작성
+- 임베딩 생성 service 작성
+- TranscriptChunk 저장 구현
+- pgvector extension migration 작성
+- 영상 처리 실패 시 상태값 업데이트
+
+### 완료 기준
+
+- 게시글 작성 후 영상 처리 상태가 PENDING으로 시작한다.
+- 메타데이터 수집 성공 시 metadataStatus=SUCCESS가 된다.
+- 메타데이터 수집 실패 시 metadataStatus=FAILED가 된다.
+- 자막 없음은 transcriptStatus=NOT_AVAILABLE로 표현한다.
+- 임베딩 완료 후 embeddingStatus=SUCCESS가 된다.
+
+### 직접 했다면 접근법
+
+YouTube API, 자막 수집, 임베딩을 한 번에 붙이지 않는다. 먼저 가짜 service로 status 변경 흐름을 테스트하고, 그 다음 실제 외부 API를 붙인다.
+
+### 유의사항
+
+- MVP에서는 Redis 큐를 쓰지 않는다.
+- 서버 내부 비동기 작업은 서버 재시작 시 유실될 수 있다.
+- 실패한 작업은 상태값으로 남기고 관리자 재시도 또는 추후 PostgreSQL 작업 큐로 보완한다.
+- pgvector column을 쓰기 전에 반드시 extension migration이 필요하다.
+
+---
+
+## Phase 7. AI 댓글 분석 구현
+
+### 목표
+
+댓글 작성 후 댓글 유형 분석과 moderationStatus 판단을 수행한다.
+
+### 작업 목록
+
+- CommentAnalysis Entity 작성
+- AiModule 작성
+- 댓글 분석 service 작성
+- 댓글 작성 후 분석 요청 연결
+- 분석 성공 시 commentType 저장
+- 분석 실패 시 aiAnalysisStatus=FAILED 저장
+- 비난/욕설/인신공격 댓글이면 moderationStatus=NEEDS_REVIEW 처리
+
+### 완료 기준
+
+- 댓글 작성 직후 CommentAnalysis가 PENDING 상태로 생성된다.
+- 분석 성공 시 commentType이 저장된다.
+- 분석 실패 시 댓글은 유지되고 분석 상태만 FAILED가 된다.
+- toxic 댓글은 자동 삭제되지 않고 주의 필요 상태가 된다.
+
+### 직접 했다면 접근법
+
+처음에는 실제 LLM을 호출하지 않고 rule-based fake analyzer로 상태 흐름을 만든다. 그 다음 LLM API를 연결한다.
+
+### 유의사항
+
+- 댓글 작성 API가 AI 분석 완료를 기다리면 안 된다.
+- 댓글 수정 시 기존 분석은 stale해진다.
+- 댓글 수정 후 요약을 자동 재생성하지 않는다.
+
+---
+
+## Phase 8. RAG 근거 후보 구현
+
+### 목표
+
+사실 주장 댓글에 대해 영상 자막 청크를 검색해 근거 후보를 제공한다.
+
+### API
+
+```http
+GET /api/v1/comments/:commentId/evidences
+```
+
+### 작업 목록
+
+- RagEvidence Entity 작성
+- CommentAnalysis 결과가 FACT_CLAIM인지 확인
+- 해당 게시글의 Video와 TranscriptChunk 조회
+- 댓글 내용을 embedding으로 변환
+- pgvector similarity search 수행
+- 상위 N개 근거 후보 저장
+- evidenceCount를 댓글 목록에서 보여줄 수 있게 처리
+
+### 완료 기준
+
+- FACT_CLAIM 댓글에만 RAG 검색이 수행된다.
+- 근거 후보가 있으면 RagEvidence가 저장된다.
+- 근거 후보가 없으면 ragStatus=NO_RESULT로 처리된다.
+- 의견/질문/잡담 댓글은 ragStatus=NOT_REQUIRED로 처리된다.
+
+### 직접 했다면 접근법
+
+처음에는 실제 vector search 대신 transcript chunk 텍스트 검색으로 mock 처리해도 된다. 데이터 흐름이 맞으면 pgvector 검색으로 교체한다.
+
+### 유의사항
+
+- RAG 결과를 fact verdict로 표현하지 않는다.
+- 댓글 목록에는 근거 상세 전체를 포함하지 않는다.
+- RAG 상세는 사용자가 펼쳐볼 때 별도 API로 조회한다.
+
+---
+
+## Phase 9. 댓글 스레드 요약 구현
+
+### 목표
+
+댓글 스레드가 충분히 길 때 사용자가 AI 요약을 생성할 수 있게 한다.
+
+### API
+
+```http
+POST /api/v1/comments/:rootCommentId/summary
+GET  /api/v1/comments/:rootCommentId/summary
+```
+
+### 작업 목록
+
+- AiSummary Entity 작성
+- rootComment 조회
+- rootComment가 최상위 댓글인지 검증
+- 루트 댓글 포함 전체 댓글 수 계산
+- 댓글 수가 10개 이상인지 검증
+- 로그인 사용자만 새 요약 생성 가능하게 구현
+- 비회원은 기존 요약 조회만 가능하게 구현
+- 요약 생성 이후 새 댓글 추가 시 isStale 계산
+
+### 완료 기준
+
+- 댓글 수 10개 미만이면 요약 생성이 실패한다.
+- 댓글 수 10개 이상이면 요약 생성 요청이 가능하다.
+- 비회원은 요약 생성 API를 호출할 수 없다.
+- 비회원은 이미 생성된 요약은 조회할 수 있다.
+- 요약 이후 댓글이 추가되면 stale 상태가 표시된다.
+
+### 직접 했다면 접근법
+
+처음에는 요약 생성 결과를 고정 문자열로 저장하는 mock부터 만든다. 그 다음 실제 LLM 요약을 붙인다.
+
+### 유의사항
+
+- 요약은 댓글을 대체하지 않는다.
+- 삭제된 댓글은 요약 대상에서 제외하는 방향을 우선한다.
+- 요약 재생성 이력을 남길지 최신 요약만 유지할지 구현 전에 정한다.
+
+---
+
+## Phase 10. 관리자 기능 구현
+
+### 목표
+
+MVP 기준 최소 관리자 기능을 구현한다.
+
+### API
+
+```http
+GET    /api/v1/admin/comments?moderationStatus=NEEDS_REVIEW
+DELETE /api/v1/admin/comments/:commentId
+POST   /api/v1/admin/comments/:commentId/analysis/retry
+```
+
+### 작업 목록
+
+- UserRole.ADMIN 권한 처리
+- Admin Guard 구현
+- 주의 필요 댓글 목록 조회
+- 관리자 댓글 삭제 구현
+- AI 분석 실패 댓글 재시도 구현
+
+### 완료 기준
+
+- 일반 사용자는 admin API를 호출할 수 없다.
+- 관리자는 주의 필요 댓글을 조회할 수 있다.
+- 관리자는 댓글을 관리자 삭제 상태로 만들 수 있다.
+- AI 분석 재시도는 FAILED 상태에서만 가능하다.
+
+### 직접 했다면 접근법
+
+관리자 대시보드를 만들려고 하지 말고 API만 먼저 만든다. 프론트는 간단한 리스트와 버튼 정도면 충분하다.
+
+### 유의사항
+
+- 관리자 삭제와 사용자 삭제를 구분해야 한다.
+- AI 분석 재시도는 비용이 발생할 수 있으므로 관리자만 허용한다.
+
+---
+
+## Phase 11. 테스트 정리
+
+### 목표
+
+MVP 정책이 실제로 깨지지 않는지 확인한다.
+
+### 우선순위 높은 E2E 테스트
+
+1. 회원가입 / 로그인 / 내 정보 조회
+2. 비회원 게시글 작성 실패
+3. 게시글 작성 시 video status PENDING 반환
+4. 게시글 작성자만 수정/삭제 가능
+5. 댓글 작성 / 대댓글 작성
+6. 대댓글의 대댓글 차단
+7. 댓글 삭제 후 대댓글 유지
+8. 댓글 작성 후 AI 분석 PENDING
+9. AI 분석 실패 시 댓글 유지
+10. FACT_CLAIM 댓글만 RAG 검색
+11. 근거 상세 API 분리 조회
+12. 요약 생성 최소 댓글 수 10개 검증
+13. 비회원 요약 생성 차단
+14. 비회원 기존 요약 조회 허용
+15. 관리자만 AI 분석 재시도 가능
+
+### 직접 했다면 접근법
+
+성공 케이스보다 실패 케이스부터 테스트한다. 인증/권한/삭제/외부 API 실패가 MVP 품질을 결정한다.
+
+### 유의사항
+
+- AI/외부 API는 테스트에서 mock 처리한다.
+- 실제 API key에 의존하는 테스트를 만들지 않는다.
+- 테스트 데이터는 게시글 1개, 루트 댓글 1개, 대댓글 9개를 기본 seed로 둔다.
+
+---
+
+## Phase 12. 문서 정리
+
+### 목표
+
+구현 결과를 설명할 수 있는 문서를 준비한다.
+
+### 작성할 문서
+
+- README.md
+- AGENTS.md
+- API 설계 문서
+- ERD 문서
+- 실행 방법
+- 환경 변수 예시
+- 데모 시나리오
+- 한계 및 개선 방향
+
+### 직접 했다면 접근법
+
+구현이 끝난 뒤 한 번에 README를 쓰지 말고, 구현하면서 결정한 내용을 바로 메모한다. 특히 실패 정책과 AI 한계는 면접/발표에서 질문이 나올 가능성이 높다.
+
+### 유의사항
+
+- “AI가 팩트체크한다”보다 “AI가 근거 후보를 제시한다”라고 표현한다.
+- Redis 큐 미도입은 한계가 아니라 MVP 범위 조정으로 설명한다.
+- 추후 확장으로 PostgreSQL 작업 큐 또는 Redis/BullMQ를 제시한다.
