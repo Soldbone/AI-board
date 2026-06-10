@@ -16,13 +16,10 @@ class CommentUpdate(BaseModel):
 class CommentRead(BaseModel):
     id: int
     post_id: int
-    author_id: int
+    author_id: int | None
+    author_nickname: str
     parent_id: int | None
     content: str
     is_anonymous: bool
     created_at: datetime
     updated_at: datetime
-
-    model_config = {
-        "from_attributes": True
-    }

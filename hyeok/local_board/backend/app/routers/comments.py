@@ -12,6 +12,27 @@ from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
 router = APIRouter(tags=["comments"])
 
 
+def build_comment_response(comment: Comment, author: User) -> dict:
+    if comment.is_anonymous:
+        author_id = None
+        author_nickname = "익명"
+    else:
+        author_id = comment.author_id
+        author_nickname = author.nickname
+
+    return {
+        "id": comment.id,
+        "post_id": comment.post_id,
+        "author_id": author_id,
+        "author_nickname": author_nickname,
+        "parent_id": comment.parent_id,
+        "content": comment.content,
+        "is_anonymous": comment.is_anonymous,
+        "created_at": comment.created_at,
+        "updated_at": comment.updated_at,
+    }
+
+
 @router.post(
     "/posts/{post_id}/comments",
     response_model=CommentRead,
@@ -64,7 +85,7 @@ def create_comment(
     db.commit()
     db.refresh(new_comment)
 
-    return new_comment
+    return build_comment_response(new_comment, current_user)
 
 
 @router.get("/posts/{post_id}/comments", response_model=list[CommentRead])
@@ -81,14 +102,18 @@ def read_comments(post_id: int, db: Session = Depends(get_db)):
             detail="게시글을 찾을 수 없습니다.",
         )
 
-    comments = (
-        db.query(Comment)
+    comment_rows = (
+        db.query(Comment, User)
+        .join(User, Comment.author_id == User.id)
         .filter(Comment.post_id == post_id, Comment.deleted_at.is_(None))
         .order_by(Comment.created_at.asc())
         .all()
     )
 
-    return comments
+    return [
+        build_comment_response(comment, author)
+        for comment, author in comment_rows
+    ]
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentRead)
@@ -121,7 +146,7 @@ def update_comment(
     db.commit()
     db.refresh(comment)
 
-    return comment
+    return build_comment_response(comment, current_user)
 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
