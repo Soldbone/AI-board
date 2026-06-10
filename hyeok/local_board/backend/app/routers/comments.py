@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -121,3 +122,34 @@ def update_comment(
     db.refresh(comment)
 
     return comment
+
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_comment(
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    comment = (
+        db.query(Comment)
+        .filter(Comment.id == comment_id, Comment.deleted_at.is_(None))
+        .first()
+    )
+
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="댓글을 찾을 수 없습니다.",
+        )
+
+    if comment.author_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="댓글을 삭제할 권한이 없습니다.",
+        )
+
+    comment.deleted_at = datetime.utcnow()
+
+    db.commit()
+
+    return None
