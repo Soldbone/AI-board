@@ -8,7 +8,7 @@ class PostCreate(BaseModel):
     region: str | None = None
     store_name: str | None = None
     category: str | None = None
-
+    tag_names: list[str] = []
 
 class PostUpdate(BaseModel):
     title: str | None = None
@@ -16,6 +16,7 @@ class PostUpdate(BaseModel):
     region: str | None = None
     store_name: str | None = None
     category: str | None = None
+    tag_names: list[str] | None = None
 
 
 class PostRead(BaseModel):
