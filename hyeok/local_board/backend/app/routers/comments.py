@@ -72,6 +72,12 @@ def create_comment(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="부모 댓글을 찾을 수 없습니다.",
             )
+        
+        if parent_comment.parent_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="대댓글에는 답글을 달 수 없습니다."
+            )
 
     new_comment = Comment(
         post_id=post_id,
