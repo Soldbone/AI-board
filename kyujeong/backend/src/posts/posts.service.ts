@@ -60,7 +60,27 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    return post;
+    return this.prismaService.post.update({
+      where: { id },
+      data: {
+        viewCount: {
+          increment: 1,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
   }
 
   async create(createPostDto: CreatePostDto, authorId: number) {

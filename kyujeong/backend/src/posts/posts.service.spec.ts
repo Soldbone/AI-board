@@ -17,6 +17,7 @@ describe('PostsService', () => {
             post: {
               findMany: jest.fn(),
               findUnique: jest.fn(),
+              update: jest.fn(),
               create: jest.fn(),
             },
           },
@@ -120,7 +121,7 @@ describe('PostsService', () => {
     });
   });
 
-  it('should return a post detail with author nickname', async () => {
+  it('should increment view count and return a post detail', async () => {
     const post = {
       id: 1,
       title: 'Test title',
@@ -134,10 +135,38 @@ describe('PostsService', () => {
     };
 
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(post);
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue({
+      ...post,
+      viewCount: 1,
+    });
 
-    await expect(service.findOne(1)).resolves.toBe(post);
+    await expect(service.findOne(1)).resolves.toEqual({
+      ...post,
+      viewCount: 1,
+    });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        viewCount: {
+          increment: 1,
+        },
+      },
       select: {
         id: true,
         title: true,
