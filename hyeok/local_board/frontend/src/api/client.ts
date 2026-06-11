@@ -1,11 +1,11 @@
-const API_BASE_URL = 'http://127.0.0.1:8000'
+﻿const API_BASE_URL = 'http://127.0.0.1:8000'
 
 type RequestMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
 type RequestOptions = {
   method?: RequestMethod
   body?: unknown
-  token?: string
+  token?: string | null
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -36,14 +36,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return response.json()
 }
 
-export function apiGet<T>(path: string, token?: string) {
+export function apiGet<T>(path: string, token?: string | null) {
   return request<T>(path, {
     method: 'GET',
     token,
   })
 }
 
-export function apiPost<T>(path: string, body: unknown, token?: string) {
+export function apiPost<T>(path: string, body: unknown, token?: string | null) {
   return request<T>(path, {
     method: 'POST',
     body,
@@ -51,7 +51,7 @@ export function apiPost<T>(path: string, body: unknown, token?: string) {
   })
 }
 
-export function apiPatch<T>(path: string, body: unknown, token?: string) {
+export function apiPatch<T>(path: string, body: unknown, token?: string | null) {
   return request<T>(path, {
     method: 'PATCH',
     body,
@@ -59,7 +59,7 @@ export function apiPatch<T>(path: string, body: unknown, token?: string) {
   })
 }
 
-export function apiDelete<T>(path: string, token?: string) {
+export function apiDelete<T>(path: string, token?: string | null) {
   return request<T>(path, {
     method: 'DELETE',
     token,

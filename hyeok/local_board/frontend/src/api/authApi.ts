@@ -1,12 +1,12 @@
-import { apiPost } from './client'
+﻿import { apiGet, apiPost } from './client'
 
-type SignupRequest = {
+export type SignupRequest = {
   email: string
   nickname: string
   password: string
 }
 
-type UserResponse = {
+export type UserResponse = {
   id: number
   email: string
   nickname: string
@@ -15,21 +15,24 @@ type UserResponse = {
   updated_at: string
 }
 
-export function signup(data: SignupRequest) {
-  return apiPost<UserResponse>('/auth/signup', data)
-}
-
-
-type LoginRequest = {
+export type LoginRequest = {
   email: string
   password: string
 }
 
-type TokenResponse = {
+export type TokenResponse = {
   access_token: string
   token_type: string
 }
 
+export function signup(data: SignupRequest) {
+  return apiPost<UserResponse>('/auth/signup', data)
+}
+
 export function login(data: LoginRequest) {
   return apiPost<TokenResponse>('/auth/login', data)
+}
+
+export function getMe(token: string) {
+  return apiGet<UserResponse>('/auth/me', token)
 }
