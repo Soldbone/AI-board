@@ -1,0 +1,265 @@
+figure-community/
+│
+├── README.md
+├── .gitignore
+├── .env.example
+├── docker-compose.yml
+│
+├── docs/
+│   ├── planning/
+│   │   ├── service-plan.md
+│   │   ├── feature-requirements.md
+│   │   └── user-flows.md
+│   │
+│   ├── architecture/
+│   │   ├── system-architecture.md
+│   │   ├── api-design.md
+│   │   ├── rag-agent-flow.md
+│   │   └── mcp-design.md
+│   │
+│   └── database/
+│       ├── erd.md
+│       └── schema-design.md
+│
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── index.html
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       │
+│       ├── api/
+│       │   ├── client.js
+│       │   ├── authApi.js
+│       │   ├── boardApi.js
+│       │   ├── userApi.js
+│       │   ├── postApi.js
+│       │   ├── commentApi.js
+│       │   ├── tagApi.js
+│       │   ├── imageApi.js
+│       │   ├── searchApi.js
+│       │   ├── externalLinkApi.js
+│       │   └── aiApi.js
+│       │
+│       ├── pages/
+│       │   ├── HomePage.jsx
+│       │   ├── LoginPage.jsx
+│       │   ├── SignupPage.jsx
+│       │   ├── PostListPage.jsx
+│       │   ├── PostDetailPage.jsx
+│       │   ├── PostWritePage.jsx
+│       │   ├── PostEditPage.jsx
+│       │   ├── SearchResultPage.jsx
+│       │   ├── MyPage.jsx
+│       │   └── AiQnaPage.jsx
+│       │
+│       ├── components/
+│       │   ├── common/
+│       │   │   ├── Header.jsx
+│       │   │   ├── Layout.jsx
+│       │   │   ├── Button.jsx
+│       │   │   ├── Input.jsx
+│       │   │   ├── Modal.jsx
+│       │   │   └── Loading.jsx
+│       │   │
+│       │   ├── post/
+│       │   │   ├── PostCard.jsx
+│       │   │   ├── PostList.jsx
+│       │   │   ├── PostForm.jsx
+│       │   │   ├── FigureInfoForm.jsx
+│       │   │   ├── ImageUploader.jsx
+│       │   │   ├── TagInput.jsx
+│       │   │   └── SimilarPostList.jsx
+│       │   │
+│       │   ├── comment/
+│       │   │   ├── CommentList.jsx
+│       │   │   └── CommentForm.jsx
+│       │   │
+│       │   ├── ai/
+│       │   │   ├── AiAnswerBox.jsx
+│       │   │   ├── AiSourceList.jsx
+│       │   │   ├── AiDraftCard.jsx
+│       │   │   └── PurchaseSummaryBox.jsx
+│       │   │
+│       │   └── external/
+│       │       └── LinkPreviewCard.jsx
+│       │
+│       ├── hooks/
+│       │   ├── useAuth.js
+│       │   ├── usePosts.js
+│       │   ├── useComments.js
+│       │   └── useAiAnswer.js
+│       │
+│       ├── routes/
+│       │   └── Router.jsx
+│       │
+│       ├── constants/
+│       │   ├── boardTypes.js
+│       │   └── postStatus.js
+│       │
+│       └── styles/
+│           └── global.css
+│
+├── backend/
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   └── app/
+│       ├── main.py
+│       ├── core/
+│       │   ├── config.py
+│       │   ├── security.py
+│       │   ├── exceptions.py
+│       │   └── cors.py
+│       │
+│       ├── db/
+│       │   ├── database.py
+│       │   ├── session.py
+│       │   └── base.py
+│       │
+│       ├── models/
+│       │   ├── user.py
+│       │   ├── auth_session.py
+│       │   ├── board.py
+│       │   ├── post.py
+│       │   ├── post_figure_info.py
+│       │   ├── comment.py
+│       │   ├── tag.py
+│       │   ├── post_tag.py
+│       │   ├── post_image.py
+│       │   ├── content_chunk.py
+│       │   ├── ai_output.py
+│       │   ├── ai_output_source.py
+│       │   ├── external_link_preview.py
+│       │   └── report.py
+│       │
+│       ├── schemas/
+│       │   ├── auth_schema.py
+│       │   ├── user_schema.py
+│       │   ├── board_schema.py
+│       │   ├── post_schema.py
+│       │   ├── comment_schema.py
+│       │   ├── tag_schema.py
+│       │   ├── image_schema.py
+│       │   ├── search_schema.py
+│       │   ├── ai_schema.py
+│       │   ├── report_schema.py
+│       │   └── external_link_schema.py
+│       │
+│       ├── api/
+│       │   ├── routes/
+│       │   │   ├── auth.py
+│       │   │   ├── users.py
+│       │   │   ├── boards.py
+│       │   │   ├── posts.py
+│       │   │   ├── comments.py
+│       │   │   ├── tags.py
+│       │   │   ├── images.py
+│       │   │   ├── search.py
+│       │   │   ├── ai.py
+│       │   │   ├── reports.py
+│       │   │   ├── internal.py
+│       │   │   └── external_links.py
+│       │   │
+│       │   └── deps.py
+│       │
+│       ├── services/
+│       │   ├── auth_service.py
+│       │   ├── user_service.py
+│       │   ├── board_service.py
+│       │   ├── post_service.py
+│       │   ├── comment_service.py
+│       │   ├── tag_service.py
+│       │   ├── image_service.py
+│       │   ├── search_service.py
+│       │   ├── ai_service.py
+│       │   ├── report_service.py
+│       │   ├── link_preview_service.py
+│       │   └── external_link_service.py
+│       │
+│       ├── repositories/
+│       │   ├── user_repository.py
+│       │   ├── post_repository.py
+│       │   ├── comment_repository.py
+│       │   ├── tag_repository.py
+│       │   ├── content_chunk_repository.py
+│       │   ├── ai_output_repository.py
+│       │   └── external_link_repository.py
+│       │
+│       ├── ai/
+│       │   ├── llm/
+│       │   │   ├── llm_client.py
+│       │   │   └── prompts.py
+│       │   │
+│       │   ├── rag/
+│       │   │   ├── document_loader.py
+│       │   │   ├── text_splitter.py
+│       │   │   ├── embedding_client.py
+│       │   │   ├── vector_store.py
+│       │   │   ├── retriever.py
+│       │   │   ├── rag_chain.py
+│       │   │   └── indexing_service.py
+│       │   │
+│       │   ├── agent/
+│       │   │   ├── state.py
+│       │   │   ├── graph.py
+│       │   │   ├── nodes.py
+│       │   │   ├── edges.py
+│       │   │   └── tools.py
+│       │   │
+│       │   └── usecases/
+│       │       ├── qna_answer.py
+│       │       ├── similar_posts.py
+│       │       ├── question_reference_answer.py
+│       │       ├── purchase_summary.py
+│       │       ├── beginner_info_draft.py
+│       │       └── auto_link_discovery.py
+│       │
+│       ├── mcp/
+│       │   ├── mcp_client.py
+│       │   └── tools/
+│       │       ├── fetch_link_preview.py
+│       │       └── fetch_shopping_metadata.py
+│       │
+│       ├── storage/
+│       │   ├── local_storage.py
+│       │   └── thumbnail_generator.py
+│       │
+│       └── utils/
+│           ├── datetime.py
+│           ├── normalizer.py
+│           └── pagination.py
+│
+├── mcp-server/
+│   ├── requirements.txt
+│   ├── main.py
+│   ├── server.py
+│   ├── tools/
+│   │   ├── link_preview_tool.py
+│   │   ├── shopping_metadata_tool.py
+│   │   └── youtube_metadata_tool.py
+│   │
+│   ├── clients/
+│   │   ├── http_client.py
+│   │   └── naver_shopping_client.py
+│   │
+│   ├── schemas/
+│   │   ├── tool_schema.py
+│   │   └── preview_schema.py
+│   │
+│   └── utils/
+│       ├── url_parser.py
+│       └── metadata_parser.py
+│
+├── migrations/
+│   └── versions/
+│
+├── uploads/
+│   ├── posts/
+│   └── thumbnails/
+│
+└── scripts/
+    ├── seed_boards.py
+    ├── seed_sample_posts.py
+    ├── create_pgvector_extension.sql
+    └── reindex_content_chunks.py
