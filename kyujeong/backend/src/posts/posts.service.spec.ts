@@ -29,6 +29,10 @@ describe('PostsService', () => {
     expect(service).toBeDefined();
   });
 
+  it('should return an empty post list temporarily', () => {
+    expect(service.findAll()).toEqual([]);
+  });
+
   it('should create a post with the given author id', async () => {
     const createPostDto = {
       title: 'Test title',
