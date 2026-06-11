@@ -1,5 +1,6 @@
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaService } from '../prisma/prisma.service';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 
@@ -11,6 +12,10 @@ describe('CommentsController', () => {
       controllers: [CommentsController],
       providers: [
         CommentsService,
+        {
+          provide: PrismaService,
+          useValue: {},
+        },
         {
           provide: JwtService,
           useValue: {
