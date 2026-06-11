@@ -14,6 +14,7 @@ describe('PostsService', () => {
           provide: PrismaService,
           useValue: {
             post: {
+              findMany: jest.fn(),
               create: jest.fn(),
             },
           },
@@ -27,6 +28,70 @@ describe('PostsService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('should return latest posts with pagination and list fields', async () => {
+    const posts = [
+      {
+        id: 1,
+        title: 'Test title',
+        createdAt: new Date(),
+        author: {
+          nickname: 'tester',
+        },
+      },
+    ];
+
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue(posts);
+
+    await expect(service.findAll(2, 5)).resolves.toBe(posts);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: undefined,
+      skip: 5,
+      take: 5,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should search posts by title', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, 'test')).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        title: {
+          contains: 'test',
+          mode: 'insensitive',
+        },
+      },
+      skip: 0,
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
   });
 
   it('should create a post with the given author id', async () => {

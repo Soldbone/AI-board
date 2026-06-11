@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import './App.css'
 
+type PostListItem = {
+  id: number
+  title: string
+  createdAt: string
+  author: {
+    nickname: string
+  }
+}
+
 function App() {
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
@@ -10,6 +19,10 @@ function App() {
   const [accessToken, setAccessToken] = useState('')
   const [postTitle, setPostTitle] = useState('')
   const [postContent, setPostContent] = useState('')
+  const [postSearch, setPostSearch] = useState('')
+  const [postPage, setPostPage] = useState('1')
+  const [postSize, setPostSize] = useState('10')
+  const [posts, setPosts] = useState<PostListItem[]>([])
   const [result, setResult] = useState(
     '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
   )
@@ -31,6 +44,40 @@ function App() {
 
     const data = await response.json()
     setResult(JSON.stringify(data, null, 2))
+  }
+
+  async function loadPosts(page = postPage) {
+    const params = new URLSearchParams({
+      page: page || '1',
+      size: postSize || '10',
+    })
+
+    const keyword = postSearch.trim()
+
+    if (keyword) {
+      params.set('search', keyword)
+    }
+
+    const response = await fetch(`/api/posts?${params.toString()}`)
+    const data = await response.json()
+
+    if (response.ok && Array.isArray(data)) {
+      setPosts(data)
+    }
+
+    setResult(JSON.stringify(data, null, 2))
+  }
+
+  function handleLoadPosts(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    loadPosts()
+  }
+
+  function handleMovePage(nextPage: number) {
+    const safePage = Math.max(nextPage, 1)
+
+    setPostPage(String(safePage))
+    loadPosts(String(safePage))
   }
 
   async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
@@ -185,6 +232,70 @@ function App() {
             />
           </label>
           <button type="submit">게시글 생성</button>
+        </form>
+
+        <form className="panel post-list-panel" onSubmit={handleLoadPosts}>
+          <h2>게시글 목록</h2>
+          <label>
+            제목 검색
+            <input
+              type="search"
+              placeholder="검색어"
+              value={postSearch}
+              onChange={(event) => setPostSearch(event.target.value)}
+            />
+          </label>
+          <div className="inline-fields">
+            <label>
+              페이지
+              <input
+                type="number"
+                min="1"
+                value={postPage}
+                onChange={(event) => setPostPage(event.target.value)}
+              />
+            </label>
+            <label>
+              개수
+              <input
+                type="number"
+                min="1"
+                value={postSize}
+                onChange={(event) => setPostSize(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button type="submit">목록 조회</button>
+            <button
+              type="button"
+              onClick={() => handleMovePage(Number(postPage) - 1)}
+            >
+              이전
+            </button>
+            <button
+              type="button"
+              onClick={() => handleMovePage(Number(postPage) + 1)}
+            >
+              다음
+            </button>
+          </div>
+
+          {posts.length > 0 ? (
+            <ul className="post-list">
+              {posts.map((post) => (
+                <li key={post.id}>
+                  <strong>{post.title}</strong>
+                  <span>{post.author.nickname}</span>
+                  <time dateTime={post.createdAt}>
+                    {new Date(post.createdAt).toLocaleString('ko-KR')}
+                  </time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">아직 조회된 게시글이 없습니다.</p>
+          )}
         </form>
       </section>
 

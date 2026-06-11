@@ -1,4 +1,14 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  ParseIntPipe,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -14,6 +24,15 @@ type AuthenticatedRequest = Request & {
 @Controller('posts')
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
+
+  @Get()
+  findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('size', new DefaultValuePipe(10), ParseIntPipe) size: number,
+    @Query('search') search?: string,
+  ) {
+    return this.postsService.findAll(page, size, search);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post()
