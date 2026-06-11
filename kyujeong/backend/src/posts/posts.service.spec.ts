@@ -14,6 +14,7 @@ describe('PostsService', () => {
           provide: PrismaService,
           useValue: {
             post: {
+              findMany: jest.fn(),
               create: jest.fn(),
             },
           },
@@ -29,8 +30,37 @@ describe('PostsService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should return an empty post list temporarily', () => {
-    expect(service.findAll()).toEqual([]);
+  it('should return latest posts with list fields', async () => {
+    const posts = [
+      {
+        id: 1,
+        title: 'Test title',
+        createdAt: new Date(),
+        author: {
+          nickname: 'tester',
+        },
+      },
+    ];
+
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue(posts);
+
+    await expect(service.findAll()).resolves.toBe(posts);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
   });
 
   it('should create a post with the given author id', async () => {
