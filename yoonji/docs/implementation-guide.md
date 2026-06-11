@@ -1310,3 +1310,496 @@ Phase 3으로 넘어가기 전에 아래를 이해하면 좋다.
 - `PostTag` 같은 연결 테이블은 N:M 관계를 표현한다.
 - `status`, `deleted_at`을 함께 쓰면 soft delete를 구현할 수 있다.
 - Alembic을 쓰지 않으므로 테이블 생성은 `init_db()`와 seed 스크립트로 직접 실행한다.
+
+## Phase 3. 회원가입 / 로그인 / JWT 인증
+
+### 1. 이번 Phase의 목표
+
+Phase 3의 목표는 사용자가 회원가입하고 로그인한 뒤, access token으로 보호 API를 호출할 수 있게 만드는 것이다.
+
+이번 Phase에서 구현한 핵심 흐름은 다음과 같다.
+
+```txt
+회원가입
+-> 비밀번호 해시 저장
+-> 로그인
+-> access token + refresh token 발급
+-> 프론트 localStorage 저장
+-> Authorization header로 보호 API 호출
+-> GET /api/v1/users/me 성공
+```
+
+아직 게시글 작성, 댓글 작성, 이미지 업로드는 구현하지 않는다. 이번 단계는 이후 Phase에서 “로그인한 사용자만 할 수 있는 기능”을 만들기 위한 인증 기반이다.
+
+### 2. 수정한 파일 목록
+
+백엔드:
+
+- `backend/app/core/config.py`
+- `backend/app/core/security.py`
+- `backend/app/schemas/auth_schema.py`
+- `backend/app/schemas/user_schema.py`
+- `backend/app/repositories/user_repository.py`
+- `backend/app/services/auth_service.py`
+- `backend/app/services/user_service.py`
+- `backend/app/api/deps.py`
+- `backend/app/api/routes/auth.py`
+- `backend/app/api/routes/users.py`
+- `backend/app/main.py`
+
+프론트엔드:
+
+- `frontend/src/api/authApi.js`
+- `frontend/src/api/userApi.js`
+- `frontend/src/hooks/useAuth.js`
+- `frontend/src/pages/LoginPage.jsx`
+- `frontend/src/pages/SignupPage.jsx`
+- `frontend/src/App.jsx`
+- `frontend/src/App.css`
+
+문서:
+
+- `docs/implementation-guide.md`
+
+### 3. `backend/app/core/config.py`
+
+Phase 3에서는 JWT와 token 만료 시간을 설정으로 추가했다.
+
+```py
+self.jwt_secret_key = os.getenv("JWT_SECRET_KEY", "change-this-secret")
+self.jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
+self.access_token_expire_minutes = self._parse_int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"),
+    30,
+)
+self.refresh_token_expire_days = self._parse_int(
+    os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"),
+    14,
+)
+```
+
+이 값들은 `backend/.env`에서 읽는다.
+
+```env
+JWT_SECRET_KEY=change-this-secret
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=14
+```
+
+의미는 다음과 같다.
+
+- `JWT_SECRET_KEY`: access token을 서명할 때 쓰는 비밀키
+- `JWT_ALGORITHM`: JWT 서명 알고리즘
+- `ACCESS_TOKEN_EXPIRE_MINUTES`: access token 만료 시간
+- `REFRESH_TOKEN_EXPIRE_DAYS`: refresh token 만료 일수
+
+`_parse_int()`는 환경변수 문자열을 숫자로 바꾸는 함수다. 잘못된 값이 들어오면 기본값을 사용한다.
+
+### 4. `backend/app/core/security.py`
+
+이 파일은 인증과 보안 관련 순수 함수들을 모아둔 곳이다.
+
+비밀번호 저장 흐름:
+
+```py
+def hash_password(password: str) -> str:
+    password_bytes = password.encode("utf-8")
+    hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt())
+    return hashed.decode("utf-8")
+```
+
+비밀번호 원문은 DB에 저장하지 않는다. 회원가입 때 사용자가 입력한 비밀번호를 bcrypt로 해시한 뒤 `users.password_hash`에 저장한다.
+
+로그인 검증 흐름:
+
+```py
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(
+        password.encode("utf-8"),
+        password_hash.encode("utf-8"),
+    )
+```
+
+사용자가 로그인할 때 입력한 비밀번호를 다시 해시해서 비교하는 것이 아니라, bcrypt의 `checkpw()`가 원문 비밀번호와 저장된 해시를 비교한다.
+
+access token 생성:
+
+```py
+payload = {
+    "sub": str(user_id),
+    "type": "access",
+    "iat": now,
+    "exp": expires_at,
+}
+```
+
+JWT payload에는 다음 값을 넣는다.
+
+- `sub`: 사용자 ID
+- `type`: token 용도, 여기서는 `access`
+- `iat`: 발급 시각
+- `exp`: 만료 시각
+
+refresh token은 JWT가 아니라 랜덤 문자열이다.
+
+```py
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+```
+
+DB에는 refresh token 원문을 저장하지 않고 sha256 해시만 저장한다.
+
+```py
+def hash_refresh_token(refresh_token: str) -> str:
+    return sha256(refresh_token.encode("utf-8")).hexdigest()
+```
+
+이렇게 하면 DB가 노출되더라도 refresh token 원문이 바로 유출되지 않는다.
+
+### 5. Schema 파일
+
+`backend/app/schemas/auth_schema.py`는 인증 API의 요청/응답 모양을 정의한다.
+
+대표 schema:
+
+- `SignupRequest`: 회원가입 요청
+- `LoginRequest`: 로그인 요청
+- `TokenRefreshRequest`: refresh 요청
+- `LogoutRequest`: 로그아웃 요청
+- `TokenResponse`: 로그인 응답
+- `TokenRefreshResponse`: refresh 응답
+
+회원가입 요청:
+
+```py
+class SignupRequest(BaseModel):
+    email: EmailStr
+    login_id: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=8, max_length=72)
+    nickname: str = Field(min_length=2, max_length=50)
+```
+
+`EmailStr`은 이메일 형식을 검증한다. `password`의 최대 길이를 72로 둔 이유는 bcrypt가 다루는 비밀번호 길이 제한을 고려했기 때문이다.
+
+`backend/app/schemas/user_schema.py`는 사용자 응답 모양을 정의한다.
+
+- `UserSummary`: token 응답 안에 들어가는 간단한 사용자 정보
+- `UserResponse`: `/users/me`에서 반환하는 자세한 사용자 정보
+
+두 schema 모두 `from_attributes=True`를 사용한다.
+
+```py
+model_config = ConfigDict(from_attributes=True)
+```
+
+이 설정이 있어야 SQLAlchemy 모델 객체를 Pydantic 응답으로 바로 변환할 수 있다.
+
+### 6. Repository 계층
+
+파일:
+
+- `backend/app/repositories/user_repository.py`
+
+repository는 DB 조회와 저장만 담당한다.
+
+예를 들어 로그인 ID로 사용자를 찾는 함수는 다음과 같다.
+
+```py
+def get_user_by_login_id(db: Session, login_id: str) -> User | None:
+    statement = select(User).where(User.login_id == login_id)
+    return db.scalar(statement)
+```
+
+refresh session 조회 함수는 만료되지 않았고 폐기되지 않은 session만 찾는다.
+
+```py
+AuthSession.revoked_at.is_(None)
+AuthSession.expires_at > now
+```
+
+즉 로그아웃했거나 만료된 refresh token은 재사용할 수 없다.
+
+### 7. Service 계층
+
+파일:
+
+- `backend/app/services/auth_service.py`
+- `backend/app/services/user_service.py`
+
+service는 실제 비즈니스 판단을 담당한다.
+
+회원가입 흐름:
+
+```txt
+email 중복 확인
+-> login_id 중복 확인
+-> password hash 생성
+-> User 생성
+-> commit
+-> UserResponse 반환
+```
+
+중복 이메일은 다음 에러를 반환한다.
+
+```txt
+409 Conflict
+EMAIL_ALREADY_EXISTS
+```
+
+중복 로그인 ID는 다음 에러를 반환한다.
+
+```txt
+409 Conflict
+LOGIN_ID_ALREADY_EXISTS
+```
+
+로그인 흐름:
+
+```txt
+login_id로 사용자 조회
+-> 비밀번호 검증
+-> 계정 상태 ACTIVE 확인
+-> access token 생성
+-> refresh token 생성
+-> refresh token hash DB 저장
+-> token 응답 반환
+```
+
+refresh 흐름:
+
+```txt
+refresh token 원문 수신
+-> sha256 hash 계산
+-> DB에서 active session 조회
+-> 기존 session revoked_at 기록
+-> 새 refresh token 생성
+-> 새 session 저장
+-> 새 access/refresh token 반환
+```
+
+이 방식은 refresh token rotation이다. refresh token을 사용할 때마다 새 refresh token을 발급하고 기존 token은 폐기한다.
+
+로그아웃 흐름:
+
+```txt
+refresh token 수신
+-> DB에서 active session 조회
+-> 있으면 revoked_at 기록
+-> 204 No Content 반환
+```
+
+### 8. `backend/app/api/deps.py`
+
+Phase 3에서는 인증 dependency를 추가했다.
+
+```py
+bearer_scheme = HTTPBearer(auto_error=False)
+```
+
+이 코드는 `Authorization: Bearer <token>` 헤더를 읽는다.
+
+`get_current_user()`는 보호 API에서 현재 로그인 사용자를 구하는 함수다.
+
+흐름:
+
+```txt
+Authorization header 확인
+-> access token decode
+-> sub에서 user_id 추출
+-> DB에서 사용자 조회
+-> ACTIVE 상태 확인
+-> User 객체 반환
+```
+
+이 함수는 다음처럼 사용할 수 있다.
+
+```py
+def get_me(current_user: CurrentUser, db: DbSession):
+    ...
+```
+
+`CurrentUser`를 route parameter에 넣으면 FastAPI가 자동으로 토큰을 확인하고 현재 사용자를 넣어준다.
+
+### 9. Route 파일
+
+`backend/app/api/routes/auth.py`는 인증 API를 제공한다.
+
+구현된 API:
+
+- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+
+라우터는 요청을 받고 service를 호출하는 얇은 계층으로 유지했다.
+
+```py
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, db: DbSession) -> TokenResponse:
+    return auth_service.login(db, payload)
+```
+
+`backend/app/api/routes/users.py`는 사용자 API를 제공한다.
+
+이번 Phase에서는 하나만 구현했다.
+
+```txt
+GET /api/v1/users/me
+```
+
+이 API는 `CurrentUser` dependency를 사용하므로 access token이 없으면 실패한다.
+
+### 10. `backend/app/main.py`
+
+Phase 3에서는 인증 라우터를 FastAPI 앱에 등록했다.
+
+```py
+app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(users_router, prefix=settings.api_prefix)
+```
+
+각 라우터 내부 prefix와 합쳐져 실제 주소는 다음처럼 된다.
+
+```txt
+/api/v1/auth/login
+/api/v1/users/me
+```
+
+기존 health check는 그대로 유지된다.
+
+### 11. 프론트 API 파일
+
+`frontend/src/api/authApi.js`는 인증 API 호출 함수를 모아둔다.
+
+```js
+export async function login(payload) {
+  const response = await axiosInstance.post("/auth/login", payload);
+  return response.data;
+}
+```
+
+`axiosInstance`의 `baseURL`이 `/api/v1`까지 포함하므로 실제 요청은 아래 주소로 간다.
+
+```txt
+http://localhost:8000/api/v1/auth/login
+```
+
+`frontend/src/api/userApi.js`는 내 정보 조회를 담당한다.
+
+```js
+export async function getMe() {
+  const response = await axiosInstance.get("/users/me");
+  return response.data;
+}
+```
+
+### 12. `frontend/src/hooks/useAuth.js`
+
+이 hook은 프론트의 로그인 상태를 관리한다.
+
+관리하는 값:
+
+- `user`: 현재 로그인 사용자
+- `status`: `loading`, `anonymous`, `authenticated`
+- `errorMessage`: 인증 요청 에러 메시지
+
+로그인에 성공하면 token을 localStorage에 저장한다.
+
+```js
+localStorage.setItem("access_token", accessToken);
+localStorage.setItem("refresh_token", refreshToken);
+```
+
+Phase 0에서 만든 `axiosInstance`는 요청마다 localStorage의 access token을 읽어서 Authorization header를 붙인다.
+
+```js
+config.headers.Authorization = `Bearer ${token}`;
+```
+
+그래서 로그인 후 `getMe()`를 호출하면 자동으로 인증 헤더가 붙는다.
+
+로그아웃하면 token을 제거한다.
+
+```js
+localStorage.removeItem("access_token");
+localStorage.removeItem("refresh_token");
+```
+
+### 13. 프론트 화면
+
+이번 Phase에서는 정식 라우팅을 만들지 않았다. Phase 10에서 전체 화면 이동 구조를 정리할 예정이다.
+
+대신 `App.jsx`에서 Phase 3 확인용 화면을 구성했다.
+
+화면에 보이는 것:
+
+- API base URL
+- health check 상태
+- auth status
+- 회원가입 폼
+- 로그인 폼
+- 로그인한 사용자의 내 정보
+- 로그아웃 버튼
+
+`LoginPage.jsx`와 `SignupPage.jsx`는 각각 자신의 form state를 가진다. 입력 후 submit하면 `useAuth`가 제공하는 `login`, `signup` 함수를 호출한다.
+
+### 14. 실행 전 준비
+
+이 프로젝트는 앱 시작 시 자동으로 `create_all()`을 실행하지 않는다.
+
+DB가 켜져 있다면 먼저 seed 스크립트를 실행한다.
+
+```bash
+python scripts/seed_boards.py
+```
+
+이 스크립트 안에서 `init_db()`를 호출하므로 MVP 테이블이 함께 생성된다.
+
+### 15. 확인 방법
+
+백엔드 실행:
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload
+```
+
+프론트 실행:
+
+```bash
+cd frontend
+npm run dev
+```
+
+회원가입:
+
+```txt
+POST /api/v1/auth/signup
+```
+
+로그인:
+
+```txt
+POST /api/v1/auth/login
+```
+
+내 정보 조회:
+
+```txt
+GET /api/v1/users/me
+Authorization: Bearer <access_token>
+```
+
+토큰 없이 `/users/me`를 호출하면 `401 Unauthorized`가 나와야 한다.
+
+### 16. 다음 Phase로 넘어가기 전에 이해해야 할 것
+
+Phase 4로 넘어가기 전에 아래를 이해하면 좋다.
+
+- 비밀번호 원문은 DB에 저장하지 않고 bcrypt hash만 저장한다.
+- access token은 짧게 쓰는 JWT다.
+- refresh token은 긴 로그인 유지용 token이며 DB에는 해시만 저장한다.
+- 보호 API는 `CurrentUser` dependency로 현재 사용자를 받는다.
+- 라우터는 요청과 응답만 담당하고, 판단은 service가 한다.
+- DB 조회와 저장은 repository가 담당한다.
