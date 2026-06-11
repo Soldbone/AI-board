@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsService } from './posts.service';
 
@@ -151,6 +152,14 @@ describe('PostsService', () => {
         },
       },
     });
+  });
+
+  it('should throw NotFoundException when post does not exist', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.findOne(999)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('should create a post with the given author id', async () => {
