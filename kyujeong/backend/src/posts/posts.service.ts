@@ -6,7 +6,10 @@ import { CreatePostDto } from './dto/create-post.dto';
 export class PostsService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  create(createPostDto: CreatePostDto) {
-    return createPostDto;
+  create(createPostDto: CreatePostDto, authorId: number) {
+    return {
+      ...createPostDto,
+      authorId,
+    };
   }
 }

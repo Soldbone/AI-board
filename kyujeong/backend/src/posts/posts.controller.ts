@@ -1,7 +1,15 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
+
+type AuthenticatedRequest = Request & {
+  user: {
+    sub: number;
+    email: string;
+  };
+};
 
 @Controller('posts')
 export class PostsController {
@@ -9,7 +17,10 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() createPostDto: CreatePostDto) {
-    return this.postsService.create(createPostDto);
+  create(
+    @Body() createPostDto: CreatePostDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.postsService.create(createPostDto, request.user.sub);
   }
 }
