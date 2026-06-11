@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -47,5 +48,14 @@ export class PostsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.postsService.create(createPostDto, request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.postsService.remove(id, request.user.sub);
   }
 }

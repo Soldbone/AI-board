@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsService } from './posts.service';
 
@@ -19,6 +19,7 @@ describe('PostsService', () => {
               findUnique: jest.fn(),
               update: jest.fn(),
               create: jest.fn(),
+              delete: jest.fn(),
             },
           },
         },
@@ -216,5 +217,52 @@ describe('PostsService', () => {
         authorId: 1,
       },
     });
+  });
+
+  it('should delete a post when the current user is the author', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'delete').mockResolvedValue({
+      id: 1,
+      title: 'Deleted title',
+      content: 'Deleted content',
+      authorId: 1,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await expect(service.remove(1, 1)).resolves.toEqual({ id: 1 });
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.post.delete).toHaveBeenCalledWith({
+      where: { id: 1 },
+    });
+  });
+
+  it('should throw NotFoundException when deleting a missing post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.remove(999, 1)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('should throw ForbiddenException when deleting another user post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(service.remove(1, 1)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });

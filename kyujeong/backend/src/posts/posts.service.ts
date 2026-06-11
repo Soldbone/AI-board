@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
@@ -91,5 +95,29 @@ export class PostsService {
         authorId,
       },
     });
+  }
+
+  async remove(id: number, userId: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own post');
+    }
+
+    await this.prismaService.post.delete({
+      where: { id },
+    });
+
+    return { id };
   }
 }
