@@ -170,6 +170,32 @@ function App() {
     setResult(JSON.stringify(data, null, 2))
   }
 
+  async function handleDeletePost() {
+    if (!detailPostId) {
+      setResult('삭제할 게시글 id를 먼저 입력하거나 상세 조회하세요.')
+      return
+    }
+
+    const response = await fetch(`/api/posts/${detailPostId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+
+    const data = await response.json()
+
+    if (response.ok) {
+      setPostDetail(null)
+      setUpdateTitle('')
+      setUpdateContent('')
+      setDetailPostId('')
+      loadPosts()
+    }
+
+    setResult(JSON.stringify(data, null, 2))
+  }
+
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -404,6 +430,13 @@ function App() {
               <p className="muted">
                 수정: {new Date(postDetail.updatedAt).toLocaleString('ko-KR')}
               </p>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={handleDeletePost}
+              >
+                게시글 삭제
+              </button>
             </article>
           ) : (
             <p className="muted">아직 조회된 상세 게시글이 없습니다.</p>

@@ -177,6 +177,10 @@
   margin: 0;
 }
 
+.post-detail .danger-button {
+  background: #b91c1c;
+}
+
 .muted {
   margin: 0;
   color: #6b7280;
