@@ -8,6 +8,8 @@ function App() {
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [accessToken, setAccessToken] = useState('')
+  const [postTitle, setPostTitle] = useState('')
+  const [postContent, setPostContent] = useState('')
   const [result, setResult] = useState(
     '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
   )
@@ -24,6 +26,25 @@ function App() {
         email: signupEmail,
         password: signupPassword,
         nickname: signupNickname,
+      }),
+    })
+
+    const data = await response.json()
+    setResult(JSON.stringify(data, null, 2))
+  }
+
+  async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const response = await fetch('/api/posts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        title: postTitle,
+        content: postContent,
       }),
     })
 
@@ -143,17 +164,27 @@ function App() {
           </button>
         </section>
 
-        <form className="panel">
+        <form className="panel" onSubmit={handleCreatePost}>
           <h2>게시글 작성</h2>
           <label>
             제목
-            <input type="text" placeholder="첫 게시글" />
+            <input
+              type="text"
+              placeholder="첫 게시글"
+              value={postTitle}
+              onChange={(event) => setPostTitle(event.target.value)}
+            />
           </label>
           <label>
             내용
-            <textarea placeholder="게시글 생성 테스트입니다." rows={5} />
+            <textarea
+              placeholder="게시글 생성 테스트입니다."
+              rows={5}
+              value={postContent}
+              onChange={(event) => setPostContent(event.target.value)}
+            />
           </label>
-          <button type="button">게시글 생성</button>
+          <button type="submit">게시글 생성</button>
         </form>
       </section>
 
