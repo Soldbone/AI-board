@@ -1,6 +1,33 @@
+import { useState } from 'react'
 import './App.css'
 
 function App() {
+  const [signupEmail, setSignupEmail] = useState('')
+  const [signupPassword, setSignupPassword] = useState('')
+  const [signupNickname, setSignupNickname] = useState('')
+  const [result, setResult] = useState(
+    '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
+  )
+
+  async function handleSignup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const response = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: signupEmail,
+        password: signupPassword,
+        nickname: signupNickname,
+      }),
+    })
+
+    const data = await response.json()
+    setResult(JSON.stringify(data, null, 2))
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -13,21 +40,36 @@ function App() {
       </header>
 
       <section className="workspace" aria-label="게시판 기능 확인 영역">
-        <form className="panel">
+        <form className="panel" onSubmit={handleSignup}>
           <h2>회원가입</h2>
           <label>
             이메일
-            <input type="email" placeholder="posttest@example.com" />
+            <input
+              type="email"
+              placeholder="posttest@example.com"
+              value={signupEmail}
+              onChange={(event) => setSignupEmail(event.target.value)}
+            />
           </label>
           <label>
             비밀번호
-            <input type="password" placeholder="password1234" />
+            <input
+              type="password"
+              placeholder="password1234"
+              value={signupPassword}
+              onChange={(event) => setSignupPassword(event.target.value)}
+            />
           </label>
           <label>
             닉네임
-            <input type="text" placeholder="posttest" />
+            <input
+              type="text"
+              placeholder="posttest"
+              value={signupNickname}
+              onChange={(event) => setSignupNickname(event.target.value)}
+            />
           </label>
-          <button type="button">회원가입</button>
+          <button type="submit">회원가입</button>
         </form>
 
         <form className="panel">
@@ -65,8 +107,7 @@ function App() {
 
       <section className="result-panel" aria-label="API 응답 확인 영역">
         <h2>응답 확인</h2>
-        <pre>{`아직 API 연결 전입니다.
-다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.`}</pre>
+        <pre>{result}</pre>
       </section>
     </main>
   )
