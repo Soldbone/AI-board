@@ -38,8 +38,23 @@ export class PostsService {
     });
   }
 
-  findOne(id: number) {
-    return { id };
+  async findOne(id: number) {
+    return this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
   }
 
   async create(createPostDto: CreatePostDto, authorId: number) {

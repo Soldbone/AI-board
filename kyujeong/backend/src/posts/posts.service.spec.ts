@@ -15,6 +15,7 @@ describe('PostsService', () => {
           useValue: {
             post: {
               findMany: jest.fn(),
+              findUnique: jest.fn(),
               create: jest.fn(),
             },
           },
@@ -118,8 +119,38 @@ describe('PostsService', () => {
     });
   });
 
-  it('should return a post id temporarily', () => {
-    expect(service.findOne(1)).toEqual({ id: 1 });
+  it('should return a post detail with author nickname', async () => {
+    const post = {
+      id: 1,
+      title: 'Test title',
+      content: 'Test content',
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(post);
+
+    await expect(service.findOne(1)).resolves.toBe(post);
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
   });
 
   it('should create a post with the given author id', async () => {
