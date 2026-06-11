@@ -81,7 +81,7 @@ PostStatus = DRAFT | PUBLISHED | PENDING_REVIEW | HIDDEN | DELETED
 
 FigureType = SCALE | NENDOROID | FIGMA | ACTION_FIGURE | PRIZE | GARAGE_KIT | OTHER
 PriceRange = UNDER_30000 | 30000_50000 | 50000_100000 | 100000_200000 | OVER_200000 | UNKNOWN
-FigureTargetType = REVIEW_TARGET | PURCHASE_CONSIDERATION_TARGET | RELATED_FIGURE
+FigureTargetType = REVIEW_TARGET | RELATED_FIGURE
 
 CommentStatus = PUBLISHED | HIDDEN | DELETED
 
@@ -153,6 +153,8 @@ GroundingStatus = GROUNDED | PARTIALLY_GROUNDED | NO_EVIDENCE
 ### 2.5 PostFigureInfo
 
 API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬럼은 피규어 마스터 테이블과 구분하기 위해 `figure_name_text`, `manufacturer_text`로 저장해도 되며, API 계층에서 아래처럼 매핑한다.
+
+`PostFigureInfo`는 후기 게시판(`REVIEW`)에서만 사용한다. 구매 고민 게시판(`PURCHASE_HELP`)은 별도 피규어 정보 테이블을 만들지 않고 제목과 본문에 고민 내용을 작성한다.
 
 | API 필드 | DB 컬럼 |
 | --- | --- |
@@ -589,7 +591,7 @@ Response `201 Created`:
 | `REVIEW` | `title`, `content`, `figure_info.figure_name`, `figure_info.satisfaction_score` |
 | `INFO` | `title`, `content` |
 | `QUESTION` | `title`, `content` |
-| `PURCHASE_HELP` | `title`, `content`, `figure_info.figure_name` |
+| `PURCHASE_HELP` | `title`, `content` |
 | `NOTICE` | 운영자만 작성 가능 |
 | `FAQ` | 운영자만 작성 가능 |
 
@@ -678,7 +680,7 @@ Request:
 
 Response: 게시글 상세 응답
 
-수정 후에는 기존 RAG 청크를 `STALE` 처리하고 재인덱싱 작업을 큐에 넣는다. 제목, 본문, 피규어 정보가 바뀐 경우 AI/MCP 자동 링크 탐색 작업도 다시 요청할 수 있다.
+수정 후에는 기존 RAG 청크를 `STALE` 처리하고 재인덱싱 작업을 큐에 넣는다. 제목, 본문, 후기 글의 피규어 정보가 바뀐 경우 AI/MCP 자동 링크 탐색 작업도 다시 요청할 수 있다.
 
 ### 6.5 게시글 삭제
 
@@ -881,7 +883,7 @@ MVP에서는 PostgreSQL 텍스트 검색과 태그 매칭을 우선 사용한다
 
 ## 11. 자동 외부 링크 미리보기 API
 
-사용자는 게시글 작성 화면에서 URL을 별도 입력하지 않는다. 외부 링크 미리보기는 서버가 게시글의 제목, 본문, 피규어 정보, 태그를 기반으로 AI/MCP 자동 탐색을 수행해 찾은 경우에만 게시글에 연결한다.
+사용자는 게시글 작성 화면에서 URL을 별도 입력하지 않는다. 외부 링크 미리보기는 서버가 게시글의 제목, 본문, 태그와 후기 글의 피규어 정보를 기반으로 AI/MCP 자동 탐색을 수행해 찾은 경우에만 게시글에 연결한다.
 
 `ExternalLinkPreview.post_id`는 nullable이다. 자동 탐색 결과가 게시글 작성 전 단계에서 먼저 만들어지는 경우에는 `post_id=null`로 저장하고, 게시글 등록 완료 후 연결한다.
 
@@ -908,7 +910,7 @@ Response `202 Accepted`:
 
 자동 탐색 작업은 다음 흐름으로 처리한다.
 
-1. 게시글의 `title`, `content`, `figure_info`, `tags`를 검색 문맥으로 만든다.
+1. 게시글의 `title`, `content`, `tags`와 후기 글의 `figure_info`를 검색 문맥으로 만든다.
 2. AI/MCP가 공식 사이트, 판매처, 제조사 공지, 관련 정보 페이지 후보를 찾는다.
 3. 신뢰 가능한 URL을 찾은 경우에만 `ExternalLinkPreview`를 생성해 `post_id`에 연결한다.
 4. 적절한 링크를 찾지 못하면 아무 링크도 연결하지 않는다.

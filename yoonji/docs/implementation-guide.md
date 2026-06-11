@@ -729,3 +729,584 @@ Phase 2로 넘어가기 전에 아래 개념을 이해하면 좋다.
 - `get_db()`는 요청마다 session을 열고 닫는 FastAPI dependency다.
 - route에서는 `DbSession` 타입을 사용해서 DB session을 자동으로 받을 수 있다.
 - Alembic을 쓰지 않으므로 테이블 생성은 `create_all()` 기반으로 진행한다.
+
+## Phase 2. 게시판 MVP 핵심 DB 모델
+
+### 1. 이번 Phase의 목표
+
+Phase 2의 목표는 게시판 MVP에 필요한 핵심 DB 테이블을 SQLAlchemy 모델로 정의하는 것이다.
+
+이번 Phase에서는 API를 만들지 않는다. 즉 회원가입, 로그인, 게시글 작성, 댓글 작성 같은 기능은 아직 동작하지 않는다. 대신 이후 Phase에서 API를 만들 때 사용할 DB 구조를 먼저 완성했다.
+
+이번 Phase에서 만든 핵심 모델은 9개다.
+
+- `User`
+- `AuthSession`
+- `Board`
+- `Post`
+- `PostFigureInfo`
+- `Comment`
+- `Tag`
+- `PostTag`
+- `PostImage`
+
+AI, MCP, 신고 기능에 필요한 모델 파일은 아직 비워두었다. MVP가 AI 없는 게시판 기본 구현이기 때문이다.
+
+### 2. 수정한 파일 목록
+
+모델:
+
+- `backend/app/models/enums.py`
+- `backend/app/models/user.py`
+- `backend/app/models/auth_session.py`
+- `backend/app/models/board.py`
+- `backend/app/models/post.py`
+- `backend/app/models/post_figure_info.py`
+- `backend/app/models/comment.py`
+- `backend/app/models/tag.py`
+- `backend/app/models/post_tag.py`
+- `backend/app/models/post_image.py`
+- `backend/app/models/__init__.py`
+
+DB 초기화:
+
+- `backend/app/db/init_db.py`
+
+Seed 스크립트:
+
+- `scripts/seed_boards.py`
+
+문서:
+
+- `docs/implementation-guide.md`
+
+### 3. SQLAlchemy 2.0 스타일
+
+이번 Phase의 모델은 SQLAlchemy 2.0 스타일로 작성했다.
+
+대표 형태는 다음과 같다.
+
+```py
+id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+```
+
+여기서 의미는 다음과 같다.
+
+- `Mapped[int]`: 이 필드는 Python 코드에서 `int`로 다룬다는 뜻이다.
+- `mapped_column(...)`: 이 필드가 실제 DB 컬럼이라는 뜻이다.
+- `BigInteger`: DB에서는 큰 정수 타입으로 저장한다.
+- `primary_key=True`: 테이블의 기본 키다.
+- `index=True`: 조회 성능을 위해 인덱스를 만든다.
+
+Phase 2에서는 ERD 설계안의 `bigint` 기준에 맞춰 주요 `id`, `foreign key`를 `BigInteger`로 만들었다.
+
+### 4. `backend/app/models/enums.py`
+
+이 파일은 DB에 저장할 상태값들을 한 곳에 모아둔다.
+
+예를 들어 게시글 상태는 다음처럼 정의했다.
+
+```py
+class PostStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    HIDDEN = "HIDDEN"
+    DELETED = "DELETED"
+```
+
+이렇게 enum으로 관리하면 코드에서 오타를 줄일 수 있다.
+
+예를 들어 문자열을 직접 쓰면 다음처럼 실수할 수 있다.
+
+```py
+post.status = "PUBLISHD"
+```
+
+하지만 enum을 쓰면 정해진 값만 사용하게 된다.
+
+```py
+post.status = PostStatus.PUBLISHED
+```
+
+`enum_column_type()` 함수도 이 파일에 있다.
+
+```py
+def enum_column_type(enum_class: type[Enum], name: str) -> SQLAlchemyEnum:
+    return SQLAlchemyEnum(
+        enum_class,
+        name=name,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda values: [item.value for item in values],
+    )
+```
+
+중요한 설정은 `native_enum=False`다.
+
+PostgreSQL에는 native enum이라는 기능이 있지만, Alembic 없이 enum 값을 바꾸려면 번거롭다. 그래서 MVP 단계에서는 DB에 문자열처럼 저장하고, Python 코드에서 enum으로 검증하는 방식을 선택했다.
+
+`values_callable`은 enum의 이름이 아니라 실제 값을 저장하게 해준다.
+
+예를 들어 `PriceRange.PRICE_30000_50000`의 Python 이름은 `PRICE_30000_50000`이지만 API/DB에서 원하는 값은 `30000_50000`이다. 이 설정 덕분에 DB에는 `30000_50000`이 저장된다.
+
+### 5. `User` 모델
+
+파일:
+
+- `backend/app/models/user.py`
+
+테이블:
+
+```txt
+users
+```
+
+`User`는 회원 정보를 저장한다.
+
+핵심 필드는 다음과 같다.
+
+- `email`: 이메일, 중복 불가
+- `login_id`: 로그인 ID, 중복 불가
+- `password_hash`: 해시된 비밀번호
+- `nickname`: 닉네임
+- `profile_image_url`: 프로필 이미지 주소
+- `role`: `USER`, `ADMIN`
+- `status`: `ACTIVE`, `INACTIVE`, `SUSPENDED`, `DELETED`
+- `last_login_at`: 마지막 로그인 시각
+
+관계는 다음과 같다.
+
+```txt
+User 1:N AuthSession
+User 1:N Post
+User 1:N Comment
+User 1:N PostImage
+```
+
+즉 한 사용자는 여러 로그인 세션, 여러 게시글, 여러 댓글, 여러 이미지를 가질 수 있다.
+
+### 6. `AuthSession` 모델
+
+파일:
+
+- `backend/app/models/auth_session.py`
+
+테이블:
+
+```txt
+auth_sessions
+```
+
+`AuthSession`은 로그인 유지에 사용할 refresh token 정보를 저장한다.
+
+핵심 필드는 다음과 같다.
+
+- `user_id`: 어떤 사용자의 세션인지
+- `refresh_token_hash`: refresh token 원문이 아니라 해시값
+- `expires_at`: 만료 시각
+- `revoked_at`: 로그아웃 등으로 폐기된 시각
+- `created_at`: 생성 시각
+
+비밀번호와 마찬가지로 refresh token도 원문 그대로 DB에 저장하지 않는 편이 좋다. 그래서 `refresh_token_hash`라는 이름으로 만들었다.
+
+### 7. `Board` 모델
+
+파일:
+
+- `backend/app/models/board.py`
+
+테이블:
+
+```txt
+boards
+```
+
+`Board`는 게시판 종류를 저장한다.
+
+이번 MVP seed에서 실제로 만드는 게시판은 4개다.
+
+- `REVIEW`
+- `INFO`
+- `QUESTION`
+- `PURCHASE_HELP`
+
+`NOTICE`, `FAQ`는 enum 값으로는 남겨두었지만 기본 seed 데이터에서는 제외했다. 나중에 운영자 기능이 필요해지면 추가할 수 있다.
+
+핵심 필드는 다음과 같다.
+
+- `code`: 게시판 코드
+- `name`: 화면에 보여줄 게시판 이름
+- `description`: 설명
+- `sort_order`: 정렬 순서
+- `is_active`: 사용 여부
+
+관계는 다음과 같다.
+
+```txt
+Board 1:N Post
+```
+
+하나의 게시판에는 여러 게시글이 들어간다.
+
+### 8. `Post` 모델
+
+파일:
+
+- `backend/app/models/post.py`
+
+테이블:
+
+```txt
+posts
+```
+
+`Post`는 게시글의 중심 테이블이다.
+
+후기, 정보글, 질문글, 구매 고민 글은 모두 `posts` 테이블에 저장하고, 어떤 게시판 글인지는 `board_id`로 구분한다.
+
+핵심 필드는 다음과 같다.
+
+- `board_id`: 어느 게시판의 글인지
+- `author_id`: 작성자
+- `title`: 제목
+- `content`: 본문
+- `source_type`: `USER`, `AI_DRAFT`, `AI_PUBLISHED`
+- `status`: `DRAFT`, `PUBLISHED`, `PENDING_REVIEW`, `HIDDEN`, `DELETED`
+- `view_count`: 조회수
+- `comment_count`: 댓글 수
+- `published_at`: 게시 시각
+- `deleted_at`: 삭제 시각
+
+`deleted_at`을 둔 이유는 soft delete 때문이다.
+
+soft delete는 데이터를 실제로 삭제하지 않고, 삭제된 것처럼 표시하는 방식이다.
+
+```txt
+status = DELETED
+deleted_at = 삭제 시각
+```
+
+이렇게 하면 나중에 운영자 확인, 복구, 로그 분석이 가능하다.
+
+관계는 다음과 같다.
+
+```txt
+Post N:1 Board
+Post N:1 User
+Post 1:N PostFigureInfo
+Post 1:N Comment
+Post 1:N PostImage
+Post 1:N PostTag
+```
+
+### 9. `PostFigureInfo` 모델
+
+파일:
+
+- `backend/app/models/post_figure_info.py`
+
+테이블:
+
+```txt
+post_figure_infos
+```
+
+`PostFigureInfo`는 후기 게시판에서 사용하는 피규어 정보를 저장한다.
+
+구매 고민 게시판은 `PostFigureInfo`를 사용하지 않는다. 구매 고민 글에서는 고민 중인 대상, 예상 가격, 고민 이유를 제목과 본문에 작성한다.
+
+API에서는 다음 이름을 사용한다.
+
+```json
+{
+  "figure_name": "하츠네 미쿠",
+  "manufacturer": "Good Smile Company"
+}
+```
+
+하지만 DB 컬럼은 다음 이름으로 만들었다.
+
+```txt
+figure_name_text
+manufacturer_text
+```
+
+이렇게 한 이유는 나중에 별도의 `Figure` 마스터 테이블을 만들 가능성이 있기 때문이다. 지금은 사용자가 입력한 텍스트라는 의미가 분명하도록 `_text`를 붙였다.
+
+핵심 필드는 다음과 같다.
+
+- `figure_name_text`: 피규어 이름 텍스트
+- `manufacturer_text`: 제조사 텍스트
+- `figure_type`: 피규어 종류
+- `price_amount`: 가격
+- `price_range`: 가격대
+- `purchase_date`: 구매일
+- `satisfaction_score`: 만족도
+- `target_type`: 후기 대상인지, 관련 피규어 정보인지
+
+### 10. `Comment` 모델
+
+파일:
+
+- `backend/app/models/comment.py`
+
+테이블:
+
+```txt
+comments
+```
+
+`Comment`는 게시글에 달리는 댓글이다.
+
+MVP에서는 대댓글을 만들지 않으므로 `parent_comment_id` 같은 필드는 두지 않았다.
+
+핵심 필드는 다음과 같다.
+
+- `post_id`: 댓글이 달린 게시글
+- `author_id`: 댓글 작성자
+- `content`: 댓글 내용
+- `status`: `PUBLISHED`, `HIDDEN`, `DELETED`
+- `deleted_at`: 댓글 삭제 시각
+
+댓글도 soft delete 구조다.
+
+### 11. `Tag`와 `PostTag` 모델
+
+파일:
+
+- `backend/app/models/tag.py`
+- `backend/app/models/post_tag.py`
+
+테이블:
+
+```txt
+tags
+post_tags
+```
+
+게시글과 태그는 다대다 관계다.
+
+```txt
+하나의 게시글은 여러 태그를 가질 수 있다.
+하나의 태그는 여러 게시글에 사용될 수 있다.
+```
+
+그래서 중간 연결 테이블인 `post_tags`를 둔다.
+
+```txt
+Post N:M Tag
+Post 1:N PostTag
+Tag 1:N PostTag
+```
+
+`PostTag`는 별도의 `id`를 두지 않았다. 대신 `post_id`, `tag_id`를 함께 primary key로 사용한다.
+
+```py
+post_id: Mapped[int] = mapped_column(..., primary_key=True)
+tag_id: Mapped[int] = mapped_column(..., primary_key=True)
+```
+
+이렇게 하면 같은 게시글에 같은 태그가 중복 연결되는 것을 막을 수 있다.
+
+`Tag`에는 다음 unique constraint도 추가했다.
+
+```py
+UniqueConstraint("normalized_name", "tag_type", name="uq_tags_normalized_type")
+```
+
+이 제약은 같은 유형 안에서 정규화된 태그명이 중복되지 않게 한다.
+
+예를 들어 `하츠네 미쿠`, `하츠네미쿠`를 같은 값으로 정규화하면 중복 태그 생성을 줄일 수 있다.
+
+### 12. `PostImage` 모델
+
+파일:
+
+- `backend/app/models/post_image.py`
+
+테이블:
+
+```txt
+post_images
+```
+
+`PostImage`는 게시글 이미지 정보를 저장한다.
+
+중요한 점은 `post_id`가 nullable이라는 것이다.
+
+```py
+post_id: Mapped[int | None]
+```
+
+이렇게 한 이유는 Phase 6에서 게시글 작성 전에 이미지를 먼저 업로드할 수 있어야 하기 때문이다.
+
+흐름은 다음과 같다.
+
+```txt
+1. 사용자가 글 작성 화면에서 이미지를 먼저 업로드한다.
+2. post_id 없이 TEMP 이미지로 저장된다.
+3. 게시글 작성이 완료된다.
+4. image_ids를 이용해 이미지들이 게시글에 연결된다.
+```
+
+핵심 필드는 다음과 같다.
+
+- `post_id`: 연결된 게시글, 임시 이미지일 때는 null
+- `uploader_id`: 업로더
+- `file_url`: 원본 이미지 주소
+- `thumbnail_url`: 썸네일 주소
+- `original_name`: 원본 파일명
+- `mime_type`: 파일 MIME 타입
+- `size_bytes`: 파일 크기
+- `width`, `height`: 이미지 크기
+- `sort_order`: 노출 순서
+- `status`: `TEMP`, `ATTACHED`, `DELETED`, `FAILED`
+
+### 13. `backend/app/models/__init__.py`
+
+이 파일은 모델들을 한 번에 import하기 위한 진입점이다.
+
+```py
+from app.models.user import User
+from app.models.post import Post
+...
+```
+
+SQLAlchemy의 `Base.metadata`는 import된 모델만 알 수 있다.
+
+즉 모델 파일이 존재하더라도 import되지 않으면 `create_all()`이 그 테이블을 만들지 못한다.
+
+그래서 `app.models`를 import하면 MVP 모델들이 모두 등록되도록 만들었다.
+
+### 14. `backend/app/db/init_db.py`
+
+Phase 1에서는 `init_db()`가 바로 `Base.metadata.create_all()`만 호출했다.
+
+Phase 2에서는 그 전에 모델 import를 추가했다.
+
+```py
+import app.models
+```
+
+전체 흐름은 다음과 같다.
+
+```txt
+init_db()
+-> app.models import
+-> User, Board, Post 등 모델 클래스 로드
+-> Base.metadata에 테이블 정보 등록
+-> Base.metadata.create_all(bind=engine)
+-> DB에 없는 테이블 생성
+```
+
+Alembic을 쓰지 않기 때문에 이 프로젝트의 MVP 단계에서는 `init_db()`가 테이블 생성 준비의 중심이다.
+
+### 15. `scripts/seed_boards.py`
+
+이 스크립트는 기본 게시판 데이터를 만든다.
+
+실행 방법:
+
+```bash
+python scripts/seed_boards.py
+```
+
+생성 또는 갱신되는 게시판은 4개다.
+
+| code | name | sort_order |
+| --- | --- | --- |
+| `REVIEW` | 피규어 후기 | 1 |
+| `INFO` | 정보 | 2 |
+| `QUESTION` | 질문 | 3 |
+| `PURCHASE_HELP` | 구매 고민 | 4 |
+
+`NOTICE`, `FAQ`는 기본 게시판으로 만들지 않는다.
+
+스크립트 안에는 다음 코드가 있다.
+
+```py
+EXCLUDED_BOARD_CODES = [BoardCode.NOTICE, BoardCode.FAQ]
+```
+
+그리고 seed 실행 시 혹시 기존에 `NOTICE`, `FAQ` row가 있다면 삭제한다.
+
+```py
+db.query(Board).filter(Board.code.in_(EXCLUDED_BOARD_CODES)).delete(
+    synchronize_session=False
+)
+```
+
+즉 seed 결과는 MVP 기본 게시판 4개만 남는 것을 목표로 한다.
+
+또한 이 스크립트는 idempotent하게 작성했다.
+
+idempotent하다는 말은 여러 번 실행해도 같은 결과가 된다는 뜻이다.
+
+이미 `REVIEW` 게시판이 있으면 새로 만들지 않고 이름, 설명, 정렬 순서, 활성 상태를 갱신한다.
+
+### 16. 이번 Phase에서 하지 않은 것
+
+이번 Phase에서는 아래를 구현하지 않았다.
+
+- API endpoint
+- Pydantic schema
+- repository
+- service
+- 회원가입
+- 로그인
+- 게시글 작성
+- 댓글 작성
+- 이미지 업로드 로직
+- 태그 생성 API
+- AI 모델
+- 외부 링크 미리보기 모델
+- 신고 모델
+
+지금 단계는 DB 테이블의 모양을 잡는 단계다.
+
+### 17. 확인 방법
+
+Python 문법 확인:
+
+```bash
+cd backend
+python -m py_compile app/models/enums.py app/models/user.py app/models/auth_session.py app/models/board.py app/models/post.py app/models/post_figure_info.py app/models/comment.py app/models/tag.py app/models/post_tag.py app/models/post_image.py app/models/__init__.py app/db/init_db.py
+```
+
+모델 import 확인:
+
+```bash
+cd backend
+python -c "from app.models import User, Board, Post; from app.db.base import Base; print(sorted(Base.metadata.tables.keys()))"
+```
+
+DB가 켜져 있다면 테이블 생성과 seed 확인:
+
+```bash
+python scripts/seed_boards.py
+```
+
+기대 결과:
+
+```txt
+Seeded boards: REVIEW, INFO, QUESTION, PURCHASE_HELP
+```
+
+DB에서 확인할 내용:
+
+```txt
+boards 테이블에 REVIEW, INFO, QUESTION, PURCHASE_HELP만 있다.
+NOTICE, FAQ는 없다.
+```
+
+### 18. 다음 Phase로 넘어가기 전에 이해해야 할 것
+
+Phase 3으로 넘어가기 전에 아래를 이해하면 좋다.
+
+- SQLAlchemy 모델 하나는 보통 DB 테이블 하나에 대응한다.
+- `ForeignKey`는 다른 테이블의 row를 참조한다.
+- `relationship`은 Python 코드에서 연결된 객체를 쉽게 접근하게 해준다.
+- `PostTag` 같은 연결 테이블은 N:M 관계를 표현한다.
+- `status`, `deleted_at`을 함께 쓰면 soft delete를 구현할 수 있다.
+- Alembic을 쓰지 않으므로 테이블 생성은 `init_db()`와 seed 스크립트로 직접 실행한다.

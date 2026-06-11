@@ -142,7 +142,8 @@ MVP에서는 별도의 `Figure` 마스터 테이블을 두지 않고, 사용자�
 적용 대상:
 
 - 후기 게시판
-- 구매 고민 게시판
+
+구매 고민 게시판은 `PostFigureInfo`를 사용하지 않고, 고민 중인 대상과 가격 정보는 제목과 본문에 작성한다.
 
 핵심 필드 후보:
 
@@ -184,7 +185,6 @@ MVP에서는 별도의 `Figure` 마스터 테이블을 두지 않고, 사용자�
 `target_type`
 
 - `REVIEW_TARGET`
-- `PURCHASE_CONSIDERATION_TARGET`
 - `RELATED_FIGURE`
 
 ---
@@ -529,7 +529,7 @@ MVP 필수는 아니지만, 운영자 기능에 “부적절한 게시글 관리
 | `Board` 1 : N `Post` | 하나의 게시판에는 여러 게시글이 속한다. |
 | `Post` 1 : N `Comment` | 하나의 게시글에는 여러 댓글이 달릴 수 있다. |
 | `Post` 1 : N `PostImage` | 하나의 게시글은 여러 이미지를 가질 수 있다. |
-| `Post` 1 : N `PostFigureInfo` | 하나의 게시글은 피규어 정보를 가질 수 있다. |
+| `Post` 1 : N `PostFigureInfo` | 후기 게시글은 피규어 정보를 가질 수 있다. |
 | `Post` N : M `Tag` | 게시글과 태그는 다대다 관계다. |
 | `Post` 1 : N `ExternalLinkPreview` | 하나의 게시글은 여러 외부 링크 미리보기를 가질 수 있다. |
 | `Post` 1 : N `ContentChunk` | 하나의 게시글은 여러 RAG 청크로 나뉠 수 있다. |
@@ -550,7 +550,7 @@ MVP 필수는 아니지만, 운영자 기능에 “부적절한 게시글 관리
 | `AuthSession` | 포함 | 인증 구현 방식에 따라 조정 가능 |
 | `Board` | 포함 | 게시판 카테고리 구분 |
 | `Post` | 포함 | 게시글 CRUD 핵심 |
-| `PostFigureInfo` | 포함 | 후기/구매고민 입력 항목 |
+| `PostFigureInfo` | 포함 | 후기 입력 항목 |
 | `Comment` | 포함 | 댓글 CRUD |
 | `Tag` | 포함 | 태그 등록/검색 |
 | `PostTag` | 포함 | 게시글-태그 연결 |
@@ -578,7 +578,7 @@ MVP에서는 아래 방식으로 처리한다.
 
 ```
 게시글 상세 조회
-→ 대상 게시글의 본문/피규어 정보/태그 기반 검색 문맥 생성
+→ 대상 게시글의 본문/태그와 후기 글의 피규어 정보 기반 검색 문맥 생성
 → ContentChunk 또는 게시글 임베딩 기준 vector search
 → 유사 게시글 3개 조회
 → 현재 게시글 제외

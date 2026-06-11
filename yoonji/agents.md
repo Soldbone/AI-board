@@ -190,6 +190,8 @@ MVP에서 만들지 않는 모델:
 - API에서는 `figure_name`, `manufacturer`를 사용한다.
 - DB 컬럼은 `figure_name_text`, `manufacturer_text`로 저장해도 된다.
 - 이 경우 schema/service에서 API 필드와 DB 컬럼을 매핑한다.
+- `PostFigureInfo`는 후기 게시판(`REVIEW`)에서만 사용한다.
+- 구매 고민 게시판(`PURCHASE_HELP`)에서는 `PostFigureInfo`를 만들지 않고 제목과 본문으로 고민 내용을 작성한다.
 
 공부 포인트:
 
@@ -200,8 +202,8 @@ MVP에서 만들지 않는 모델:
 
 완료 기준:
 
-- migration으로 MVP 테이블이 생성된다.
-- `REVIEW`, `INFO`, `QUESTION`, `PURCHASE_HELP`, `NOTICE`, `FAQ` 게시판 seed가 가능하다.
+- `create_all()`로 MVP 테이블이 생성된다.
+- `REVIEW`, `INFO`, `QUESTION`, `PURCHASE_HELP` 게시판 seed가 가능하다.
 
 ## Phase 3. 회원가입 / 로그인 구현
 
@@ -320,7 +322,7 @@ MVP에서 만들지 않는 모델:
 
 - 게시판별 필수값 검증
 - 후기 게시판의 피규어 정보 저장
-- 구매 고민 게시판의 피규어 정보 저장
+- 구매 고민 게시판은 피규어 정보 테이블 없이 제목과 본문만 저장
 - 작성자만 수정/삭제 가능
 - 운영자는 추후 phase에서 삭제 가능
 - soft delete
@@ -701,7 +703,7 @@ AI 구현은 항상 기존 사용자 작성 콘텐츠와 분리해서 저장한�
 
 구현 내용:
 
-- 현재 게시글의 제목, 본문, 피규어 정보, 태그를 검색 문맥으로 만든다.
+- 현재 게시글의 제목, 본문, 태그와 후기 글의 피규어 정보를 검색 문맥으로 만든다.
 - vector search로 유사 글을 찾는다.
 - 현재 게시글은 제외한다.
 - MVP 이후에도 추천 결과는 저장하지 않고 실시간 계산한다.
