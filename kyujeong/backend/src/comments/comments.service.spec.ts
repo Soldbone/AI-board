@@ -15,4 +15,20 @@ describe('CommentsService', () => {
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
+
+  it('should return comment creation data temporarily', () => {
+    expect(
+      service.create(
+        1,
+        {
+          content: 'Test comment',
+        },
+        2,
+      ),
+    ).toEqual({
+      postId: 1,
+      content: 'Test comment',
+      authorId: 2,
+    });
+  });
 });
