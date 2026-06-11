@@ -10,6 +10,18 @@ type PostListItem = {
   }
 }
 
+type PostDetail = {
+  id: number
+  title: string
+  content: string
+  viewCount: number
+  createdAt: string
+  updatedAt: string
+  author: {
+    nickname: string
+  }
+}
+
 function App() {
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
@@ -23,6 +35,8 @@ function App() {
   const [postPage, setPostPage] = useState('1')
   const [postSize, setPostSize] = useState('10')
   const [posts, setPosts] = useState<PostListItem[]>([])
+  const [detailPostId, setDetailPostId] = useState('')
+  const [postDetail, setPostDetail] = useState<PostDetail | null>(null)
   const [result, setResult] = useState(
     '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
   )
@@ -78,6 +92,28 @@ function App() {
 
     setPostPage(String(safePage))
     loadPosts(String(safePage))
+  }
+
+  async function loadPostDetail(id = detailPostId) {
+    if (!id) {
+      setResult('상세 조회할 게시글 id를 입력하거나 목록에서 게시글을 선택하세요.')
+      return
+    }
+
+    const response = await fetch(`/api/posts/${id}`)
+    const data = await response.json()
+
+    if (response.ok) {
+      setPostDetail(data)
+      setDetailPostId(String(data.id))
+    }
+
+    setResult(JSON.stringify(data, null, 2))
+  }
+
+  function handleLoadPostDetail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    loadPostDetail()
   }
 
   async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
@@ -285,7 +321,13 @@ function App() {
             <ul className="post-list">
               {posts.map((post) => (
                 <li key={post.id}>
-                  <strong>{post.title}</strong>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => loadPostDetail(String(post.id))}
+                  >
+                    {post.title}
+                  </button>
                   <span>{post.author.nickname}</span>
                   <time dateTime={post.createdAt}>
                     {new Date(post.createdAt).toLocaleString('ko-KR')}
@@ -295,6 +337,41 @@ function App() {
             </ul>
           ) : (
             <p className="muted">아직 조회된 게시글이 없습니다.</p>
+          )}
+        </form>
+
+        <form className="panel detail-panel" onSubmit={handleLoadPostDetail}>
+          <h2>게시글 상세</h2>
+          <label>
+            게시글 id
+            <input
+              type="number"
+              min="1"
+              placeholder="1"
+              value={detailPostId}
+              onChange={(event) => setDetailPostId(event.target.value)}
+            />
+          </label>
+          <button type="submit">상세 조회</button>
+
+          {postDetail ? (
+            <article className="post-detail">
+              <div>
+                <h3>{postDetail.title}</h3>
+                <p className="muted">
+                  {postDetail.author.nickname} · 조회수 {postDetail.viewCount}
+                </p>
+              </div>
+              <p>{postDetail.content}</p>
+              <p className="muted">
+                작성: {new Date(postDetail.createdAt).toLocaleString('ko-KR')}
+              </p>
+              <p className="muted">
+                수정: {new Date(postDetail.updatedAt).toLocaleString('ko-KR')}
+              </p>
+            </article>
+          ) : (
+            <p className="muted">아직 조회된 상세 게시글이 없습니다.</p>
           )}
         </form>
       </section>
