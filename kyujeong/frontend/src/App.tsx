@@ -37,6 +37,8 @@ function App() {
   const [posts, setPosts] = useState<PostListItem[]>([])
   const [detailPostId, setDetailPostId] = useState('')
   const [postDetail, setPostDetail] = useState<PostDetail | null>(null)
+  const [updateTitle, setUpdateTitle] = useState('')
+  const [updateContent, setUpdateContent] = useState('')
   const [result, setResult] = useState(
     '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
   )
@@ -106,6 +108,8 @@ function App() {
     if (response.ok) {
       setPostDetail(data)
       setDetailPostId(String(data.id))
+      setUpdateTitle(data.title)
+      setUpdateContent(data.content)
     }
 
     setResult(JSON.stringify(data, null, 2))
@@ -132,6 +136,37 @@ function App() {
     })
 
     const data = await response.json()
+    setResult(JSON.stringify(data, null, 2))
+  }
+
+  async function handleUpdatePost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!detailPostId) {
+      setResult('수정할 게시글 id를 먼저 입력하거나 상세 조회하세요.')
+      return
+    }
+
+    const response = await fetch(`/api/posts/${detailPostId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        title: updateTitle,
+        content: updateContent,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (response.ok) {
+      setPostDetail(data)
+      setUpdateTitle(data.title)
+      setUpdateContent(data.content)
+    }
+
     setResult(JSON.stringify(data, null, 2))
   }
 
@@ -373,6 +408,32 @@ function App() {
           ) : (
             <p className="muted">아직 조회된 상세 게시글이 없습니다.</p>
           )}
+        </form>
+
+        <form className="panel update-panel" onSubmit={handleUpdatePost}>
+          <h2>게시글 수정</h2>
+          <p className="muted">
+            상세 조회한 게시글을 현재 로그인한 사용자 토큰으로 수정합니다.
+          </p>
+          <label>
+            제목
+            <input
+              type="text"
+              placeholder="수정할 제목"
+              value={updateTitle}
+              onChange={(event) => setUpdateTitle(event.target.value)}
+            />
+          </label>
+          <label>
+            내용
+            <textarea
+              placeholder="수정할 내용"
+              rows={5}
+              value={updateContent}
+              onChange={(event) => setUpdateContent(event.target.value)}
+            />
+          </label>
+          <button type="submit">게시글 수정</button>
         </form>
       </section>
 

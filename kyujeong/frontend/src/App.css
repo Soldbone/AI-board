@@ -155,7 +155,8 @@
   font-size: 14px;
 }
 
-.detail-panel {
+.detail-panel,
+.update-panel {
   grid-column: 1 / -1;
 }
 
