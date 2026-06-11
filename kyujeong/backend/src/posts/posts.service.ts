@@ -38,6 +38,10 @@ export class PostsService {
     });
   }
 
+  findOne(id: number) {
+    return { id };
+  }
+
   async create(createPostDto: CreatePostDto, authorId: number) {
     return this.prismaService.post.create({
       data: {

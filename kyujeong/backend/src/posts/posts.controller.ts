@@ -3,6 +3,7 @@ import {
   Controller,
   DefaultValuePipe,
   Get,
+  Param,
   ParseIntPipe,
   Post,
   Query,
@@ -32,6 +33,11 @@ export class PostsController {
     @Query('search') search?: string,
   ) {
     return this.postsService.findAll(page, size, search);
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.postsService.findOne(id);
   }
 
   @UseGuards(JwtAuthGuard)

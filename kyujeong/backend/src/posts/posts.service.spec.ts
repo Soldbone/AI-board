@@ -118,6 +118,10 @@ describe('PostsService', () => {
     });
   });
 
+  it('should return a post id temporarily', () => {
+    expect(service.findOne(1)).toEqual({ id: 1 });
+  });
+
   it('should create a post with the given author id', async () => {
     const createPostDto = {
       title: 'Test title',
