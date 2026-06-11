@@ -10,8 +10,12 @@ import {
   type PostFormPayload,
   type PostListItem,
   type PostRead,
+  type PostSort,
 } from './api/postApi'
-import { getTags, type TagRead } from './api/tagApi'
+import {
+  getTagSuggestions,
+  type TagSuggestion,
+} from './api/tagApi'
 import { updateMe } from './api/usersApi'
 import { LoginPage } from './pages/LoginPage'
 import { MyPage } from './pages/MyPage'
@@ -83,7 +87,7 @@ function App() {
   const [posts, setPosts] = useState<PostListItem[]>([])
   const [selectedPost, setSelectedPost] = useState<PostRead | null>(null)
   const [comments, setComments] = useState<CommentRead[]>([])
-  const [tags, setTags] = useState<TagRead[]>([])
+  const [tags, setTags] = useState<TagSuggestion[]>([])
 
   const [postForm, setPostForm] = useState<PostFormState>(emptyPostForm)
   const [commentContent, setCommentContent] = useState('')
@@ -93,6 +97,7 @@ function App() {
   const [keywordInput, setKeywordInput] = useState('')
   const [activeKeyword, setActiveKeyword] = useState('')
   const [activeTag, setActiveTag] = useState('')
+  const [activeSort, setActiveSort] = useState<PostSort>('latest')
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
@@ -103,7 +108,7 @@ function App() {
 
   const loadTags = useCallback(async () => {
     try {
-      setTags(await getTags())
+      setTags(await getTagSuggestions(10))
     } catch {
       setTags([])
     }
@@ -123,9 +128,10 @@ function App() {
   }, [])
 
   const loadPosts = useCallback(
-    async (nextPage = 1, filters: { keyword?: string; tag?: string } = {}) => {
+    async (nextPage = 1, filters: { keyword?: string; tag?: string; sort?: PostSort } = {}) => {
       const keyword = filters.keyword ?? activeKeyword
       const tag = filters.tag ?? activeTag
+      const sort = filters.sort ?? activeSort
 
       setIsLoading(true)
       setMessage('게시글 목록을 불러오는 중입니다.')
@@ -136,6 +142,7 @@ function App() {
           size: 10,
           keyword: keyword || undefined,
           tag: tag || undefined,
+          sort,
         })
         setPosts(data.items)
         setPage(data.page)
@@ -148,11 +155,11 @@ function App() {
         setIsLoading(false)
       }
     },
-    [activeKeyword, activeTag],
+    [activeKeyword, activeTag, activeSort],
   )
 
   useEffect(() => {
-    void loadPosts(1, { keyword: '', tag: '' })
+    void loadPosts(1, { keyword: '', tag: '', sort: 'latest' })
     void loadTags()
   }, [loadPosts, loadTags])
 
@@ -343,7 +350,7 @@ function App() {
 
     try {
       const createdPost = await createPost(payload, accessToken)
-      await loadPosts(1, { keyword: activeKeyword, tag: activeTag })
+      await loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
       await loadTags()
       setSelectedPost(createdPost)
       setComments([])
@@ -375,7 +382,7 @@ function App() {
 
     try {
       const updatedPost = await updatePost(selectedPost.id, payload, accessToken)
-      await loadPosts(page, { keyword: activeKeyword, tag: activeTag })
+      await loadPosts(page, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
       setSelectedPost(updatedPost)
       setViewMode('detail')
       setMessage('게시글을 수정했습니다.')
@@ -425,20 +432,28 @@ function App() {
     event.preventDefault()
     const nextKeyword = keywordInput.trim()
     setActiveKeyword(nextKeyword)
-    void loadPosts(1, { keyword: nextKeyword, tag: activeTag })
+    void loadPosts(1, { keyword: nextKeyword, tag: activeTag, sort: activeSort })
   }
 
-  function selectTag(tagName: string) {
-    const nextTag = activeTag === tagName ? '' : tagName
+  function selectSuggestion(suggestion: TagSuggestion) {
+    const nextTag = activeTag === suggestion.name ? '' : suggestion.name
+
     setActiveTag(nextTag)
-    void loadPosts(1, { keyword: activeKeyword, tag: nextTag })
+    setActiveKeyword('')
+    setKeywordInput('')
+    void loadPosts(1, { keyword: '', tag: nextTag, sort: activeSort })
+  }
+
+  function changeSort(nextSort: PostSort) {
+    setActiveSort(nextSort)
+    void loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: nextSort })
   }
 
   function clearFilters() {
     setKeywordInput('')
     setActiveKeyword('')
     setActiveTag('')
-    void loadPosts(1, { keyword: '', tag: '' })
+    void loadPosts(1, { keyword: '', tag: '', sort: activeSort })
   }
 
   function goList() {
@@ -494,7 +509,7 @@ function App() {
 
               <div className="flex flex-1 flex-wrap items-center justify-center gap-2 md:justify-end">
                 {renderHeaderActions()}
-                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page) }} type="button">
+                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page, { sort: activeSort }) }} type="button">
                   목록
                 </button>
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!hasAccessToken} onClick={openCreateForm} type="button">
@@ -510,17 +525,20 @@ function App() {
         {viewMode === 'list' && (
           <PostListPage
             activeTag={activeTag}
+            activeKeyword={activeKeyword}
             formatDate={formatDate}
             isLoading={isLoading}
             keywordInput={keywordInput}
             onClearFilters={clearFilters}
             onKeywordInputChange={setKeywordInput}
-            onLoadPage={(nextPage) => void loadPosts(nextPage)}
+            onLoadPage={(nextPage) => void loadPosts(nextPage, { sort: activeSort })}
             onOpenDetail={(postId) => void openDetail(postId)}
             onSearchSubmit={handleSearchSubmit}
-            onSelectTag={selectTag}
+            onSelectSuggestion={selectSuggestion}
+            onSortChange={changeSort}
             page={page}
             posts={posts}
+            sort={activeSort}
             tags={tags}
             totalPages={totalPages}
           />

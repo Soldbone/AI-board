@@ -7,6 +7,8 @@ export type PostListItem = {
   region: string | null
   store_name: string | null
   category: string | null
+  view_count: number
+  comment_count: number
   created_at: string
 }
 
@@ -32,11 +34,14 @@ export type PostFormPayload = {
   tag_names?: string[]
 }
 
+export type PostSort = 'latest' | 'views' | 'comments'
+
 type PostListParams = {
   page?: number
   size?: number
   keyword?: string
   tag?: string
+  sort?: PostSort
 }
 
 export function getPosts(params: PostListParams = {}) {
@@ -51,6 +56,10 @@ export function getPosts(params: PostListParams = {}) {
 
   if (params.tag) {
     query.set('tag', params.tag)
+  }
+
+  if (params.sort) {
+    query.set('sort', params.sort)
   }
 
   return apiGet<PostListResponse>(`/posts?${query.toString()}`)

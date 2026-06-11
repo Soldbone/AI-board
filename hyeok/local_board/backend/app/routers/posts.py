@@ -1,9 +1,10 @@
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.comment import Comment
 from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
@@ -70,10 +71,19 @@ def create_post(
 def read_posts(
     keyword: str | None = None,
     tag: str | None = None,
+    sort: str = "latest",
     page: int = 1,
     size: int = 10,
     db: Session = Depends(get_db),
 ):
+    allowed_sorts = {"latest", "views", "comments"}
+
+    if sort not in allowed_sorts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sort는 latest, views, comments 중 하나여야 합니다.",
+        )
+
     query = db.query(Post).filter(Post.deleted_at.is_(None))
 
     if keyword and keyword.strip():
@@ -94,11 +104,12 @@ def read_posts(
     if tag and tag.strip():
         tag_name = tag.strip()
 
-        query = (
-            query
-            .join(post_tags, Post.id == post_tags.c.post_id)
-            .join(Tag, Tag.id == post_tags.c.tag_id)
-            .filter(Tag.name == tag_name)
+        query = query.filter(
+            Post.id.in_(
+                db.query(post_tags.c.post_id)
+                .join(Tag, Tag.id == post_tags.c.tag_id)
+                .filter(Tag.name == tag_name)
+            )
         )
 
     if page < 1:
@@ -117,13 +128,52 @@ def read_posts(
     total_pages = (total_count + size - 1) // size
     offset = (page - 1) * size
 
-    posts = (
-        query
-        .order_by(Post.created_at.desc())
+    comment_counts = (
+        db.query(
+            Comment.post_id.label("post_id"),
+            func.count(Comment.id).label("comment_count"),
+        )
+        .filter(Comment.deleted_at.is_(None))
+        .group_by(Comment.post_id)
+        .subquery()
+    )
+
+    list_query = (
+        query.outerjoin(comment_counts, Post.id == comment_counts.c.post_id)
+        .add_columns(func.coalesce(comment_counts.c.comment_count, 0).label("comment_count"))
+    )
+
+    if sort == "views":
+        list_query = list_query.order_by(Post.view_count.desc(), Post.created_at.desc())
+    elif sort == "comments":
+        list_query = list_query.order_by(
+            func.coalesce(comment_counts.c.comment_count, 0).desc(),
+            Post.created_at.desc(),
+        )
+    else:
+        list_query = list_query.order_by(Post.created_at.desc())
+
+    post_rows = (
+        list_query
         .offset(offset)
         .limit(size)
         .all()
     )
+
+    posts = [
+        {
+            "id": post.id,
+            "author_id": post.author_id,
+            "title": post.title,
+            "region": post.region,
+            "store_name": post.store_name,
+            "category": post.category,
+            "view_count": post.view_count,
+            "comment_count": comment_count,
+            "created_at": post.created_at,
+        }
+        for post, comment_count in post_rows
+    ]
 
     return {
         "items": posts,
@@ -148,7 +198,29 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
             detail="게시글을 찾을 수 없습니다.",
         )
 
-    return post
+    post.view_count += 1
+    db.commit()
+    db.refresh(post)
+
+    comment_count = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.post_id == post.id, Comment.deleted_at.is_(None))
+        .scalar()
+    )
+
+    return {
+        "id": post.id,
+        "author_id": post.author_id,
+        "title": post.title,
+        "content": post.content,
+        "region": post.region,
+        "store_name": post.store_name,
+        "category": post.category,
+        "view_count": post.view_count,
+        "comment_count": comment_count,
+        "created_at": post.created_at,
+        "updated_at": post.updated_at,
+    }
 
 
 @router.patch("/{post_id}", response_model=PostRead)

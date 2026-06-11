@@ -27,6 +27,8 @@ class PostRead(BaseModel):
     region: str | None
     store_name: str | None
     category: str | None
+    view_count: int
+    comment_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -42,6 +44,8 @@ class PostListItem(BaseModel):
     region: str | None
     store_name: str | None
     category: str | None
+    view_count: int
+    comment_count: int = 0
     created_at: datetime
 
     model_config = {
