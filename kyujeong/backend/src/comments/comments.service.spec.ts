@@ -18,6 +18,7 @@ describe('CommentsService', () => {
               findUnique: jest.fn(),
             },
             comment: {
+              findMany: jest.fn(),
               create: jest.fn(),
             },
           },
@@ -31,6 +32,58 @@ describe('CommentsService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('should return comments for an existing post', async () => {
+    const comments = [
+      {
+        id: 1,
+        content: 'Test comment',
+        postId: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        author: {
+          nickname: 'tester',
+        },
+      },
+    ];
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({ id: 1 });
+    jest.spyOn(prismaService.comment, 'findMany').mockResolvedValue(comments);
+
+    await expect(service.findAll(1)).resolves.toBe(comments);
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+      },
+    });
+    expect(prismaService.comment.findMany).toHaveBeenCalledWith({
+      where: { postId: 1 },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      select: {
+        id: true,
+        content: true,
+        postId: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw NotFoundException when listing comments for a missing post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.findAll(999)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('should create a comment when post exists', async () => {
