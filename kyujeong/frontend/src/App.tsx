@@ -5,6 +5,9 @@ function App() {
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
   const [signupNickname, setSignupNickname] = useState('')
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [accessToken, setAccessToken] = useState('')
   const [result, setResult] = useState(
     '아직 API 연결 전입니다.\n다음 단계에서 버튼을 누르면 백엔드 응답이 여기에 표시됩니다.',
   )
@@ -25,6 +28,29 @@ function App() {
     })
 
     const data = await response.json()
+    setResult(JSON.stringify(data, null, 2))
+  }
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: loginEmail,
+        password: loginPassword,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (response.ok) {
+      setAccessToken(data.accessToken)
+    }
+
     setResult(JSON.stringify(data, null, 2))
   }
 
@@ -72,17 +98,30 @@ function App() {
           <button type="submit">회원가입</button>
         </form>
 
-        <form className="panel">
+        <form className="panel" onSubmit={handleLogin}>
           <h2>로그인</h2>
           <label>
             이메일
-            <input type="email" placeholder="posttest@example.com" />
+            <input
+              type="email"
+              placeholder="posttest@example.com"
+              value={loginEmail}
+              onChange={(event) => setLoginEmail(event.target.value)}
+            />
           </label>
           <label>
             비밀번호
-            <input type="password" placeholder="password1234" />
+            <input
+              type="password"
+              placeholder="password1234"
+              value={loginPassword}
+              onChange={(event) => setLoginPassword(event.target.value)}
+            />
           </label>
-          <button type="button">로그인</button>
+          <button type="submit">로그인</button>
+          <p className="muted">
+            토큰 상태: {accessToken ? '저장됨' : '아직 없음'}
+          </p>
         </form>
 
         <section className="panel">
