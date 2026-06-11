@@ -2,7 +2,10 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
+  Param,
+  Patch,
   ParseIntPipe,
   Post,
   Query,
@@ -12,6 +15,7 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
 type AuthenticatedRequest = Request & {
@@ -34,6 +38,11 @@ export class PostsController {
     return this.postsService.findAll(page, size, search);
   }
 
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.postsService.findOne(id);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post()
   create(
@@ -41,5 +50,24 @@ export class PostsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.postsService.create(createPostDto, request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updatePostDto: UpdatePostDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.postsService.update(id, updatePostDto, request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.postsService.remove(id, request.user.sub);
   }
 }

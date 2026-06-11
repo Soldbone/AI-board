@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 
 @Injectable()
 export class PostsService {
@@ -38,6 +43,51 @@ export class PostsService {
     });
   }
 
+  async findOne(id: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return this.prismaService.post.update({
+      where: { id },
+      data: {
+        viewCount: {
+          increment: 1,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  }
+
   async create(createPostDto: CreatePostDto, authorId: number) {
     return this.prismaService.post.create({
       data: {
@@ -46,5 +96,68 @@ export class PostsService {
         authorId,
       },
     });
+  }
+
+  async update(id: number, updatePostDto: UpdatePostDto, userId: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only update your own post');
+    }
+
+    return this.prismaService.post.update({
+      where: { id },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  }
+
+  async remove(id: number, userId: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own post');
+    }
+
+    await this.prismaService.post.delete({
+      where: { id },
+    });
+
+    return { id };
   }
 }

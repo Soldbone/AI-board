@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsService } from './posts.service';
 
@@ -15,7 +16,10 @@ describe('PostsService', () => {
           useValue: {
             post: {
               findMany: jest.fn(),
+              findUnique: jest.fn(),
+              update: jest.fn(),
               create: jest.fn(),
+              delete: jest.fn(),
             },
           },
         },
@@ -65,6 +69,30 @@ describe('PostsService', () => {
     });
   });
 
+  it('should use minimum page and size when smaller values are given', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(0, 0)).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: undefined,
+      skip: 0,
+      take: 1,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
   it('should search posts by title', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
@@ -94,6 +122,76 @@ describe('PostsService', () => {
     });
   });
 
+  it('should increment view count and return a post detail', async () => {
+    const post = {
+      id: 1,
+      title: 'Test title',
+      content: 'Test content',
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(post);
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue({
+      ...post,
+      viewCount: 1,
+    });
+
+    await expect(service.findOne(1)).resolves.toEqual({
+      ...post,
+      viewCount: 1,
+    });
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        viewCount: {
+          increment: 1,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw NotFoundException when post does not exist', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.findOne(999)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('should create a post with the given author id', async () => {
     const createPostDto = {
       title: 'Test title',
@@ -119,5 +217,139 @@ describe('PostsService', () => {
         authorId: 1,
       },
     });
+  });
+
+  it('should update a post when the current user is the author', async () => {
+    const updatePostDto = {
+      title: 'Updated title',
+      content: 'Updated content',
+    };
+    const updatedPost = {
+      id: 1,
+      ...updatePostDto,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
+
+    await expect(service.update(1, updatePostDto, 1)).resolves.toBe(
+      updatedPost,
+    );
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw NotFoundException when updating a missing post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(
+      service.update(
+        999,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('should throw ForbiddenException when updating another user post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(
+      service.update(
+        1,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('should delete a post when the current user is the author', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'delete').mockResolvedValue({
+      id: 1,
+      title: 'Deleted title',
+      content: 'Deleted content',
+      authorId: 1,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await expect(service.remove(1, 1)).resolves.toEqual({ id: 1 });
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.post.delete).toHaveBeenCalledWith({
+      where: { id: 1 },
+    });
+  });
+
+  it('should throw NotFoundException when deleting a missing post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.remove(999, 1)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('should throw ForbiddenException when deleting another user post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(service.remove(1, 1)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
