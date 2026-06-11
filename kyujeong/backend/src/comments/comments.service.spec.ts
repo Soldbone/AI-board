@@ -17,6 +17,9 @@ describe('CommentsService', () => {
             post: {
               findUnique: jest.fn(),
             },
+            comment: {
+              create: jest.fn(),
+            },
           },
         },
       ],
@@ -30,26 +33,50 @@ describe('CommentsService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should return comment creation data temporarily when post exists', async () => {
-    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({ id: 1 });
-
-    await expect(
-      service.create(
-        1,
-        {
-          content: 'Test comment',
-        },
-        2,
-      ),
-    ).resolves.toEqual({
-      postId: 1,
+  it('should create a comment when post exists', async () => {
+    const createCommentDto = {
       content: 'Test comment',
-      authorId: 2,
-    });
+    };
+    const createdComment = {
+      id: 1,
+      content: createCommentDto.content,
+      postId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({ id: 1 });
+    jest.spyOn(prismaService.comment, 'create').mockResolvedValue(createdComment);
+
+    await expect(service.create(1, createCommentDto, 2)).resolves.toBe(
+      createdComment,
+    );
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       select: {
         id: true,
+      },
+    });
+    expect(prismaService.comment.create).toHaveBeenCalledWith({
+      data: {
+        content: createCommentDto.content,
+        postId: 1,
+        authorId: 2,
+      },
+      select: {
+        id: true,
+        content: true,
+        postId: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
       },
     });
   });
