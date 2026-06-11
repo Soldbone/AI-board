@@ -1,4 +1,5 @@
-﻿import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
+import { getSimilarPosts, type SimilarPostItem } from '../api/aiApi'
 
 type PostFormState = {
   title: string
@@ -20,6 +21,48 @@ type PostFormPageProps = {
 
 export function PostFormPage({ mode, form, isLoading, onChange, onSubmit, onCancel }: PostFormPageProps) {
   const isCreateMode = mode === 'create'
+  const [similarPosts, setSimilarPosts] = useState<SimilarPostItem[]>([])
+  const [similarPostMessage, setSimilarPostMessage] = useState('')
+  const [isSimilarPostLoading, setIsSimilarPostLoading] = useState(false)
+
+  const canSearchSimilarPosts = Boolean(
+    form.title.trim() || form.content.trim() || form.tag_names.trim(),
+  )
+
+  function parseTagNames(value: string) {
+    return value.split(',').map((tagName) => tagName.trim()).filter(Boolean)
+  }
+
+  function formatDate(value: string) {
+    return new Date(value).toLocaleDateString('ko-KR')
+  }
+
+  async function handleSimilarPostSearch() {
+    if (!canSearchSimilarPosts) {
+      setSimilarPosts([])
+      setSimilarPostMessage('제목, 내용, 태그 중 하나 이상 입력해주세요.')
+      return
+    }
+
+    setIsSimilarPostLoading(true)
+    setSimilarPostMessage('비슷한 게시글을 찾는 중입니다.')
+
+    try {
+      const data = await getSimilarPosts({
+        title: form.title,
+        content: form.content,
+        tag_names: parseTagNames(form.tag_names),
+      })
+
+      setSimilarPosts(data.items)
+      setSimilarPostMessage(data.items.length ? '' : '아직 비슷한 게시글이 없습니다.')
+    } catch (error) {
+      setSimilarPosts([])
+      setSimilarPostMessage(error instanceof Error ? error.message : '비슷한 게시글을 찾지 못했습니다.')
+    } finally {
+      setIsSimilarPostLoading(false)
+    }
+  }
 
   return (
     <section className="rounded-lg bg-white p-6 shadow-sm">
@@ -66,6 +109,60 @@ export function PostFormPage({ mode, form, isLoading, onChange, onSubmit, onCanc
           <input className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-emerald-500" onChange={(event) => onChange('tag_names', event.target.value)} placeholder="예: 조용한카페, 공부, 점심" type="text" value={form.tag_names} />
           {!isCreateMode && <p className="mt-1 text-xs text-slate-500">현재 백엔드는 게시글 수정 시 태그 변경을 저장하지 않습니다.</p>}
         </label>
+
+        <div className="rounded-md border border-emerald-100 bg-emerald-50/60 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">비슷한 게시글</h3>
+              <p className="mt-1 text-xs text-slate-600">현재 입력한 제목, 내용, 태그와 겹치는 기존 게시글을 찾습니다.</p>
+            </div>
+            <button
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={isSimilarPostLoading || !canSearchSimilarPosts}
+              onClick={handleSimilarPostSearch}
+              type="button"
+            >
+              {isSimilarPostLoading ? '찾는 중' : '비슷한 글 찾기'}
+            </button>
+          </div>
+
+          {similarPostMessage && <p className="mt-3 text-sm text-slate-600">{similarPostMessage}</p>}
+
+          {similarPosts.length > 0 && (
+            <div className="mt-4 grid gap-3">
+              {similarPosts.map((post) => (
+                <article className="rounded-md border border-slate-200 bg-white p-4" key={post.id}>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-950">{post.title}</h4>
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">{post.content_preview}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                      유사도 {post.score}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    {post.region && <span>{post.region}</span>}
+                    {post.store_name && <span>{post.store_name}</span>}
+                    {post.category && <span>{post.category}</span>}
+                    <span>{formatDate(post.created_at)}</span>
+                  </div>
+
+                  {post.matched_keywords.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {post.matched_keywords.map((keyword) => (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600" key={keyword}>
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button className="rounded-md bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={isLoading} type="submit">
           {isCreateMode ? '등록' : '수정 완료'}

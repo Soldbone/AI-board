@@ -1,0 +1,27 @@
+import { apiPost } from './client'
+
+export type SimilarPostRequest = {
+  title: string
+  content: string
+  tag_names: string[]
+}
+
+export type SimilarPostItem = {
+  id: number
+  title: string
+  content_preview: string
+  region: string | null
+  store_name: string | null
+  category: string | null
+  score: number
+  matched_keywords: string[]
+  created_at: string
+}
+
+type SimilarPostResponse = {
+  items: SimilarPostItem[]
+}
+
+export function getSimilarPosts(data: SimilarPostRequest) {
+  return apiPost<SimilarPostResponse>('/ai/similar-posts', data)
+}
