@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
@@ -14,6 +15,12 @@ describe('PostsController', () => {
         {
           provide: PrismaService,
           useValue: {},
+        },
+        {
+          provide: JwtService,
+          useValue: {
+            verify: jest.fn(),
+          },
         },
       ],
     }).compile();
