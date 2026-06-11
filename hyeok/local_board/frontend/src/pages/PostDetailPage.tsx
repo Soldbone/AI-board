@@ -37,6 +37,9 @@ export function PostDetailPage({
   onCreateComment,
   formatDate,
 }: PostDetailPageProps) {
+  const replyTargetComment = comments.find((comment) => comment.id === replyTargetId)
+  const replyTargetNickname = replyTargetComment?.author_nickname ?? '알 수 없음'
+
   if (!post) {
     return <section className="rounded-lg bg-white p-6 shadow-sm">게시글을 불러오는 중입니다.</section>
   }
@@ -97,7 +100,7 @@ export function PostDetailPage({
         <form className="mt-5 space-y-3" onSubmit={onCreateComment}>
           {replyTargetId !== null && (
             <div className="flex items-center justify-between rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              <span>{replyTargetId}번 댓글에 답글 작성 중</span>
+              <span>@{replyTargetNickname}의 댓글에 답글 작성 중</span>
               <button className="font-medium" onClick={onCancelReply} type="button">취소</button>
             </div>
           )}

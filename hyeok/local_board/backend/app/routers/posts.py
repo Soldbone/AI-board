@@ -83,9 +83,11 @@ def read_posts(
             or_(
                 Post.title.ilike(search_keyword),
                 Post.content.ilike(search_keyword),
-                Post.region.ilike(search_keyword),
-                Post.store_name.ilike(search_keyword),
-                Post.category.ilike(search_keyword),
+                Post.id.in_(
+                    db.query(post_tags.c.post_id)
+                    .join(Tag, Tag.id == post_tags.c.tag_id)
+                    .filter(Tag.name.ilike(search_keyword))
+                ),
             )
         )
     

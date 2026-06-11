@@ -488,7 +488,7 @@ function App() {
               <button className="flex-1 text-center" onClick={goList} type="button">
                 <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">여기저기</h1>
                 <p className="mt-1.5 text-xs text-slate-500 md:text-sm">
-                  전체 {totalCount}개 게시글, 총 {Math.max(totalPages, 1)}페이지
+                  우리동네 솔직 리뷰 게시판 · 전체 {totalCount}개
                 </p>
               </button>
 
