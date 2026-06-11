@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CommentsService } from './comments.service';
@@ -18,8 +18,10 @@ describe('CommentsService', () => {
               findUnique: jest.fn(),
             },
             comment: {
+              findUnique: jest.fn(),
               findMany: jest.fn(),
               create: jest.fn(),
+              update: jest.fn(),
             },
           },
         },
@@ -146,5 +148,89 @@ describe('CommentsService', () => {
         2,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('should update a comment when user is the author', async () => {
+    const updateCommentDto = {
+      content: 'Updated comment',
+    };
+    const updatedComment = {
+      id: 1,
+      content: updateCommentDto.content,
+      postId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+    jest
+      .spyOn(prismaService.comment, 'update')
+      .mockResolvedValue(updatedComment);
+
+    await expect(service.update(1, updateCommentDto, 2)).resolves.toBe(
+      updatedComment,
+    );
+    expect(prismaService.comment.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.comment.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        content: updateCommentDto.content,
+      },
+      select: {
+        id: true,
+        content: true,
+        postId: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw NotFoundException when comment does not exist', async () => {
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue(null);
+
+    await expect(
+      service.update(
+        999,
+        {
+          content: 'Updated comment',
+        },
+        2,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('should throw ForbiddenException when user is not the comment author', async () => {
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(
+      service.update(
+        1,
+        {
+          content: 'Updated comment',
+        },
+        3,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
