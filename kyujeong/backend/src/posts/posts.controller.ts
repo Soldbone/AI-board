@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   ParseIntPipe,
   Post,
   Query,
@@ -14,6 +15,7 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
 type AuthenticatedRequest = Request & {
@@ -48,6 +50,16 @@ export class PostsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.postsService.create(createPostDto, request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updatePostDto: UpdatePostDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.postsService.update(id, updatePostDto, request.user.sub);
   }
 
   @UseGuards(JwtAuthGuard)

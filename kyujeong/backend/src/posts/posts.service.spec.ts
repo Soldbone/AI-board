@@ -219,6 +219,93 @@ describe('PostsService', () => {
     });
   });
 
+  it('should update a post when the current user is the author', async () => {
+    const updatePostDto = {
+      title: 'Updated title',
+      content: 'Updated content',
+    };
+    const updatedPost = {
+      id: 1,
+      ...updatePostDto,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
+
+    await expect(service.update(1, updatePostDto, 1)).resolves.toBe(
+      updatedPost,
+    );
+    expect(prismaService.post.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw NotFoundException when updating a missing post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(null);
+
+    await expect(
+      service.update(
+        999,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('should throw ForbiddenException when updating another user post', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(
+      service.update(
+        1,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('should delete a post when the current user is the author', async () => {
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
       id: 1,
