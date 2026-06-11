@@ -54,6 +54,17 @@ function App() {
     setResult(JSON.stringify(data, null, 2))
   }
 
+  async function handleFindMe() {
+    const response = await fetch('/api/users/me', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+
+    const data = await response.json()
+    setResult(JSON.stringify(data, null, 2))
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -127,7 +138,9 @@ function App() {
         <section className="panel">
           <h2>내 정보</h2>
           <p className="muted">로그인 후 현재 사용자 정보를 확인할 영역입니다.</p>
-          <button type="button">내 정보 조회</button>
+          <button type="button" onClick={handleFindMe}>
+            내 정보 조회
+          </button>
         </section>
 
         <form className="panel">
