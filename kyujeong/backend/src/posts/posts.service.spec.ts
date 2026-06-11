@@ -46,6 +46,7 @@ describe('PostsService', () => {
 
     await expect(service.findAll(2, 5)).resolves.toBe(posts);
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: undefined,
       skip: 5,
       take: 5,
       orderBy: {
@@ -69,8 +70,38 @@ describe('PostsService', () => {
 
     await expect(service.findAll(0, 0)).resolves.toEqual([]);
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: undefined,
       skip: 0,
       take: 1,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should search posts by title', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, 'test')).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        title: {
+          contains: 'test',
+          mode: 'insensitive',
+        },
+      },
+      skip: 0,
+      take: 10,
       orderBy: {
         createdAt: 'desc',
       },

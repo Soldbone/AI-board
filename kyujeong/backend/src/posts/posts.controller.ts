@@ -29,8 +29,9 @@ export class PostsController {
   findAll(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('size', new DefaultValuePipe(10), ParseIntPipe) size: number,
+    @Query('search') search?: string,
   ) {
-    return this.postsService.findAll(page, size);
+    return this.postsService.findAll(page, size, search);
   }
 
   @UseGuards(JwtAuthGuard)

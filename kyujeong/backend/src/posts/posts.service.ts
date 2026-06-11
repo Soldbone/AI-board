@@ -6,11 +6,20 @@ import { CreatePostDto } from './dto/create-post.dto';
 export class PostsService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  async findAll(page: number, size: number) {
+  async findAll(page: number, size: number, search?: string) {
     const currentPage = Math.max(page, 1);
     const pageSize = Math.max(size, 1);
+    const keyword = search?.trim();
 
     return this.prismaService.post.findMany({
+      where: keyword
+        ? {
+            title: {
+              contains: keyword,
+              mode: 'insensitive',
+            },
+          }
+        : undefined,
       skip: (currentPage - 1) * pageSize,
       take: pageSize,
       orderBy: {
