@@ -6,9 +6,13 @@ import { CreatePostDto } from './dto/create-post.dto';
 export class PostsService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  async findAll() {
+  async findAll(page: number, size: number) {
+    const currentPage = Math.max(page, 1);
+    const pageSize = Math.max(size, 1);
+
     return this.prismaService.post.findMany({
-      take: 10,
+      skip: (currentPage - 1) * pageSize,
+      take: pageSize,
       orderBy: {
         createdAt: 'desc',
       },

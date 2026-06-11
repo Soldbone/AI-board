@@ -30,7 +30,7 @@ describe('PostsService', () => {
     expect(service).toBeDefined();
   });
 
-  it('should return latest posts with list fields', async () => {
+  it('should return latest posts with pagination and list fields', async () => {
     const posts = [
       {
         id: 1,
@@ -44,9 +44,33 @@ describe('PostsService', () => {
 
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue(posts);
 
-    await expect(service.findAll()).resolves.toBe(posts);
+    await expect(service.findAll(2, 5)).resolves.toBe(posts);
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
-      take: 10,
+      skip: 5,
+      take: 5,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('should use minimum page and size when smaller values are given', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(0, 0)).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      skip: 0,
+      take: 1,
       orderBy: {
         createdAt: 'desc',
       },
