@@ -36,6 +36,7 @@ export class CommentsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -73,6 +74,7 @@ export class CommentsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -114,6 +116,7 @@ export class CommentsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },

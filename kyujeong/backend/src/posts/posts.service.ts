@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -17,9 +18,7 @@ export class PostsService {
     const pageSize = Math.max(size, 1);
     const keyword = search?.trim();
     const tagName = tag?.trim();
-
-    const posts = await this.prismaService.post.findMany({
-      where: keyword || tagName
+    const where: Prisma.PostWhereInput | undefined = keyword || tagName
         ? {
             ...(keyword
               ? {
@@ -41,34 +40,52 @@ export class PostsService {
                 }
               : {}),
           }
-        : undefined,
-      skip: (currentPage - 1) * pageSize,
-      take: pageSize,
-      orderBy: {
-        createdAt: 'desc',
-      },
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
-        author: {
-          select: {
-            nickname: true,
-          },
+        : undefined;
+
+    const [posts, total] = await Promise.all([
+      this.prismaService.post.findMany({
+        where,
+        skip: (currentPage - 1) * pageSize,
+        take: pageSize,
+        orderBy: {
+          createdAt: 'desc',
         },
-        postTags: {
-          select: {
-            tag: {
-              select: {
-                name: true,
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              nickname: true,
+            },
+          },
+          postTags: {
+            select: {
+              tag: {
+                select: {
+                  name: true,
+                },
               },
             },
           },
+          _count: {
+            select: {
+              comments: true,
+            },
+          },
         },
-      },
-    });
+      }),
+      this.prismaService.post.count({ where }),
+    ]);
 
-    return posts.map((post) => this.mapPostTagsToTags(post));
+    return {
+      items: posts.map((post) => this.mapPostTagsToTags(post)),
+      total,
+      page: currentPage,
+      size: pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: number) {
@@ -83,6 +100,7 @@ export class PostsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -118,6 +136,7 @@ export class PostsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -226,6 +245,7 @@ export class PostsService {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -291,13 +311,17 @@ export class PostsService {
           name: string;
         };
       }[];
+      _count?: {
+        comments: number;
+      };
     },
   >(post: T) {
-    const { postTags, ...postWithoutPostTags } = post;
+    const { postTags, _count, ...postWithoutPostTags } = post;
 
     return {
       ...postWithoutPostTags,
       tags: postTags.map((postTag) => postTag.tag.name),
+      commentsCount: _count?.comments ?? 0,
     };
   }
 }

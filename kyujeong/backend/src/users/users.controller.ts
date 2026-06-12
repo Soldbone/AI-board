@@ -19,4 +19,16 @@ export class UsersController {
   findMe(@Req() request: AuthenticatedRequest) {
     return this.usersService.findMe(request.user.sub);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/posts')
+  findMyPosts(@Req() request: AuthenticatedRequest) {
+    return this.usersService.findMyPosts(request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/comments')
+  findMyComments(@Req() request: AuthenticatedRequest) {
+    return this.usersService.findMyComments(request.user.sub);
+  }
 }
