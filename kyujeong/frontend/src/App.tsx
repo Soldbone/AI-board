@@ -314,6 +314,10 @@ function App() {
       })),
     [posts],
   )
+  const isAuthView =
+    currentView === 'login' ||
+    currentView === 'signup' ||
+    currentView === 'forgotPassword'
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1087,7 +1091,10 @@ function App() {
 
   return (
     <main className="board-page">
-      <section className="board-shell" aria-label="냉장고 파먹기 게시판">
+      <section
+        className={`board-shell ${isAuthView ? 'auth-shell' : ''}`}
+        aria-label="냉장고 파먹기 게시판"
+      >
         <header className="top-bar">
           <div className="brand">
             <div className="brand-mark" aria-hidden="true">
@@ -1189,21 +1196,58 @@ function App() {
 
         {currentView === 'login' ? (
           <section className="login-view" aria-label="로그인">
-            <div className="login-hero">
-              <strong>냉장고 속 재료로</strong>
-              <p>맛있는 요리를 함께 찾아봐요!</p>
-              <div className="login-mascot" aria-hidden="true">
-                <span className="chef-hat" />
-                <span className="chef-face" />
-                <span className="chef-body" />
-                <span className="basket" />
+            <div className="login-hero login-hero-home">
+              <div className="auth-brand">
+                <div className="brand-mark" aria-hidden="true">
+                  <span />
+                </div>
+                <div>
+                  <strong>냉장고 파먹기</strong>
+                  <p>AI 레시피 추천 커뮤니티</p>
+                </div>
+              </div>
+
+              <div className="login-hero-copy">
+                <h1>냉장고 속 재료로 오늘 뭐 먹지?</h1>
+                <p>
+                  AI가 당신의 재료와 상황을 분석해 최적의 레시피를 추천해드려요!
+                </p>
+              </div>
+
+              <div className="fridge-illustration" aria-hidden="true">
+                <span className="leaf leaf-left" />
+                <span className="leaf leaf-right" />
+                <span className="table" />
+                <span className="plate" />
+                <span className="food food-one" />
+                <span className="food food-two" />
+                <span className="food food-three" />
+                <span className="fridge">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
               </div>
             </div>
 
             <form className="login-card" onSubmit={handleLoginSubmit}>
               <div>
                 <h1>로그인</h1>
-                <p>계정에 로그인하여 서비스를 이용하세요.</p>
+                <p>
+                  계정이 없다면?
+                  <button
+                    className="inline-link"
+                    type="button"
+                    onClick={() => {
+                      setSignupSubmitMessage('')
+                      setLoginErrorMessage('')
+                      setCurrentView('signup')
+                    }}
+                  >
+                    회원가입
+                  </button>
+                </p>
               </div>
 
               <label>
@@ -1270,20 +1314,6 @@ function App() {
               <button type="submit" disabled={isLoginSubmitting}>
                 {isLoginSubmitting ? '로그인 중' : '로그인'}
               </button>
-
-              <p className="auth-switch">
-                계정이 없으신가요?
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSignupSubmitMessage('')
-                    setLoginErrorMessage('')
-                    setCurrentView('signup')
-                  }}
-                >
-                  회원가입
-                </button>
-              </p>
 
               <button
                 className="text-button"

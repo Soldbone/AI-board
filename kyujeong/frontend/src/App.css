@@ -16,6 +16,17 @@
   box-shadow: 0 20px 60px rgba(23, 63, 42, 0.08);
 }
 
+.auth-shell {
+  max-width: 1180px;
+  min-height: calc(100vh - 68px);
+  border-color: #dfe8e3;
+  background: #ffffff;
+}
+
+.auth-shell .top-bar {
+  display: none;
+}
+
 .top-bar {
   display: grid;
   grid-template-columns: 310px minmax(320px, 1fr) 400px auto;
@@ -253,17 +264,64 @@
 
 .login-view {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1fr);
-  min-height: 620px;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1fr);
+  min-height: calc(100vh - 70px);
+  background: #ffffff;
 }
 
 .login-hero {
   display: grid;
-  align-content: center;
-  gap: 12px;
-  padding: 56px;
-  background: linear-gradient(180deg, #effaf3, #f9fcfa);
+  align-content: start;
+  gap: 34px;
+  padding: 54px 58px 46px;
+  background: linear-gradient(180deg, #f2fbf5 0%, #f8fcf9 72%, #ffffff 100%);
   color: #183123;
+}
+
+.login-hero-home {
+  overflow: hidden;
+}
+
+.auth-brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.auth-brand strong {
+  display: block;
+  color: #122019;
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.auth-brand p {
+  margin: 6px 0 0;
+  color: #526057;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-hero-copy {
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+  margin-top: 22px;
+}
+
+.login-hero-copy h1 {
+  margin: 0;
+  color: #13241a;
+  font-size: 34px;
+  line-height: 1.35;
+}
+
+.login-hero-copy p {
+  max-width: 360px;
+  color: #40534a;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.8;
 }
 
 .login-hero strong {
@@ -346,27 +404,201 @@
   background: #dfb66a;
 }
 
+.fridge-illustration {
+  position: relative;
+  min-height: 310px;
+  margin-top: auto;
+}
+
+.fridge-illustration span,
+.fridge-illustration i {
+  position: absolute;
+  display: block;
+}
+
+.fridge-illustration .table {
+  right: 18px;
+  bottom: 24px;
+  left: 0;
+  height: 72px;
+  border-radius: 50%;
+  background: #e1c190;
+  box-shadow: 0 16px 34px rgba(127, 92, 45, 0.16);
+}
+
+.fridge-illustration .plate {
+  bottom: 78px;
+  left: 16px;
+  width: 190px;
+  height: 52px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: inset 0 -8px 0 #edf1ee;
+}
+
+.fridge-illustration .food-one,
+.fridge-illustration .food-two,
+.fridge-illustration .food-three {
+  bottom: 108px;
+  border-radius: 999px;
+}
+
+.fridge-illustration .food-one {
+  left: 54px;
+  width: 64px;
+  height: 44px;
+  background: #8fc76d;
+  box-shadow:
+    42px 4px 0 #f2b84b,
+    86px 8px 0 #db6b57;
+}
+
+.fridge-illustration .food-two {
+  left: 28px;
+  width: 38px;
+  height: 38px;
+  background: #f0a13a;
+}
+
+.fridge-illustration .food-three {
+  left: 122px;
+  width: 44px;
+  height: 38px;
+  background: #d95f4b;
+}
+
+.fridge-illustration .fridge {
+  right: 16px;
+  bottom: 84px;
+  width: 178px;
+  height: 190px;
+  border: 5px solid #d8e1db;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 18px 36px rgba(52, 87, 68, 0.12);
+}
+
+.fridge-illustration .fridge::before {
+  position: absolute;
+  top: 88px;
+  right: 12px;
+  left: 12px;
+  height: 3px;
+  border-radius: 999px;
+  background: #d8e1db;
+  content: '';
+}
+
+.fridge-illustration .fridge::after {
+  position: absolute;
+  top: 36px;
+  right: 18px;
+  width: 8px;
+  height: 44px;
+  border-radius: 999px;
+  background: #cad6ce;
+  content: '';
+}
+
+.fridge-illustration .fridge i {
+  border-radius: 999px;
+}
+
+.fridge-illustration .fridge i:nth-child(1) {
+  top: 30px;
+  left: 24px;
+  width: 60px;
+  height: 22px;
+  background: #f3c56c;
+}
+
+.fridge-illustration .fridge i:nth-child(2) {
+  top: 58px;
+  left: 28px;
+  width: 82px;
+  height: 20px;
+  background: #9cca77;
+}
+
+.fridge-illustration .fridge i:nth-child(3) {
+  bottom: 48px;
+  left: 26px;
+  width: 44px;
+  height: 26px;
+  background: #dd6b59;
+}
+
+.fridge-illustration .fridge i:nth-child(4) {
+  right: 28px;
+  bottom: 42px;
+  width: 46px;
+  height: 34px;
+  background: #84bd6a;
+}
+
+.fridge-illustration .leaf-left,
+.fridge-illustration .leaf-right {
+  bottom: 94px;
+  width: 40px;
+  height: 92px;
+  border-radius: 999px 999px 8px 999px;
+  background: #9fcf83;
+  transform-origin: bottom center;
+}
+
+.fridge-illustration .leaf-left {
+  left: 0;
+  transform: rotate(-22deg);
+}
+
+.fridge-illustration .leaf-right {
+  left: 42px;
+  background: #bddc9e;
+  transform: rotate(18deg);
+}
+
 .login-card {
   display: grid;
   align-content: center;
-  gap: 22px;
-  max-width: 440px;
+  gap: 20px;
+  max-width: 480px;
   width: 100%;
   margin: 0 auto;
-  padding: 56px 28px;
+  padding: 48px 28px;
+}
+
+.auth-shell .login-card {
+  align-self: center;
+  border: 1px solid #e3ebe6;
+  border-radius: 10px;
+  padding: 34px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(38, 71, 54, 0.08);
 }
 
 .login-card h1 {
   margin: 0;
   color: #111915;
-  font-size: 34px;
-  text-align: center;
+  font-size: 30px;
+  text-align: left;
 }
 
 .login-card p {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #66736b;
-  text-align: center;
+  font-size: 14px;
+  text-align: left;
+}
+
+.inline-link {
+  border: 0;
+  margin-left: 8px;
+  padding: 0;
+  background: transparent;
+  color: #13833b;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
 }
 
 .login-card label {
@@ -446,11 +678,12 @@
   height: 52px;
   border: 0;
   border-radius: 8px;
-  background: #159447;
+  background: linear-gradient(180deg, #1fb253, #12863a);
   color: #ffffff;
   cursor: pointer;
   font: inherit;
   font-weight: 800;
+  box-shadow: 0 10px 20px rgba(21, 148, 71, 0.22);
 }
 
 .login-card button[type='submit']:disabled {
@@ -494,9 +727,10 @@
 .text-button {
   border: 0;
   background: transparent;
-  color: #13833b;
+  color: #526057;
   cursor: pointer;
   font: inherit;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -1824,6 +2058,10 @@
     grid-template-columns: 1fr;
   }
 
+  .auth-shell .login-view {
+    grid-template-columns: minmax(340px, 0.95fr) minmax(420px, 1fr);
+  }
+
   .mypage-view {
     grid-template-columns: 1fr;
   }
@@ -1912,6 +2150,36 @@
   .login-hero {
     min-height: 360px;
     padding: 34px 24px;
+  }
+
+  .auth-shell {
+    min-height: calc(100vh - 20px);
+  }
+
+  .auth-shell .login-view {
+    grid-template-columns: 1fr;
+  }
+
+  .login-hero-home {
+    min-height: auto;
+  }
+
+  .login-hero-copy h1 {
+    font-size: 28px;
+  }
+
+  .fridge-illustration {
+    min-height: 240px;
+  }
+
+  .fridge-illustration .fridge {
+    right: 0;
+    width: 136px;
+    height: 150px;
+  }
+
+  .fridge-illustration .plate {
+    width: 150px;
   }
 
   .login-mascot {
