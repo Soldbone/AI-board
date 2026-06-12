@@ -8,11 +8,17 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.tag import Tag, post_tags
 
+try:
+    from kiwipiepy import Kiwi
+except ImportError:  # pragma: no cover - fallback for environments not yet installed.
+    Kiwi = None
+
 
 DEFAULT_SIMILAR_POST_LIMIT = 5
 MAX_SIMILAR_POST_LIMIT = 5
 SEARCH_CANDIDATE_LIMIT = 100
 STOPWORDS_FILE = Path(__file__).resolve().parents[1] / "data" / "rag_stopwords_ko.txt"
+KIWI_KEYWORD_TAGS = {"NNG", "NNP", "NNB", "NR", "SL", "SN"}
 
 FIELD_WEIGHTS = {
     "title": 4,
@@ -39,6 +45,25 @@ def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def add_keyword(keywords: list[str], candidate: str, stopwords: set[str]) -> None:
+    cleaned_keyword = normalize_keyword(candidate)
+
+    if len(cleaned_keyword) < 2 or cleaned_keyword in stopwords:
+        return
+
+    if any(cleaned_keyword == keyword for keyword in keywords):
+        return
+
+    if any(cleaned_keyword in keyword for keyword in keywords):
+        return
+
+    keywords[:] = [
+        keyword for keyword in keywords
+        if keyword not in cleaned_keyword
+    ]
+    keywords.append(cleaned_keyword)
+
+
 @lru_cache(maxsize=1)
 def load_stopwords() -> set[str]:
     stopwords: set[str] = set()
@@ -63,6 +88,38 @@ def remove_stopword_phrases(text: str, stopwords: set[str]) -> str:
     return cleaned_text
 
 
+@lru_cache(maxsize=1)
+def get_kiwi():
+    if Kiwi is None:
+        return None
+
+    return Kiwi()
+
+
+def extract_kiwi_keywords(text: str, stopwords: set[str]) -> list[str]:
+    kiwi = get_kiwi()
+
+    if kiwi is None:
+        return []
+
+    keywords: list[str] = []
+
+    for token in kiwi.tokenize(text):
+        if token.tag in KIWI_KEYWORD_TAGS:
+            add_keyword(keywords, token.form, stopwords)
+
+    return keywords
+
+
+def extract_regex_keywords(text: str, stopwords: set[str]) -> list[str]:
+    keywords: list[str] = []
+
+    for word in re.findall(r"[0-9a-zA-Z가-힣]+", text.lower()):
+        add_keyword(keywords, word, stopwords)
+
+    return keywords
+
+
 def extract_keywords(
     title: str,
     content: str,
@@ -70,29 +127,19 @@ def extract_keywords(
     limit: int = 20,
 ) -> list[str]:
     stopwords = load_stopwords()
-    raw_text = remove_stopword_phrases(f"{title} {content}", stopwords)
-    words = re.findall(r"[0-9a-zA-Z가-힣]+", raw_text.lower())
+    title_text = remove_stopword_phrases(title, stopwords)
+    content_text = remove_stopword_phrases(content, stopwords)
+    raw_text = f"{title_text} {content_text}"
     keywords: list[str] = []
 
-    for word in words:
-        cleaned_word = normalize_keyword(word)
+    for keyword in extract_kiwi_keywords(raw_text, stopwords):
+        add_keyword(keywords, keyword, stopwords)
 
-        if (
-            len(cleaned_word) >= 2
-            and cleaned_word not in stopwords
-            and cleaned_word not in keywords
-        ):
-            keywords.append(cleaned_word)
+    for keyword in extract_regex_keywords(title_text, stopwords):
+        add_keyword(keywords, keyword, stopwords)
 
     for tag_name in tag_names or []:
-        cleaned_tag = normalize_keyword(tag_name)
-
-        if (
-            len(cleaned_tag) >= 2
-            and cleaned_tag not in stopwords
-            and cleaned_tag not in keywords
-        ):
-            keywords.append(cleaned_tag)
+        add_keyword(keywords, tag_name, stopwords)
 
     return keywords[:limit]
 

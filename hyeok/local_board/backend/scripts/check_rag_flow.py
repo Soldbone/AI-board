@@ -38,6 +38,23 @@ def check_stopwords() -> None:
     print("PASS stopwords")
 
 
+def check_kiwi_noun_keywords() -> None:
+    keywords = extract_keywords(
+        title="처인구 중국집 추천",
+        content="처인구에서 점심 먹을 중국집 찾고 있어요.",
+        tag_names=["처인구", "중국집"],
+    )
+
+    assert_condition("처인구" in keywords, "지역 명사는 키워드로 남아야 합니다.")
+    assert_condition("중국집" in keywords, "가게 분류 명사는 키워드로 남아야 합니다.")
+    assert_condition("점심" in keywords, "본문의 핵심 명사는 키워드로 남아야 합니다.")
+    assert_condition("처인구에서" not in keywords, "조사가 붙은 표현은 제외되어야 합니다.")
+    assert_condition("먹을" not in keywords, "동사 표현은 제외되어야 합니다.")
+    assert_condition("찾고" not in keywords, "동사 표현은 제외되어야 합니다.")
+    assert_condition("있어요" not in keywords, "일반 서술 표현은 제외되어야 합니다.")
+    print("PASS kiwi noun keywords")
+
+
 def check_no_result(db) -> None:
     results = find_similar_posts(
         db,
@@ -99,6 +116,7 @@ def main() -> None:
 
     try:
         check_stopwords()
+        check_kiwi_noun_keywords()
         check_empty_input(db)
         check_no_result(db)
         check_limit(db)
