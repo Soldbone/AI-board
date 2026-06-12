@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsService } from './posts.service';
 
@@ -43,12 +47,27 @@ describe('PostsService', () => {
         author: {
           nickname: 'tester',
         },
+        postTags: [
+          {
+            tag: {
+              name: 'nestjs',
+            },
+          },
+        ],
       },
     ];
 
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue(posts);
 
-    await expect(service.findAll(2, 5)).resolves.toBe(posts);
+    await expect(service.findAll(2, 5)).resolves.toEqual([
+      {
+        id: posts[0].id,
+        title: posts[0].title,
+        createdAt: posts[0].createdAt,
+        author: posts[0].author,
+        tags: ['nestjs'],
+      },
+    ]);
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: undefined,
       skip: 5,
@@ -63,6 +82,15 @@ describe('PostsService', () => {
         author: {
           select: {
             nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -87,6 +115,15 @@ describe('PostsService', () => {
         author: {
           select: {
             nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -118,6 +155,103 @@ describe('PostsService', () => {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should search posts by tag name', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, undefined, 'nestjs')).resolves.toEqual(
+      [],
+    );
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        postTags: {
+          some: {
+            tag: {
+              name: 'nestjs',
+            },
+          },
+        },
+      },
+      skip: 0,
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should search posts by title and tag name together', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, 'test', 'nestjs')).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        title: {
+          contains: 'test',
+          mode: 'insensitive',
+        },
+        postTags: {
+          some: {
+            tag: {
+              name: 'nestjs',
+            },
+          },
+        },
+      },
+      skip: 0,
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
   });
@@ -133,6 +267,13 @@ describe('PostsService', () => {
       author: {
         nickname: 'tester',
       },
+      postTags: [
+        {
+          tag: {
+            name: 'nestjs',
+          },
+        },
+      ],
     };
 
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue(post);
@@ -142,8 +283,14 @@ describe('PostsService', () => {
     });
 
     await expect(service.findOne(1)).resolves.toEqual({
-      ...post,
+      id: post.id,
+      title: post.title,
+      content: post.content,
       viewCount: 1,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+      author: post.author,
+      tags: ['nestjs'],
     });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -157,6 +304,15 @@ describe('PostsService', () => {
         author: {
           select: {
             nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -178,6 +334,15 @@ describe('PostsService', () => {
         author: {
           select: {
             nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -219,6 +384,76 @@ describe('PostsService', () => {
     });
   });
 
+  it('should create a post with tags', async () => {
+    const createPostDto = {
+      title: 'Test title',
+      content: 'Test content',
+      tagNames: [' nestjs ', 'prisma', 'nestjs'],
+    };
+
+    const createdPost = {
+      id: 1,
+      title: createPostDto.title,
+      content: createPostDto.content,
+      authorId: 1,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    jest.spyOn(prismaService.post, 'create').mockResolvedValue(createdPost);
+
+    await expect(service.create(createPostDto, 1)).resolves.toBe(createdPost);
+    expect(prismaService.post.create).toHaveBeenCalledWith({
+      data: {
+        title: createPostDto.title,
+        content: createPostDto.content,
+        authorId: 1,
+        postTags: {
+          create: [
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'nestjs',
+                  },
+                  create: {
+                    name: 'nestjs',
+                  },
+                },
+              },
+            },
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'prisma',
+                  },
+                  create: {
+                    name: 'prisma',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it('should throw BadRequestException when creating a post with more than 5 tags', async () => {
+    await expect(
+      service.create(
+        {
+          title: 'Test title',
+          content: 'Test content',
+          tagNames: ['one', 'two', 'three', 'four', 'five', 'six'],
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('should update a post when the current user is the author', async () => {
     const updatePostDto = {
       title: 'Updated title',
@@ -233,6 +468,13 @@ describe('PostsService', () => {
       author: {
         nickname: 'tester',
       },
+      postTags: [
+        {
+          tag: {
+            name: 'nestjs',
+          },
+        },
+      ],
     };
 
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
@@ -241,9 +483,16 @@ describe('PostsService', () => {
     });
     jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
 
-    await expect(service.update(1, updatePostDto, 1)).resolves.toBe(
-      updatedPost,
-    );
+    await expect(service.update(1, updatePostDto, 1)).resolves.toEqual({
+      id: updatedPost.id,
+      title: updatedPost.title,
+      content: updatedPost.content,
+      viewCount: updatedPost.viewCount,
+      createdAt: updatedPost.createdAt,
+      updatedAt: updatedPost.updatedAt,
+      author: updatedPost.author,
+      tags: ['nestjs'],
+    });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       select: {
@@ -269,8 +518,137 @@ describe('PostsService', () => {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
+  });
+
+  it('should replace tags when updating a post with tag names', async () => {
+    const updatePostDto = {
+      title: 'Updated title',
+      content: 'Updated content',
+      tagNames: [' prisma ', 'postgresql', 'prisma'],
+    };
+    const updatedPost = {
+      id: 1,
+      title: updatePostDto.title,
+      content: updatePostDto.content,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+      postTags: [
+        {
+          tag: {
+            name: 'prisma',
+          },
+        },
+        {
+          tag: {
+            name: 'postgresql',
+          },
+        },
+      ],
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
+
+    await expect(service.update(1, updatePostDto, 1)).resolves.toEqual({
+      id: updatedPost.id,
+      title: updatedPost.title,
+      content: updatedPost.content,
+      viewCount: updatedPost.viewCount,
+      createdAt: updatedPost.createdAt,
+      updatedAt: updatedPost.updatedAt,
+      author: updatedPost.author,
+      tags: ['prisma', 'postgresql'],
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+        postTags: {
+          deleteMany: {},
+          create: [
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'prisma',
+                  },
+                  create: {
+                    name: 'prisma',
+                  },
+                },
+              },
+            },
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'postgresql',
+                  },
+                  create: {
+                    name: 'postgresql',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw BadRequestException when updating a post with more than 5 tags', async () => {
+    await expect(
+      service.update(
+        1,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+          tagNames: ['one', 'two', 'three', 'four', 'five', 'six'],
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('should throw NotFoundException when updating a missing post', async () => {
