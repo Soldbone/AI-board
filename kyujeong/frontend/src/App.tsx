@@ -308,6 +308,7 @@ function App() {
     | 'tags'
     | 'aiGuide'
     | 'notifications'
+    | 'searchResults'
   >('board')
   const [accessToken, setAccessToken] = useState(getSavedAccessToken)
   const [currentUser, setCurrentUser] = useState<LoginUser | null>(getSavedUser)
@@ -315,6 +316,7 @@ function App() {
   const [searchKeyword, setSearchKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [postTotal, setPostTotal] = useState(0)
   const [postListReloadKey, setPostListReloadKey] = useState(0)
   const [posts, setPosts] = useState<BoardPost[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -447,6 +449,7 @@ function App() {
         }
 
         setPosts(data.items.map(mapPostListItem))
+        setPostTotal(data.total)
         setTotalPages(Math.max(data.totalPages, 1))
       } catch (error) {
         if (controller.signal.aborted) {
@@ -454,6 +457,7 @@ function App() {
         }
 
         setPosts([])
+        setPostTotal(0)
         setTotalPages(1)
         setErrorMessage(
           error instanceof Error
@@ -542,6 +546,23 @@ function App() {
   function handleSearchKeywordChange(value: string) {
     setSearchKeyword(value)
     setPage(1)
+  }
+
+  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const keyword = searchKeyword.trim()
+
+    setSelectedPost(null)
+    setActiveCategory('전체')
+    setPage(1)
+
+    if (!keyword) {
+      setCurrentView('board')
+      return
+    }
+
+    setCurrentView('searchResults')
   }
 
   function handleCategoryChange(category: string) {
@@ -1272,7 +1293,7 @@ function App() {
             </div>
           </div>
 
-          <label className="top-search">
+          <form className="top-search" onSubmit={handleSearchSubmit}>
             <span className="sr-only">게시글 검색</span>
             <input
               type="search"
@@ -1280,7 +1301,10 @@ function App() {
               value={searchKeyword}
               onChange={(event) => handleSearchKeywordChange(event.target.value)}
             />
-          </label>
+            <button className="search-icon-button" type="submit" aria-label="검색">
+              검색
+            </button>
+          </form>
 
           <div className="user-area">
             <button
@@ -2326,6 +2350,116 @@ function App() {
               </div>
             ) : null}
           </section>
+        ) : currentView === 'searchResults' ? (
+          <section className="search-results-view" aria-label="검색 결과">
+            <button
+              className="back-button"
+              type="button"
+              onClick={() => setCurrentView('board')}
+            >
+              게시판으로
+            </button>
+
+            <div className="search-results-card">
+              <div className="search-results-heading">
+                <div>
+                  <span>검색 결과</span>
+                  <h1>{searchKeyword.trim() || '전체 게시글'}</h1>
+                </div>
+                <strong>게시글 {postTotal}</strong>
+              </div>
+
+              <form className="search-results-form" onSubmit={handleSearchSubmit}>
+                <label>
+                  <span className="sr-only">검색어</span>
+                  <input
+                    type="search"
+                    placeholder="게시글 제목으로 검색하세요"
+                    value={searchKeyword}
+                    onChange={(event) =>
+                      handleSearchKeywordChange(event.target.value)
+                    }
+                  />
+                </label>
+                <button type="submit">검색</button>
+              </form>
+
+              <div className="search-result-tabs" aria-label="검색 결과 유형">
+                <button className="active" type="button">
+                  게시글 ({postTotal})
+                </button>
+                <button type="button" onClick={() => setCurrentView('tags')}>
+                  태그
+                </button>
+                <button type="button" disabled>
+                  사용자
+                </button>
+              </div>
+
+              {isLoading ? (
+                <p className="search-result-state">검색 결과를 불러오는 중입니다.</p>
+              ) : errorMessage ? (
+                <p className="search-result-state error">{errorMessage}</p>
+              ) : posts.length === 0 ? (
+                <p className="search-result-state">검색 결과가 없습니다.</p>
+              ) : (
+                <div className="search-result-list">
+                  {posts.map((post) => (
+                    <article className="search-result-item" key={post.id}>
+                      <button
+                        className="search-result-main"
+                        type="button"
+                        onClick={() => loadPostDetail(post.id)}
+                      >
+                        <span
+                          className={`post-thumb search-result-thumb thumb-${post.id % 5}`}
+                          aria-hidden="true"
+                        />
+                        <span>
+                          <strong>{post.title}</strong>
+                          <em>{post.tags.slice(0, 3).join(' · ') || '태그 없음'}</em>
+                        </span>
+                      </button>
+                      <div className="search-result-meta">
+                        <span>{post.author}</span>
+                        <time>{post.createdAt}</time>
+                        <span>댓글 {post.comments}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              <div className="pagination search-pagination" aria-label="검색 결과 페이지 이동">
+                <button
+                  type="button"
+                  disabled={page === 1}
+                  onClick={() => setPage((currentPage) => Math.max(currentPage - 1, 1))}
+                >
+                  이전
+                </button>
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+                  (pageNumber) => (
+                    <button
+                      className={pageNumber === page ? 'current' : ''}
+                      type="button"
+                      key={pageNumber}
+                      onClick={() => setPage(pageNumber)}
+                    >
+                      {pageNumber}
+                    </button>
+                  ),
+                )}
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((currentPage) => currentPage + 1)}
+                >
+                  다음
+                </button>
+              </div>
+            </div>
+          </section>
         ) : (
         <div className="content-grid">
           <aside className="home-sidebar" aria-label="홈 메뉴">
@@ -2419,7 +2553,7 @@ function App() {
               <span className="select-button sort-label" aria-label="목록 정렬">
                 최신순
               </span>
-              <label className="board-search">
+              <form className="board-search" onSubmit={handleSearchSubmit}>
                 <span className="sr-only">목록 검색</span>
                 <input
                   type="search"
@@ -2427,7 +2561,10 @@ function App() {
                   value={searchKeyword}
                   onChange={(event) => handleSearchKeywordChange(event.target.value)}
                 />
-              </label>
+                <button className="search-icon-button" type="submit" aria-label="검색">
+                  검색
+                </button>
+              </form>
             </div>
 
             <div className="post-table" role="table" aria-label="게시글 목록">
