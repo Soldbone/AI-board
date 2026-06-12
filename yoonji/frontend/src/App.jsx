@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { API_BASE_URL, healthCheck } from "./api/client";
 import { useAuth } from "./hooks/useAuth";
+import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import PostDetailPage from "./pages/PostDetailPage";
+import PostListPage from "./pages/PostListPage";
 import SignupPage from "./pages/SignupPage";
 
 
@@ -18,6 +21,9 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("loading");
   const [healthResponse, setHealthResponse] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [currentView, setCurrentView] = useState("home");
+  const [selectedBoardCode, setSelectedBoardCode] = useState("");
+  const [selectedPostId, setSelectedPostId] = useState(null);
   const auth = useAuth();
 
   useEffect(() => {
@@ -46,12 +52,34 @@ function App() {
     };
   }, []);
 
+  function openHome() {
+    setCurrentView("home");
+    setSelectedBoardCode("");
+    setSelectedPostId(null);
+  }
+
+  function openBoard(boardCode) {
+    setCurrentView("posts");
+    setSelectedBoardCode(boardCode);
+    setSelectedPostId(null);
+  }
+
+  function openPost(postId) {
+    setCurrentView("detail");
+    setSelectedPostId(postId);
+  }
+
+  function backToList() {
+    setCurrentView("posts");
+    setSelectedPostId(null);
+  }
+
   return (
     <main className="app-shell">
       <section className="app-header" aria-labelledby="app-title">
-        <div className="phase-label">Phase 3</div>
+        <div className="phase-label">Phase 4</div>
         <h1 id="app-title">Figure Community</h1>
-        <p className="subtitle">회원가입 / 로그인 / JWT 인증</p>
+        <p className="subtitle">게시판 목록과 게시글 읽기</p>
       </section>
 
       <section className="status-strip" aria-label="connection status">
@@ -91,53 +119,87 @@ function App() {
         )}
       </section>
 
-      <section className="auth-grid" aria-label="auth forms">
-        <SignupPage onSignup={auth.signup} />
-        <LoginPage onLogin={auth.login} />
-      </section>
+      <div className="app-workspace">
+        <section className="content-area" aria-label="board content">
+          {currentView === "home" && (
+            <HomePage onOpenBoard={openBoard} onOpenPost={openPost} />
+          )}
 
+          {currentView === "posts" && (
+            <PostListPage
+              initialBoardCode={selectedBoardCode}
+              onBackHome={openHome}
+              onOpenPost={openPost}
+            />
+          )}
+
+          {currentView === "detail" && (
+            <PostDetailPage
+              postId={selectedPostId}
+              onBackHome={openHome}
+              onBackToList={backToList}
+            />
+          )}
+        </section>
+
+        <aside className="auth-sidebar" aria-label="account">
+          <AccountPanel auth={auth} />
+        </aside>
+      </div>
+    </main>
+  );
+}
+
+
+function AccountPanel({ auth }) {
+  if (auth.user) {
+    return (
       <section className="account-panel" aria-labelledby="account-title">
         <h2 id="account-title">내 정보</h2>
 
-        {auth.user ? (
-          <>
-            <dl className="account-list">
-              <div>
-                <dt>ID</dt>
-                <dd>{auth.user.id}</dd>
-              </div>
-              <div>
-                <dt>로그인 ID</dt>
-                <dd>{auth.user.login_id}</dd>
-              </div>
-              <div>
-                <dt>닉네임</dt>
-                <dd>{auth.user.nickname}</dd>
-              </div>
-              <div>
-                <dt>권한</dt>
-                <dd>{auth.user.role}</dd>
-              </div>
-            </dl>
+        <dl className="account-list">
+          <div>
+            <dt>ID</dt>
+            <dd>{auth.user.id}</dd>
+          </div>
+          <div>
+            <dt>로그인 ID</dt>
+            <dd>{auth.user.login_id}</dd>
+          </div>
+          <div>
+            <dt>닉네임</dt>
+            <dd>{auth.user.nickname}</dd>
+          </div>
+          <div>
+            <dt>권한</dt>
+            <dd>{auth.user.role}</dd>
+          </div>
+        </dl>
 
-            <div className="account-actions">
-              <button type="button" onClick={auth.loadMe}>
-                내 정보 조회
-              </button>
-              <button type="button" className="secondary-button" onClick={auth.logout}>
-                로그아웃
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="empty-text">로그인 상태가 아닙니다.</p>
-        )}
+        <div className="account-actions">
+          <button type="button" onClick={auth.loadMe}>
+            내 정보 조회
+          </button>
+          <button type="button" className="secondary-button" onClick={auth.logout}>
+            로그아웃
+          </button>
+        </div>
 
         {auth.errorMessage && (
           <p className="form-message error">{auth.errorMessage}</p>
         )}
       </section>
-    </main>
+    );
+  }
+
+  return (
+    <div className="auth-stack">
+      <SignupPage onSignup={auth.signup} />
+      <LoginPage onLogin={auth.login} />
+      {auth.errorMessage && (
+        <p className="form-message error">{auth.errorMessage}</p>
+      )}
+    </div>
   );
 }
 

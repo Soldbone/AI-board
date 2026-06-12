@@ -1803,3 +1803,716 @@ Phase 4로 넘어가기 전에 아래를 이해하면 좋다.
 - 보호 API는 `CurrentUser` dependency로 현재 사용자를 받는다.
 - 라우터는 요청과 응답만 담당하고, 판단은 service가 한다.
 - DB 조회와 저장은 repository가 담당한다.
+
+## Phase 4. 게시판 목록과 게시글 읽기
+
+### 1. 이번 Phase의 목표
+
+Phase 4의 목표는 로그인하지 않은 사용자도 게시판과 게시글을 읽을 수 있게 만드는 것이다.
+
+이번 phase에서 구현한 API는 네 개다.
+
+```txt
+GET /api/v1/boards
+GET /api/v1/boards/{board_code}
+GET /api/v1/posts
+GET /api/v1/posts/{post_id}
+```
+
+아직 구현하지 않는 것은 명확히 남겨두었다.
+
+- 게시글 작성 / 수정 / 삭제
+- 댓글
+- 이미지 업로드
+- 태그 자동완성
+- 검색 전용 API
+- AI / MCP 관련 기능
+- 사용자가 URL을 직접 입력하는 기능
+
+즉 이번 단계는 게시판 서비스의 "읽기 화면"을 먼저 완성하는 단계다.
+
+### 2. 수정한 파일 목록
+
+백엔드:
+
+- `backend/app/schemas/board_schema.py`
+- `backend/app/schemas/post_schema.py`
+- `backend/app/repositories/board_repository.py`
+- `backend/app/repositories/post_repository.py`
+- `backend/app/services/board_service.py`
+- `backend/app/services/post_service.py`
+- `backend/app/api/routes/boards.py`
+- `backend/app/api/routes/posts.py`
+- `backend/app/main.py`
+- `scripts/seed_sample_posts.py`
+
+프론트엔드:
+
+- `frontend/src/api/boardApi.js`
+- `frontend/src/api/postApi.js`
+- `frontend/src/hooks/usePosts.js`
+- `frontend/src/pages/HomePage.jsx`
+- `frontend/src/pages/PostListPage.jsx`
+- `frontend/src/pages/PostDetailPage.jsx`
+- `frontend/src/components/post/PostCard.jsx`
+- `frontend/src/components/post/PostList.jsx`
+- `frontend/src/App.jsx`
+- `frontend/src/App.css`
+
+문서:
+
+- `docs/implementation-guide.md`
+
+### 3. 백엔드 전체 흐름
+
+Phase 4 백엔드는 Phase 3과 같은 계층 구조를 따른다.
+
+```txt
+FastAPI route
+-> service
+-> repository
+-> SQLAlchemy model
+-> PostgreSQL
+```
+
+각 계층의 역할은 다음과 같다.
+
+- route: HTTP 요청을 받고 service를 호출한다.
+- service: 비즈니스 규칙, 에러 처리, 응답 조립을 담당한다.
+- repository: DB 조회 SQLAlchemy 코드를 담당한다.
+- schema: API 요청과 응답의 모양을 정의한다.
+- model: 실제 DB table과 Python class의 매핑이다.
+
+이렇게 나누면 FastAPI, SQLAlchemy, Pydantic이 각각 어떤 역할을 하는지 분리해서 공부할 수 있다.
+
+### 4. 게시판 스키마
+
+`backend/app/schemas/board_schema.py`에는 게시판 응답 모델을 만들었다.
+
+```py
+class BoardSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: BoardCode
+    name: str
+```
+
+`BoardSummary`는 게시글 응답 안에 들어가는 작은 게시판 정보다.
+
+게시글 목록에서 게시판 설명까지 모두 보여줄 필요는 없으므로 `id`, `code`, `name`만 담는다.
+
+```py
+class BoardResponse(BoardSummary):
+    description: str | None = None
+    sort_order: int
+    is_active: bool
+```
+
+`BoardResponse`는 게시판 API에서 직접 반환하는 응답이다. 목록 화면에서 필요한 설명과 정렬 순서, 활성 여부를 포함한다.
+
+여기서 중요한 부분은 `ConfigDict(from_attributes=True)`다.
+
+Pydantic은 원래 dict를 검증하는 도구다. 그런데 SQLAlchemy model 객체는 dict가 아니라 Python 객체다. `from_attributes=True`를 켜면 Pydantic이 `board.id`, `board.code`처럼 객체 attribute를 읽어서 응답 모델로 바꿀 수 있다.
+
+### 5. 게시글 스키마
+
+`backend/app/schemas/post_schema.py`는 게시글 목록 응답과 상세 응답을 나누어 정의한다.
+
+목록 응답은 가볍게 만든다.
+
+```py
+class PostListItemResponse(BaseModel):
+    id: int
+    board: BoardSummary
+    author: UserSummary
+    title: str
+    summary: str
+    thumbnail_url: str | None = None
+    tags: list[TagSummary]
+    figure_info: PostFigureInfoSummary | None = None
+    view_count: int
+    comment_count: int
+    published_at: datetime | None = None
+```
+
+목록에서는 본문 전체를 내려주지 않고 `summary`만 내려준다. 목록 화면은 많은 게시글을 한 번에 보여주기 때문에 응답을 가볍게 유지하는 것이 좋다.
+
+상세 응답은 본문과 부가 정보를 포함한다.
+
+```py
+class PostDetailResponse(BaseModel):
+    id: int
+    board: BoardSummary
+    author: UserSummary
+    title: str
+    content: str
+    source_type: PostSourceType
+    status: PostStatus
+    view_count: int
+    comment_count: int
+    figure_info: PostFigureInfoResponse | None = None
+    tags: list[TagSummary]
+    images: list[PostImageResponse]
+    published_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+```
+
+`figure_info`에서 특히 중요한 점이 있다.
+
+API에서는 사용자가 이해하기 쉬운 이름인 `figure_name`, `manufacturer`를 사용한다. DB에서는 컬럼 충돌을 피하고 의미를 분명히 하기 위해 `figure_name_text`, `manufacturer_text`를 사용한다.
+
+따라서 service 계층에서 아래처럼 매핑한다.
+
+```txt
+DB:  figure_name_text
+API: figure_name
+
+DB:  manufacturer_text
+API: manufacturer
+```
+
+이 매핑은 schema가 아니라 service에 둔다. schema는 응답 모양만 알고, DB 컬럼 이름 차이를 어떻게 변환할지는 service가 담당한다.
+
+### 6. 게시판 repository
+
+`backend/app/repositories/board_repository.py`는 게시판 DB 조회만 담당한다.
+
+```py
+def list_active_boards(db: Session) -> list[Board]:
+    statement = (
+        select(Board)
+        .where(Board.is_active.is_(True))
+        .order_by(Board.sort_order.asc(), Board.id.asc())
+    )
+    return list(db.scalars(statement).all())
+```
+
+SQLAlchemy 2.x에서는 `select()`를 사용해서 SQL을 Python 코드로 만든다.
+
+위 코드는 SQL로 보면 대략 아래와 같다.
+
+```sql
+SELECT *
+FROM boards
+WHERE is_active = true
+ORDER BY sort_order ASC, id ASC;
+```
+
+`db.scalars(statement)`는 조회 결과에서 `Board` 객체만 꺼내준다. `select(Board)`를 했으므로 각 row에서 첫 번째 값은 `Board` 객체다.
+
+### 7. 게시글 repository
+
+`backend/app/repositories/post_repository.py`는 게시글 조회와 count를 담당한다.
+
+게시글 목록 조회에서는 공개 게시글만 가져온다.
+
+```py
+Post.status == PostStatus.PUBLISHED
+Post.deleted_at.is_(None)
+Board.is_active.is_(True)
+```
+
+이 조건의 의미는 다음과 같다.
+
+- `PUBLISHED`: 게시된 글만 보여준다.
+- `deleted_at is None`: soft delete 된 글은 숨긴다.
+- `Board.is_active is True`: 비활성 게시판의 글은 숨긴다.
+
+목록 조회는 `Post`만 필요한 것처럼 보이지만 실제 응답에는 작성자, 게시판, 피규어 정보, 이미지, 태그가 필요하다. 그래서 관계 데이터를 함께 로딩한다.
+
+```py
+.options(
+    joinedload(Post.board),
+    joinedload(Post.author),
+    selectinload(Post.figure_infos),
+    selectinload(Post.images),
+    selectinload(Post.tag_links).joinedload(PostTag.tag),
+)
+```
+
+여기서 SQLAlchemy 관계 로딩 전략을 공부할 수 있다.
+
+`joinedload`는 SQL JOIN으로 한 번에 가져오기 좋은 관계에 쓴다.
+
+- 게시글 하나는 게시판 하나를 가진다.
+- 게시글 하나는 작성자 하나를 가진다.
+
+이런 N:1 관계는 `joinedload`가 잘 맞는다.
+
+`selectinload`는 목록 관계에 적합하다.
+
+- 게시글 하나는 여러 피규어 정보를 가질 수 있다.
+- 게시글 하나는 여러 이미지를 가질 수 있다.
+- 게시글 하나는 여러 태그 연결을 가질 수 있다.
+
+이런 1:N 관계를 무리하게 JOIN하면 row가 중복되어 목록이 부풀 수 있다. `selectinload`는 먼저 게시글 목록을 가져온 뒤, 그 게시글 id 목록을 이용해서 관련 데이터를 별도 SELECT로 가져온다.
+
+페이지네이션은 `offset`과 `limit`으로 처리한다.
+
+```py
+.offset((page - 1) * size)
+.limit(size)
+```
+
+예를 들어 `page=2`, `size=20`이면 앞의 20개를 건너뛰고 다음 20개를 가져온다.
+
+### 8. 게시판 service
+
+`backend/app/services/board_service.py`는 repository 결과를 API 응답으로 바꾼다.
+
+```py
+def get_board(db: Session, *, board_code: BoardCode) -> BoardResponse:
+    board = board_repository.get_active_board_by_code(db, board_code)
+
+    if board is None:
+        raise AppException(
+            "게시판을 찾을 수 없습니다.",
+            code="BOARD_NOT_FOUND",
+            status_code=404,
+        )
+
+    return BoardResponse.model_validate(board)
+```
+
+없는 게시판을 `None`으로 그대로 반환하지 않고 service에서 `AppException`을 발생시킨다.
+
+이 프로젝트의 공통 예외 처리기는 `AppException`을 아래 구조로 바꿔준다.
+
+```json
+{
+  "error": {
+    "code": "BOARD_NOT_FOUND",
+    "message": "게시판을 찾을 수 없습니다."
+  }
+}
+```
+
+### 9. 게시글 service
+
+`backend/app/services/post_service.py`는 게시글 응답을 조립하는 가장 중요한 파일이다.
+
+목록 응답은 다음 흐름으로 만든다.
+
+```txt
+total count 조회
+-> 현재 page의 게시글 목록 조회
+-> 각 Post model을 PostListItemResponse로 변환
+-> items/page/size/total/has_next 반환
+```
+
+`has_next`는 아래 공식으로 계산한다.
+
+```py
+has_next = page * size < total
+```
+
+예를 들어 전체 45개, `page=2`, `size=20`이면 `2 * 20 < 45`가 true이므로 다음 페이지가 있다.
+
+상세 조회는 조회수를 증가시킨다.
+
+```py
+post_repository.increment_view_count(post)
+db.commit()
+db.refresh(post)
+```
+
+`commit()`은 DB에 변경사항을 저장한다. `refresh()`는 저장 후 DB 값을 다시 읽어 SQLAlchemy 객체에 반영한다.
+
+피규어 정보는 service에서 API 필드명으로 바꾼다.
+
+```py
+return PostFigureInfoResponse(
+    id=figure_info.id,
+    figure_name=figure_info.figure_name_text,
+    manufacturer=figure_info.manufacturer_text,
+    ...
+)
+```
+
+이 코드를 보면 DB 모델과 API 모델을 일부러 분리한 이유가 보인다.
+
+- DB 모델은 저장 구조를 표현한다.
+- API 스키마는 클라이언트와 약속한 응답 구조를 표현한다.
+- service는 둘 사이의 번역을 담당한다.
+
+### 10. FastAPI route
+
+`backend/app/api/routes/boards.py`는 두 API를 연결한다.
+
+```py
+@router.get("", response_model=BoardListResponse)
+def list_boards(db: DbSession) -> BoardListResponse:
+    return board_service.list_boards(db)
+```
+
+`DbSession`은 Phase 1에서 만든 dependency다. FastAPI가 요청마다 DB session을 만들고 route 함수에 주입한다.
+
+`backend/app/api/routes/posts.py`는 query parameter를 검증한다.
+
+```py
+def list_posts(
+    db: DbSession,
+    board_code: BoardCode | None = Query(default=None),
+    sort: Literal["latest", "views"] = Query(default="latest"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=50),
+) -> PostListResponse:
+```
+
+여기서 FastAPI가 해주는 일이 많다.
+
+- `board_code`가 `BoardCode` enum에 없는 값이면 422를 반환한다.
+- `sort`가 `latest`, `views`가 아니면 422를 반환한다.
+- `page`가 1보다 작으면 422를 반환한다.
+- `size`가 50보다 크면 422를 반환한다.
+
+즉 기본적인 요청 검증은 route 함수 선언만으로 처리된다.
+
+### 11. FastAPI 앱에 라우터 등록
+
+`backend/app/main.py`에 게시판과 게시글 라우터를 추가했다.
+
+```py
+app.include_router(boards_router, prefix=settings.api_prefix)
+app.include_router(posts_router, prefix=settings.api_prefix)
+```
+
+각 router 자체는 `/boards`, `/posts` prefix를 가진다. `settings.api_prefix`의 기본값은 `/api/v1`이다.
+
+따라서 실제 URL은 다음과 같이 만들어진다.
+
+```txt
+/api/v1 + /boards = /api/v1/boards
+/api/v1 + /posts  = /api/v1/posts
+```
+
+### 12. 샘플 게시글 seed
+
+`scripts/seed_sample_posts.py`는 Phase 4 확인용 데이터를 만든다.
+
+이 스크립트는 게시글 작성 API를 대신하는 기능이 아니다. Phase 5에서 작성 API를 만들기 전까지 목록/상세 화면을 확인하기 위한 개발용 seed다.
+
+생성하는 데이터:
+
+- 샘플 사용자 1명
+- REVIEW 게시글 1개
+- INFO 게시글 1개
+- QUESTION 게시글 1개
+- PURCHASE_HELP 게시글 1개
+- REVIEW 게시글의 `PostFigureInfo` 1개
+
+먼저 게시판 seed를 실행해야 한다.
+
+```bash
+python scripts/seed_boards.py
+python scripts/seed_sample_posts.py
+```
+
+`seed_sample_posts.py`는 같은 제목과 같은 작성자의 게시글이 이미 있으면 새로 만들지 않고 내용을 갱신한다. 그래서 여러 번 실행해도 샘플 게시글이 계속 중복 생성되지 않는다.
+
+### 13. 프론트 API 파일
+
+`frontend/src/api/boardApi.js`는 게시판 API만 담당한다.
+
+```js
+export async function getBoards() {
+  const response = await axiosInstance.get("/boards");
+  return response.data;
+}
+```
+
+`axiosInstance`의 base URL은 이미 `/api/v1`까지 포함한다. 그래서 `"/boards"`만 넘기면 실제 요청은 아래 주소로 간다.
+
+```txt
+http://localhost:8000/api/v1/boards
+```
+
+`frontend/src/api/postApi.js`는 게시글 API만 담당한다.
+
+```js
+export async function getPosts(params = {}) {
+  const response = await axiosInstance.get("/posts", { params });
+  return response.data;
+}
+```
+
+axios에서 `params`를 넘기면 query string을 자동으로 만들어준다.
+
+```js
+getPosts({ board_code: "REVIEW", page: 1, size: 10 })
+```
+
+위 호출은 아래 요청이 된다.
+
+```txt
+GET /api/v1/posts?board_code=REVIEW&page=1&size=10
+```
+
+화면 컴포넌트가 URL 문자열을 직접 조립하지 않게 한 것이 핵심이다.
+
+### 14. React hook
+
+`frontend/src/hooks/usePosts.js`는 게시글 목록과 상세 조회 상태를 관리한다.
+
+```js
+export function usePostList({
+  boardCode = "",
+  page = 1,
+  size = 20,
+  sort = "latest",
+} = {}) {
+```
+
+이 hook이 관리하는 상태는 세 가지다.
+
+- `data`: API 응답 전체
+- `isLoading`: 요청 중인지 여부
+- `errorMessage`: 실패 메시지
+
+React의 `useEffect`는 dependency 값이 바뀔 때 다시 실행된다.
+
+```js
+}, [boardCode, page, size, sort]);
+```
+
+따라서 게시판 필터, 페이지, 정렬이 바뀌면 자동으로 목록 API를 다시 호출한다.
+
+`ignore` 변수는 컴포넌트가 사라진 뒤 늦게 도착한 API 응답이 state를 바꾸지 못하게 막는다.
+
+```js
+return () => {
+  ignore = true;
+};
+```
+
+이 패턴은 React에서 비동기 요청을 배울 때 중요하다. 화면을 빠르게 이동하면 이전 요청이 나중에 도착할 수 있기 때문이다.
+
+### 15. 프론트 화면 구성
+
+Phase 4에서는 아직 React Router를 도입하지 않았다. 정식 URL 라우팅은 Phase 10에서 구현한다.
+
+대신 `frontend/src/App.jsx`에서 간단한 상태 기반 화면 전환을 만들었다.
+
+```js
+const [currentView, setCurrentView] = useState("home");
+const [selectedBoardCode, setSelectedBoardCode] = useState("");
+const [selectedPostId, setSelectedPostId] = useState(null);
+```
+
+현재 화면은 세 가지다.
+
+- `home`: 게시판 목록과 최신 게시글
+- `posts`: 게시글 목록
+- `detail`: 게시글 상세
+
+게시판을 누르면:
+
+```js
+function openBoard(boardCode) {
+  setCurrentView("posts");
+  setSelectedBoardCode(boardCode);
+  setSelectedPostId(null);
+}
+```
+
+게시글을 누르면:
+
+```js
+function openPost(postId) {
+  setCurrentView("detail");
+  setSelectedPostId(postId);
+}
+```
+
+이 구조는 React Router보다 기능은 단순하지만, state가 화면을 어떻게 바꾸는지 공부하기에 좋다.
+
+### 16. 페이지 컴포넌트
+
+`HomePage.jsx`는 두 가지 데이터를 가져온다.
+
+- 게시판 목록: `getBoards()`
+- 최신 게시글: `usePostList({ page: 1, size: 5, sort: "latest" })`
+
+`PostListPage.jsx`는 게시판 필터, 정렬, 페이지를 state로 가진다.
+
+```js
+const [boardCode, setBoardCode] = useState(initialBoardCode);
+const [sort, setSort] = useState("latest");
+const [page, setPage] = useState(1);
+```
+
+필터가 바뀌면 첫 페이지로 돌아간다.
+
+```js
+function handleBoardChange(event) {
+  setBoardCode(event.target.value);
+  setPage(1);
+}
+```
+
+`PostDetailPage.jsx`는 `postId`를 받아 상세 API를 호출한다. 상세 API는 조회수를 증가시키므로 상세 화면에 들어갈 때마다 `view_count`가 증가한다.
+
+이미지 URL은 백엔드가 `/uploads/...`처럼 상대 경로를 줄 수 있으므로 프론트에서 API origin을 붙인다.
+
+```js
+const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/, "");
+return `${apiOrigin}${url}`;
+```
+
+이미지 업로드 자체는 Phase 6에서 구현하지만, 상세 응답과 화면 구조는 미리 `images: []`를 다룰 수 있게 준비했다.
+
+### 17. 목록 컴포넌트
+
+`PostList.jsx`는 목록 상태를 표시하는 컴포넌트다.
+
+처리하는 상태:
+
+- 로딩 중
+- 에러
+- 빈 목록
+- 게시글 목록
+
+`PostCard.jsx`는 게시글 하나를 보여준다. 이 컴포넌트는 API를 직접 호출하지 않는다. 전달받은 `post`를 표시하고, 클릭되면 `onSelectPost(post.id)`만 호출한다.
+
+이렇게 만들면 컴포넌트를 두 종류로 나누어 공부할 수 있다.
+
+- data component: API 호출과 state를 가진다.
+- presentational component: props를 화면에 그린다.
+
+### 18. 이번 Phase의 요청/응답 예시
+
+게시판 목록:
+
+```txt
+GET /api/v1/boards
+```
+
+응답:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "code": "REVIEW",
+      "name": "피규어 후기",
+      "description": "피규어 사진과 후기를 공유하는 게시판",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ]
+}
+```
+
+게시글 목록:
+
+```txt
+GET /api/v1/posts?board_code=REVIEW&page=1&size=10&sort=latest
+```
+
+응답 구조:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "size": 10,
+  "total": 0,
+  "has_next": false
+}
+```
+
+게시글 상세:
+
+```txt
+GET /api/v1/posts/1
+```
+
+응답에는 본문, 작성자, 게시판, 피규어 정보, 태그, 이미지 배열이 포함된다.
+
+### 19. 확인 방법
+
+DB와 샘플 데이터 준비:
+
+```bash
+python scripts/seed_boards.py
+python scripts/seed_sample_posts.py
+```
+
+백엔드 실행:
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload
+```
+
+프론트 실행:
+
+```bash
+cd frontend
+npm run dev
+```
+
+API 확인:
+
+```txt
+GET /api/v1/boards
+GET /api/v1/boards/REVIEW
+GET /api/v1/posts?page=1&size=20
+GET /api/v1/posts?board_code=REVIEW
+GET /api/v1/posts/{post_id}
+```
+
+없는 게시글을 조회하면 아래 에러가 나와야 한다.
+
+```json
+{
+  "error": {
+    "code": "POST_NOT_FOUND",
+    "message": "게시글을 찾을 수 없습니다."
+  }
+}
+```
+
+### 20. 이번 Phase에서 배울 수 있는 것
+
+FastAPI:
+
+- path parameter와 query parameter를 함수 인자로 받는 방법
+- `Query(ge=1, le=50)` 같은 선언형 검증
+- `response_model`로 응답 모양을 고정하는 방법
+- dependency로 DB session을 주입받는 방법
+
+SQLAlchemy:
+
+- `select()`로 조회 쿼리를 만드는 방법
+- `join()`으로 게시글과 게시판을 함께 필터링하는 방법
+- `joinedload()`와 `selectinload()`의 차이
+- `offset()`과 `limit()`으로 페이지네이션을 구현하는 방법
+- model 객체의 값을 바꾸고 `commit()`으로 저장하는 방법
+
+PostgreSQL:
+
+- 게시글, 게시판, 사용자, 피규어 정보가 foreign key로 연결되는 방식
+- 목록 조회에서 count query와 data query를 분리하는 이유
+- soft delete 글을 `deleted_at is null` 조건으로 숨기는 방식
+
+React:
+
+- API 호출 함수를 화면 컴포넌트와 분리하는 방법
+- custom hook으로 loading/error/data 상태를 재사용하는 방법
+- `useEffect` dependency가 바뀔 때 데이터를 다시 불러오는 방식
+- state 기반으로 홈, 목록, 상세 화면을 전환하는 방식
+
+### 21. 다음 Phase로 넘어가기 전에 이해해야 할 것
+
+Phase 5에서는 로그인 사용자가 게시글을 작성, 수정, 삭제할 수 있게 된다. 그 전에 아래를 이해하면 좋다.
+
+- 읽기 API는 비회원도 접근 가능하다.
+- 쓰기 API는 `CurrentUser` dependency가 필요하다.
+- 목록 응답과 상세 응답은 다르게 설계하는 것이 좋다.
+- service는 DB 모델을 API 응답 모델로 변환하는 계층이다.
+- repository는 화면 요구사항을 몰라도 되고, DB 조회만 담당한다.
+- 사용자가 URL을 직접 입력하는 필드는 MVP에 포함하지 않는다.
