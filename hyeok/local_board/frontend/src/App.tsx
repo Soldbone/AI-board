@@ -592,6 +592,7 @@ function App() {
             mode={viewMode}
             onCancel={() => { setViewMode(selectedPost ? 'detail' : 'list'); setMessage('') }}
             onChange={updatePostForm}
+            onOpenSimilarPost={(postId) => void openDetail(postId)}
             onSubmit={viewMode === 'create' ? handleCreatePost : handleUpdatePost}
           />
         )}

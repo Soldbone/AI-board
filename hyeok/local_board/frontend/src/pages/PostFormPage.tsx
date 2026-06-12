@@ -22,6 +22,7 @@ type PostFormPageProps = {
   onChange: (field: keyof PostFormState, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
+  onOpenSimilarPost: (postId: number) => void
 }
 
 function parseTagNames(value: string) {
@@ -42,6 +43,7 @@ export function PostFormPage({
   onChange,
   onSubmit,
   onCancel,
+  onOpenSimilarPost,
 }: PostFormPageProps) {
   const isCreateMode = mode === 'create'
   const [similarPosts, setSimilarPosts] = useState<SimilarPostItem[]>([])
@@ -293,7 +295,13 @@ export function PostFormPage({
               <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" key={post.id}>
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-950">{post.title}</h4>
+                    <button
+                      className="text-left text-sm font-bold text-slate-950 transition hover:text-emerald-700"
+                      onClick={() => onOpenSimilarPost(post.id)}
+                      type="button"
+                    >
+                      {post.title}
+                    </button>
                     <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">
                       {post.content_preview}
                     </p>
