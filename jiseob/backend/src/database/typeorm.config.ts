@@ -1,15 +1,32 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { join } from 'path';
 
 const parseBoolean = (value: string | undefined): boolean => value === 'true';
 
-const parsePort = (value: string | undefined): number =>
-  value ? Number(value) : 5432;
+const parsePort = (value: string | undefined): number => (value ? Number(value) : 5432);
 
-const buildDataSourceOptions = (
-  env: NodeJS.ProcessEnv,
-): DataSourceOptions => ({
+const isTsNodeRuntime = (): boolean => process.argv.some((arg) => arg.includes('ts-node'));
+
+const getEntityGlobs = (): string[] => {
+  const sourceRoot = isTsNodeRuntime() ? 'src' : 'dist';
+
+  return [join(process.cwd(), `${sourceRoot}/**/*.entity.${sourceRoot === 'src' ? 'ts' : 'js'}`)];
+};
+
+const getMigrationGlobs = (): string[] => {
+  const sourceRoot = isTsNodeRuntime() ? 'src' : 'dist';
+
+  return [
+    join(
+      process.cwd(),
+      `${sourceRoot}/database/migrations/*.${sourceRoot === 'src' ? 'ts' : 'js'}`,
+    ),
+  ];
+};
+
+const buildDataSourceOptions = (env: NodeJS.ProcessEnv): DataSourceOptions => ({
   type: 'postgres',
   host: env.DATABASE_HOST ?? 'localhost',
   port: parsePort(env.DATABASE_PORT),
@@ -19,13 +36,11 @@ const buildDataSourceOptions = (
   ssl: parseBoolean(env.DATABASE_SSL) ? { rejectUnauthorized: false } : false,
   synchronize: false,
   migrationsRun: false,
-  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  migrations: [__dirname + '/migrations/*{.ts,.js}'],
+  entities: getEntityGlobs(),
+  migrations: getMigrationGlobs(),
 });
 
-export const getTypeOrmModuleOptions = (
-  configService: ConfigService,
-): TypeOrmModuleOptions => ({
+export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmModuleOptions => ({
   ...buildDataSourceOptions({
     DATABASE_HOST: configService.get<string>('DATABASE_HOST'),
     DATABASE_PORT: configService.get<string>('DATABASE_PORT'),
