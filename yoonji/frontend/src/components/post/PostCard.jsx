@@ -14,6 +14,14 @@ function PostCard({ post, onSelectPost }) {
         <h3>{post.title}</h3>
         <p>{post.summary}</p>
 
+        {post.tags.length > 0 && (
+          <div className="post-card-tags" aria-label="post tags">
+            {post.tags.map((tag) => (
+              <span key={tag.id}>{tag.name}</span>
+            ))}
+          </div>
+        )}
+
         <div className="post-card-meta">
           <span>{post.author.nickname}</span>
           <span>댓글 {post.comment_count}</span>

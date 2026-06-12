@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import FigureInfoForm from "./FigureInfoForm";
 import ImageUploader from "./ImageUploader";
+import TagInput from "./TagInput";
 
 
 const WRITABLE_BOARD_CODES = ["REVIEW", "INFO", "QUESTION", "PURCHASE_HELP"];
@@ -37,6 +38,7 @@ function PostForm({
   const [figureInfo, setFigureInfo] = useState(() =>
     buildInitialFigureInfo(initialPost),
   );
+  const [tags, setTags] = useState(() => buildInitialTags(initialPost));
   const [images, setImages] = useState(() => initialPost?.images || []);
 
   useEffect(() => {
@@ -48,6 +50,7 @@ function PostForm({
     setTitle(initialPost.title);
     setContent(initialPost.content);
     setFigureInfo(buildInitialFigureInfo(initialPost));
+    setTags(buildInitialTags(initialPost));
     setImages(initialPost.images || []);
   }, [initialPost]);
 
@@ -84,6 +87,10 @@ function PostForm({
     }
 
     payload.image_ids = images.map((image) => image.id);
+    payload.tags = tags.map((tag) => ({
+      name: tag.name,
+      tag_type: tag.tag_type,
+    }));
 
     onSubmit(payload);
   }
@@ -144,6 +151,12 @@ function PostForm({
         <FigureInfoForm value={figureInfo} onChange={setFigureInfo} />
       )}
 
+      <TagInput
+        disabled={isSubmitting}
+        value={tags}
+        onChange={setTags}
+      />
+
       <ImageUploader
         disabled={isSubmitting}
         value={images}
@@ -165,6 +178,14 @@ function PostForm({
       </div>
     </form>
   );
+}
+
+
+function buildInitialTags(post) {
+  return (post?.tags || []).map((tag) => ({
+    name: tag.name,
+    tag_type: tag.tag_type || "GENERAL",
+  }));
 }
 
 

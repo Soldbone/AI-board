@@ -6,10 +6,11 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.board import Board
-from app.models.enums import BoardCode, PostStatus
+from app.models.enums import BoardCode, PostStatus, TagStatus
 from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
 from app.models.post_tag import PostTag
+from app.models.tag import Tag
 
 PostSort = Literal["latest", "views"]
 
@@ -22,12 +23,13 @@ def list_public_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    normalized_tag: str | None,
     sort: PostSort,
     page: int,
     size: int,
 ) -> list[Post]:
     statement = (
-        _public_posts_statement(board_code=board_code)
+        _public_posts_statement(board_code=board_code, normalized_tag=normalized_tag)
         .options(
             joinedload(Post.board),
             joinedload(Post.author),
@@ -39,6 +41,10 @@ def list_public_posts(
         .offset((page - 1) * size)
         .limit(size)
     )
+
+    if normalized_tag is not None:
+        statement = statement.distinct()
+
     return list(db.scalars(statement).all())
 
 
@@ -46,19 +52,23 @@ def count_public_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    normalized_tag: str | None,
 ) -> int:
-    statement = (
-        select(func.count())
-        .select_from(Post)
-        .join(Post.board)
-        .where(*_public_post_filters(board_code=board_code))
+    statement = select(func.count(Post.id.distinct())).select_from(Post).join(Post.board)
+
+    if normalized_tag is not None:
+        statement = statement.join(Post.tag_links).join(PostTag.tag)
+
+    statement = statement.where(
+        *_public_post_filters(board_code=board_code, normalized_tag=normalized_tag)
     )
+
     return int(db.scalar(statement) or 0)
 
 
 def get_public_post_by_id(db: Session, post_id: int) -> Post | None:
     statement = (
-        _public_posts_statement(board_code=None)
+        _public_posts_statement(board_code=None, normalized_tag=None)
         .options(
             joinedload(Post.board),
             joinedload(Post.author),
@@ -154,13 +164,26 @@ def increment_view_count(post: Post) -> None:
     post.view_count += 1
 
 
-def _public_posts_statement(*, board_code: BoardCode | None) -> Select[tuple[Post]]:
-    return select(Post).join(Post.board).where(
-        *_public_post_filters(board_code=board_code),
+def _public_posts_statement(
+    *,
+    board_code: BoardCode | None,
+    normalized_tag: str | None,
+) -> Select[tuple[Post]]:
+    statement = select(Post).join(Post.board)
+
+    if normalized_tag is not None:
+        statement = statement.join(Post.tag_links).join(PostTag.tag)
+
+    return statement.where(
+        *_public_post_filters(board_code=board_code, normalized_tag=normalized_tag),
     )
 
 
-def _public_post_filters(*, board_code: BoardCode | None) -> list[object]:
+def _public_post_filters(
+    *,
+    board_code: BoardCode | None,
+    normalized_tag: str | None,
+) -> list[object]:
     filters: list[object] = [
         Post.status == PostStatus.PUBLISHED,
         Post.deleted_at.is_(None),
@@ -169,6 +192,14 @@ def _public_post_filters(*, board_code: BoardCode | None) -> list[object]:
 
     if board_code is not None:
         filters.append(Board.code == board_code)
+
+    if normalized_tag is not None:
+        filters.extend(
+            [
+                Tag.normalized_name == normalized_tag,
+                Tag.status == TagStatus.ACTIVE,
+            ]
+        )
 
     return filters
 

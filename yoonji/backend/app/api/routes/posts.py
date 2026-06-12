@@ -21,6 +21,7 @@ router = APIRouter(prefix="/posts", tags=["posts"])
 def list_posts(
     db: DbSession,
     board_code: BoardCode | None = Query(default=None),
+    tag: str | None = Query(default=None, max_length=100),
     sort: Literal["latest", "views"] = Query(default="latest"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
@@ -28,6 +29,7 @@ def list_posts(
     return post_service.list_posts(
         db,
         board_code=board_code,
+        tag=tag,
         sort=sort,
         page=page,
         size=size,

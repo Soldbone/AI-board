@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { getPost, getPosts } from "../api/postApi";
 
@@ -18,6 +18,7 @@ export function usePostList({
   page = 1,
   size = 20,
   sort = "latest",
+  tag = "",
 } = {}) {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +40,10 @@ export function usePostList({
 
         if (boardCode) {
           params.board_code = boardCode;
+        }
+
+        if (tag) {
+          params.tag = tag;
         }
 
         const response = await getPosts(params);
@@ -63,7 +68,7 @@ export function usePostList({
     return () => {
       ignore = true;
     };
-  }, [boardCode, page, size, sort]);
+  }, [boardCode, page, size, sort, tag]);
 
   return {
     data,
@@ -79,10 +84,8 @@ export function usePostDetail(postId) {
   const [isLoading, setIsLoading] = useState(Boolean(postId));
   const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadPost() {
+  const loadPost = useCallback(
+    async ({ silent = false } = {}) => {
       if (!postId) {
         setPost(null);
         setIsLoading(false);
@@ -90,37 +93,42 @@ export function usePostDetail(postId) {
         return;
       }
 
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+      }
+
       setErrorMessage("");
 
       try {
         const response = await getPost(postId);
-
-        if (!ignore) {
-          setPost(response);
-        }
+        setPost(response);
+        return response;
       } catch (error) {
-        if (!ignore) {
-          setPost(null);
-          setErrorMessage(getApiErrorMessage(error));
-        }
+        setPost(null);
+        setErrorMessage(getApiErrorMessage(error));
+        return null;
       } finally {
-        if (!ignore) {
+        if (!silent) {
           setIsLoading(false);
         }
       }
-    }
+    },
+    [postId],
+  );
 
+  useEffect(() => {
     loadPost();
+  }, [loadPost]);
 
-    return () => {
-      ignore = true;
-    };
-  }, [postId]);
+  const reloadPost = useCallback(
+    () => loadPost({ silent: true }),
+    [loadPost],
+  );
 
   return {
     errorMessage,
     isLoading,
     post,
+    reloadPost,
   };
 }

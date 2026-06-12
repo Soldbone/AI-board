@@ -2,6 +2,9 @@ import { useState } from "react";
 
 import { API_BASE_URL } from "../api/client";
 import { deletePost } from "../api/postApi";
+import CommentForm from "../components/comment/CommentForm";
+import CommentList from "../components/comment/CommentList";
+import { useComments } from "../hooks/useComments";
 import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
 
 
@@ -13,7 +16,8 @@ function PostDetailPage({
   onEditPost,
   postId,
 }) {
-  const { errorMessage, isLoading, post } = usePostDetail(postId);
+  const { errorMessage, isLoading, post, reloadPost } = usePostDetail(postId);
+  const comments = useComments(postId);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -35,6 +39,20 @@ function PostDetailPage({
     } finally {
       setIsDeleting(false);
     }
+  }
+
+  async function handleCreateComment(content) {
+    await comments.createComment(content);
+    await reloadPost();
+  }
+
+  async function handleUpdateComment(commentId, content) {
+    await comments.updateComment(commentId, content);
+  }
+
+  async function handleDeleteComment(commentId) {
+    await comments.deleteComment(commentId);
+    await reloadPost();
   }
 
   if (isLoading) {
@@ -169,6 +187,38 @@ function PostDetailPage({
           ))}
         </section>
       )}
+
+      <section className="comments-section" aria-labelledby="comments-title">
+        <div className="comments-heading">
+          <div>
+            <p className="eyebrow">Comments</p>
+            <h3 id="comments-title">댓글 {post.comment_count}</h3>
+          </div>
+        </div>
+
+        <CommentForm
+          currentUser={currentUser}
+          isSubmitting={comments.isSubmitting}
+          onSubmit={handleCreateComment}
+        />
+
+        {comments.actionErrorMessage && (
+          <p className="form-message error">{comments.actionErrorMessage}</p>
+        )}
+
+        <CommentList
+          comments={comments.comments}
+          currentUser={currentUser}
+          data={comments.data}
+          errorMessage={comments.errorMessage}
+          isLoading={comments.isLoading}
+          isSubmitting={comments.isSubmitting}
+          onDelete={handleDeleteComment}
+          onPageChange={comments.setPage}
+          onUpdate={handleUpdateComment}
+          page={comments.page}
+        />
+      </section>
     </article>
   );
 }

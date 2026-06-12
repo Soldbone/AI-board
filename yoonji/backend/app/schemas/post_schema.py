@@ -13,6 +13,7 @@ from app.models.enums import (
     TagType,
 )
 from app.schemas.board_schema import BoardSummary
+from app.schemas.tag_schema import TagRequest
 from app.schemas.user_schema import UserSummary
 
 
@@ -48,6 +49,7 @@ class PostCreateRequest(BaseModel):
     content: str = Field(min_length=1)
     status: PostStatus = PostStatus.PUBLISHED
     figure_info: PostFigureInfoRequest | None = None
+    tags: list[TagRequest] = Field(default_factory=list, max_length=10)
     image_ids: list[int] = Field(default_factory=list, max_length=10)
 
     @field_validator("title", "content")
@@ -70,6 +72,7 @@ class PostUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     content: str | None = Field(default=None, min_length=1)
     figure_info: PostFigureInfoRequest | None = None
+    tags: list[TagRequest] | None = Field(default=None, max_length=10)
     image_ids: list[int] | None = Field(default=None, max_length=10)
 
     @field_validator("title", "content")

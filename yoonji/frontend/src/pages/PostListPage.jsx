@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { getBoards } from "../api/boardApi";
+import { getTags } from "../api/tagApi";
 import PostList from "../components/post/PostList";
 import { getApiErrorMessage, usePostList } from "../hooks/usePosts";
 
@@ -18,13 +19,18 @@ function PostListPage({
   const [boards, setBoards] = useState([]);
   const [boardCode, setBoardCode] = useState(initialBoardCode);
   const [sort, setSort] = useState("latest");
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [tagSuggestions, setTagSuggestions] = useState([]);
   const [page, setPage] = useState(1);
   const [boardErrorMessage, setBoardErrorMessage] = useState("");
+  const [tagErrorMessage, setTagErrorMessage] = useState("");
   const posts = usePostList({
     boardCode,
     page,
     size: PAGE_SIZE,
     sort,
+    tag: tagFilter,
   });
 
   useEffect(() => {
@@ -57,6 +63,37 @@ function PostListPage({
     };
   }, []);
 
+  useEffect(() => {
+    const trimmed = tagQuery.trim();
+
+    if (!trimmed) {
+      setTagSuggestions([]);
+      return;
+    }
+
+    let ignore = false;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await getTags({ q: trimmed, limit: 8 });
+
+        if (!ignore) {
+          setTagSuggestions(response.items);
+          setTagErrorMessage("");
+        }
+      } catch (error) {
+        if (!ignore) {
+          setTagSuggestions([]);
+          setTagErrorMessage(getApiErrorMessage(error));
+        }
+      }
+    }, 180);
+
+    return () => {
+      ignore = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [tagQuery]);
+
   function handleBoardChange(event) {
     setBoardCode(event.target.value);
     setPage(1);
@@ -64,6 +101,21 @@ function PostListPage({
 
   function handleSortChange(event) {
     setSort(event.target.value);
+    setPage(1);
+  }
+
+  function applyTagFilter(tagName = tagQuery) {
+    const trimmed = tagName.trim();
+    setTagFilter(trimmed);
+    setTagQuery(trimmed);
+    setTagSuggestions([]);
+    setPage(1);
+  }
+
+  function clearTagFilter() {
+    setTagFilter("");
+    setTagQuery("");
+    setTagSuggestions([]);
     setPage(1);
   }
 
@@ -104,6 +156,56 @@ function PostListPage({
             </select>
           </label>
 
+          <div className="tag-filter-field">
+            <label>
+              태그
+              <input
+                type="text"
+                value={tagQuery}
+                onChange={(event) => setTagQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyTagFilter();
+                  }
+                }}
+                placeholder="태그 검색"
+              />
+            </label>
+
+            {tagSuggestions.length > 0 && (
+              <div className="tag-suggestion-list compact" aria-label="tag filter suggestions">
+                {tagSuggestions.map((tag) => (
+                  <button
+                    key={`${tag.id}-${tag.tag_type}`}
+                    type="button"
+                    className="tag-suggestion"
+                    onClick={() => applyTagFilter(tag.name)}
+                  >
+                    <span>{tag.name}</span>
+                    <small>{tag.tag_type}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="list-toolbar-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => applyTagFilter()}
+              disabled={!tagQuery.trim()}
+            >
+              태그 적용
+            </button>
+            {tagFilter && (
+              <button type="button" className="text-button" onClick={clearTagFilter}>
+                태그 해제
+              </button>
+            )}
+          </div>
+
           <label>
             정렬
             <select value={sort} onChange={handleSortChange}>
@@ -115,6 +217,12 @@ function PostListPage({
 
         {boardErrorMessage && (
           <p className="form-message error">{boardErrorMessage}</p>
+        )}
+        {tagErrorMessage && (
+          <p className="form-message error">{tagErrorMessage}</p>
+        )}
+        {tagFilter && (
+          <p className="empty-text">선택한 태그: {tagFilter}</p>
         )}
 
         <PostList

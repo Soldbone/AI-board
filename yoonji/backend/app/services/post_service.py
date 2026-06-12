@@ -15,6 +15,7 @@ from app.models.post_tag import PostTag
 from app.models.user import User
 from app.repositories import image_repository
 from app.repositories import post_repository
+from app.services import tag_service
 from app.repositories.post_repository import PostSort
 from app.schemas.board_schema import BoardSummary
 from app.schemas.post_schema import (
@@ -31,6 +32,7 @@ from app.schemas.post_schema import (
     TagSummary,
 )
 from app.schemas.user_schema import UserSummary
+from app.utils.normalizer import normalize_tag_name
 
 MVP_WRITABLE_BOARD_CODES = {
     BoardCode.REVIEW,
@@ -44,14 +46,24 @@ def list_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    tag: str | None,
     sort: PostSort,
     page: int,
     size: int,
 ) -> PostListResponse:
-    total = post_repository.count_public_posts(db, board_code=board_code)
+    normalized_tag = normalize_tag_name(tag) if tag else None
+    if normalized_tag == "":
+        normalized_tag = None
+
+    total = post_repository.count_public_posts(
+        db,
+        board_code=board_code,
+        normalized_tag=normalized_tag,
+    )
     posts = post_repository.list_public_posts(
         db,
         board_code=board_code,
+        normalized_tag=normalized_tag,
         sort=sort,
         page=page,
         size=size,
@@ -125,6 +137,7 @@ def create_post(
                 values=_build_figure_info_values(payload.figure_info),
             )
 
+        tag_service.sync_post_tags(db, post=post, tag_requests=payload.tags)
         _sync_post_images(post=post, images=images)
 
         db.commit()
@@ -179,6 +192,9 @@ def update_post(
         if images is not None:
             _sync_post_images(post=post, images=images)
 
+        if payload.tags is not None:
+            tag_service.sync_post_tags(db, post=post, tag_requests=payload.tags)
+
         db.commit()
         db.refresh(post)
         return _build_post_detail(post)
@@ -197,6 +213,7 @@ def delete_post(
     _ensure_post_author(post, current_user)
 
     try:
+        tag_service.decrement_usage_counts_for_post(post)
         post_repository.soft_delete_post(post)
         db.commit()
     except Exception:
