@@ -8,7 +8,13 @@ import { getApiErrorMessage, usePostList } from "../hooks/usePosts";
 const PAGE_SIZE = 10;
 
 
-function PostListPage({ initialBoardCode = "", onBackHome, onOpenPost }) {
+function PostListPage({
+  initialBoardCode = "",
+  isAuthenticated = false,
+  onBackHome,
+  onOpenPost,
+  onOpenWrite,
+}) {
   const [boards, setBoards] = useState([]);
   const [boardCode, setBoardCode] = useState(initialBoardCode);
   const [sort, setSort] = useState("latest");
@@ -73,9 +79,16 @@ function PostListPage({ initialBoardCode = "", onBackHome, onOpenPost }) {
               {selectedBoard ? selectedBoard.name : "전체 게시글"}
             </h2>
           </div>
-          <button type="button" className="text-button" onClick={onBackHome}>
-            홈으로
-          </button>
+          <div className="heading-actions">
+            {isAuthenticated && (
+              <button type="button" onClick={() => onOpenWrite(boardCode)}>
+                글쓰기
+              </button>
+            )}
+            <button type="button" className="text-button" onClick={onBackHome}>
+              홈으로
+            </button>
+          </div>
         </div>
 
         <div className="list-toolbar">

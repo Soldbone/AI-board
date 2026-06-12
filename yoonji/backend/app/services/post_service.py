@@ -1,24 +1,42 @@
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppException
-from app.models.enums import BoardCode, FigureTargetType, ImageStatus
+from app.models.enums import (
+    BoardCode,
+    FigureTargetType,
+    ImageStatus,
+    PostStatus,
+    PriceRange,
+)
 from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
 from app.models.post_image import PostImage
 from app.models.post_tag import PostTag
+from app.models.user import User
 from app.repositories import post_repository
 from app.repositories.post_repository import PostSort
 from app.schemas.board_schema import BoardSummary
 from app.schemas.post_schema import (
+    PostCreateRequest,
+    PostCreateResponse,
     PostDetailResponse,
     PostFigureInfoResponse,
+    PostFigureInfoRequest,
     PostFigureInfoSummary,
     PostImageResponse,
     PostListItemResponse,
     PostListResponse,
+    PostUpdateRequest,
     TagSummary,
 )
 from app.schemas.user_schema import UserSummary
+
+MVP_WRITABLE_BOARD_CODES = {
+    BoardCode.REVIEW,
+    BoardCode.INFO,
+    BoardCode.QUESTION,
+    BoardCode.PURCHASE_HELP,
+}
 
 
 def list_posts(
@@ -62,6 +80,296 @@ def get_post(db: Session, *, post_id: int) -> PostDetailResponse:
     db.refresh(post)
 
     return _build_post_detail(post)
+
+
+def create_post(
+    db: Session,
+    *,
+    payload: PostCreateRequest,
+    current_user: User,
+) -> PostCreateResponse:
+    board = post_repository.get_active_board_by_code(db, payload.board_code)
+
+    if board is None:
+        raise AppException(
+            "게시판을 찾을 수 없습니다.",
+            code="BOARD_NOT_FOUND",
+            status_code=404,
+        )
+
+    _ensure_mvp_writable_board(board.code)
+    _ensure_published_status(payload.status)
+    _ensure_create_figure_info_rule(board.code, payload.figure_info)
+
+    try:
+        post = post_repository.create_post(
+            db,
+            board=board,
+            author_id=current_user.id,
+            title=payload.title,
+            content=payload.content,
+            status=payload.status,
+        )
+
+        if board.code == BoardCode.REVIEW and payload.figure_info is not None:
+            post_repository.create_figure_info(
+                db,
+                post=post,
+                values=_build_figure_info_values(payload.figure_info),
+            )
+
+        db.commit()
+        db.refresh(post)
+
+        return PostCreateResponse(
+            id=post.id,
+            board_code=board.code,
+            title=post.title,
+            status=post.status,
+            created_at=post.created_at,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+
+def update_post(
+    db: Session,
+    *,
+    post_id: int,
+    payload: PostUpdateRequest,
+    current_user: User,
+) -> PostDetailResponse:
+    post = _get_mutable_post(db, post_id=post_id)
+    _ensure_post_author(post, current_user)
+    _ensure_update_figure_info_rule(post, payload)
+
+    try:
+        if payload.title is not None:
+            post.title = payload.title
+
+        if payload.content is not None:
+            post.content = payload.content
+
+        if (
+            post.board.code == BoardCode.REVIEW
+            and "figure_info" in payload.model_fields_set
+            and payload.figure_info is not None
+        ):
+            _upsert_review_figure_info(db, post=post, payload=payload.figure_info)
+
+        db.commit()
+        db.refresh(post)
+        return _build_post_detail(post)
+    except Exception:
+        db.rollback()
+        raise
+
+
+def delete_post(
+    db: Session,
+    *,
+    post_id: int,
+    current_user: User,
+) -> None:
+    post = _get_mutable_post(db, post_id=post_id)
+    _ensure_post_author(post, current_user)
+
+    try:
+        post_repository.soft_delete_post(post)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _ensure_mvp_writable_board(board_code: BoardCode) -> None:
+    if board_code in MVP_WRITABLE_BOARD_CODES:
+        return
+
+    raise AppException(
+        "MVP에서는 REVIEW, INFO, QUESTION, PURCHASE_HELP 게시판에만 글을 작성할 수 있습니다.",
+        code="BOARD_NOT_WRITABLE_IN_MVP",
+        status_code=400,
+    )
+
+
+def _ensure_published_status(status: PostStatus) -> None:
+    if status == PostStatus.PUBLISHED:
+        return
+
+    raise AppException(
+        "MVP에서는 PUBLISHED 상태의 게시글만 작성할 수 있습니다.",
+        code="POST_STATUS_NOT_SUPPORTED_IN_MVP",
+        status_code=400,
+    )
+
+
+def _ensure_create_figure_info_rule(
+    board_code: BoardCode,
+    figure_info: PostFigureInfoRequest | None,
+) -> None:
+    if board_code == BoardCode.REVIEW:
+        if figure_info is None:
+            raise AppException(
+                "후기 게시판은 피규어 정보가 필요합니다.",
+                code="FIGURE_INFO_REQUIRED",
+                status_code=400,
+            )
+
+        _validate_review_figure_info_values(_build_figure_info_values(figure_info))
+        return
+
+    if figure_info is not None:
+        raise AppException(
+            "피규어 정보는 후기 게시판(REVIEW)에서만 입력할 수 있습니다.",
+            code="FIGURE_INFO_ONLY_FOR_REVIEW",
+            status_code=400,
+        )
+
+
+def _ensure_update_figure_info_rule(post: Post, payload: PostUpdateRequest) -> None:
+    if "figure_info" not in payload.model_fields_set or payload.figure_info is None:
+        return
+
+    if post.board.code == BoardCode.REVIEW:
+        return
+
+    raise AppException(
+        "피규어 정보는 후기 게시판(REVIEW)에서만 수정할 수 있습니다.",
+        code="FIGURE_INFO_ONLY_FOR_REVIEW",
+        status_code=400,
+    )
+
+
+def _get_mutable_post(db: Session, *, post_id: int) -> Post:
+    post = post_repository.get_post_for_write_action(db, post_id)
+
+    if post is None:
+        raise AppException(
+            "게시글을 찾을 수 없습니다.",
+            code="POST_NOT_FOUND",
+            status_code=404,
+        )
+
+    return post
+
+
+def _ensure_post_author(post: Post, current_user: User) -> None:
+    if post.author_id == current_user.id:
+        return
+
+    raise AppException(
+        "작성자만 게시글을 수정하거나 삭제할 수 있습니다.",
+        code="POST_AUTHOR_REQUIRED",
+        status_code=403,
+    )
+
+
+def _upsert_review_figure_info(
+    db: Session,
+    *,
+    post: Post,
+    payload: PostFigureInfoRequest,
+) -> PostFigureInfo:
+    figure_info = _primary_figure_info(post)
+    values = _merge_figure_info_values(figure_info, payload)
+    _validate_review_figure_info_values(values)
+
+    if figure_info is None:
+        return post_repository.create_figure_info(
+            db,
+            post=post,
+            values=values,
+        )
+
+    return post_repository.update_figure_info(figure_info, values=values)
+
+
+def _build_figure_info_values(payload: PostFigureInfoRequest) -> dict:
+    return {
+        "figure_name_text": payload.figure_name,
+        "manufacturer_text": payload.manufacturer,
+        "figure_type": payload.figure_type,
+        "price_amount": payload.price_amount,
+        "price_range": payload.price_range or PriceRange.UNKNOWN,
+        "purchase_date": payload.purchase_date,
+        "satisfaction_score": payload.satisfaction_score,
+        "target_type": payload.target_type,
+    }
+
+
+def _merge_figure_info_values(
+    figure_info: PostFigureInfo | None,
+    payload: PostFigureInfoRequest,
+) -> dict:
+    values = _figure_info_to_values(figure_info)
+    incoming = payload.model_dump(exclude_unset=True)
+
+    field_map = {
+        "figure_name": "figure_name_text",
+        "manufacturer": "manufacturer_text",
+    }
+
+    for field_name, value in incoming.items():
+        model_field_name = field_map.get(field_name, field_name)
+        values[model_field_name] = value
+
+    if values.get("price_range") is None:
+        values["price_range"] = PriceRange.UNKNOWN
+
+    if values.get("target_type") is None:
+        values["target_type"] = FigureTargetType.REVIEW_TARGET
+
+    return values
+
+
+def _figure_info_to_values(figure_info: PostFigureInfo | None) -> dict:
+    if figure_info is None:
+        return {
+            "figure_name_text": None,
+            "manufacturer_text": None,
+            "figure_type": None,
+            "price_amount": None,
+            "price_range": PriceRange.UNKNOWN,
+            "purchase_date": None,
+            "satisfaction_score": None,
+            "target_type": FigureTargetType.REVIEW_TARGET,
+        }
+
+    return {
+        "figure_name_text": figure_info.figure_name_text,
+        "manufacturer_text": figure_info.manufacturer_text,
+        "figure_type": figure_info.figure_type,
+        "price_amount": figure_info.price_amount,
+        "price_range": figure_info.price_range,
+        "purchase_date": figure_info.purchase_date,
+        "satisfaction_score": figure_info.satisfaction_score,
+        "target_type": figure_info.target_type,
+    }
+
+
+def _validate_review_figure_info_values(values: dict) -> None:
+    if values.get("target_type") != FigureTargetType.REVIEW_TARGET:
+        raise AppException(
+            "MVP 후기 게시글의 피규어 정보는 REVIEW_TARGET만 사용할 수 있습니다.",
+            code="UNSUPPORTED_FIGURE_TARGET_TYPE",
+            status_code=400,
+        )
+
+    if not values.get("figure_name_text"):
+        raise AppException(
+            "후기 게시판은 피규어명이 필요합니다.",
+            code="FIGURE_NAME_REQUIRED",
+            status_code=400,
+        )
+
+    if values.get("satisfaction_score") is None:
+        raise AppException(
+            "후기 게시판은 만족도 점수가 필요합니다.",
+            code="SATISFACTION_SCORE_REQUIRED",
+            status_code=400,
+        )
 
 
 def _build_post_list_item(post: Post) -> PostListItemResponse:

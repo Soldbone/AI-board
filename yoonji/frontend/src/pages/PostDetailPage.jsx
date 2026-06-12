@@ -1,9 +1,41 @@
+import { useState } from "react";
+
 import { API_BASE_URL } from "../api/client";
-import { usePostDetail } from "../hooks/usePosts";
+import { deletePost } from "../api/postApi";
+import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
 
 
-function PostDetailPage({ onBackHome, onBackToList, postId }) {
+function PostDetailPage({
+  currentUser,
+  onBackHome,
+  onBackToList,
+  onDeleted,
+  onEditPost,
+  postId,
+}) {
   const { errorMessage, isLoading, post } = usePostDetail(postId);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  async function handleDelete() {
+    const confirmed = window.confirm("게시글을 삭제할까요?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteErrorMessage("");
+
+    try {
+      await deletePost(post.id);
+      onDeleted();
+    } catch (error) {
+      setDeleteErrorMessage(getApiErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   if (isLoading) {
     return <p className="empty-text">게시글을 불러오는 중입니다.</p>;
@@ -28,6 +60,8 @@ function PostDetailPage({ onBackHome, onBackToList, postId }) {
     );
   }
 
+  const isAuthor = currentUser?.id === post.author.id;
+
   return (
     <article className="post-detail">
       <div className="detail-actions">
@@ -37,7 +71,31 @@ function PostDetailPage({ onBackHome, onBackToList, postId }) {
         <button type="button" className="text-button" onClick={onBackHome}>
           홈으로
         </button>
+
+        {isAuthor && (
+          <>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => onEditPost(post.id)}
+            >
+              수정
+            </button>
+            <button
+              type="button"
+              className="danger-button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              삭제
+            </button>
+          </>
+        )}
       </div>
+
+      {deleteErrorMessage && (
+        <p className="form-message error">{deleteErrorMessage}</p>
+      )}
 
       <header className="detail-header">
         <p className="eyebrow">{post.board.name}</p>

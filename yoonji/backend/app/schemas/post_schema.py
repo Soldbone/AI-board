@@ -1,9 +1,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import (
+    BoardCode,
     FigureTargetType,
     FigureType,
     PostSourceType,
@@ -19,6 +20,71 @@ class TagSummary(BaseModel):
     id: int
     name: str
     tag_type: TagType
+
+
+class PostFigureInfoRequest(BaseModel):
+    figure_name: str | None = Field(default=None, max_length=200)
+    manufacturer: str | None = Field(default=None, max_length=200)
+    figure_type: FigureType | None = None
+    price_amount: Decimal | None = Field(default=None, ge=0)
+    price_range: PriceRange | None = None
+    purchase_date: date | None = None
+    satisfaction_score: int | None = Field(default=None, ge=1, le=5)
+    target_type: FigureTargetType = FigureTargetType.REVIEW_TARGET
+
+    @field_validator("figure_name", "manufacturer")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+        return stripped or None
+
+
+class PostCreateRequest(BaseModel):
+    board_code: BoardCode
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1)
+    status: PostStatus = PostStatus.PUBLISHED
+    figure_info: PostFigureInfoRequest | None = None
+
+    @field_validator("title", "content")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("must not be blank")
+
+        return stripped
+
+
+class PostUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    content: str | None = Field(default=None, min_length=1)
+    figure_info: PostFigureInfoRequest | None = None
+
+    @field_validator("title", "content")
+    @classmethod
+    def strip_optional_required_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("must not be blank")
+
+        return stripped
+
+
+class PostCreateResponse(BaseModel):
+    id: int
+    board_code: BoardCode
+    title: str
+    status: PostStatus
+    created_at: datetime
 
 
 class PostFigureInfoSummary(BaseModel):

@@ -11,3 +11,20 @@ export async function getPost(postId) {
   const response = await axiosInstance.get(`/posts/${postId}`);
   return response.data;
 }
+
+
+export async function createPost(payload) {
+  const response = await axiosInstance.post("/posts", payload);
+  return response.data;
+}
+
+
+export async function updatePost(postId, payload) {
+  const response = await axiosInstance.patch(`/posts/${postId}`, payload);
+  return response.data;
+}
+
+
+export async function deletePost(postId) {
+  await axiosInstance.delete(`/posts/${postId}`);
+}

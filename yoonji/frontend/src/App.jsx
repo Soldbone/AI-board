@@ -6,7 +6,9 @@ import { useAuth } from "./hooks/useAuth";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import PostDetailPage from "./pages/PostDetailPage";
+import PostEditPage from "./pages/PostEditPage";
 import PostListPage from "./pages/PostListPage";
+import PostWritePage from "./pages/PostWritePage";
 import SignupPage from "./pages/SignupPage";
 
 
@@ -69,17 +71,40 @@ function App() {
     setSelectedPostId(postId);
   }
 
+  function openWrite(boardCode = "") {
+    setCurrentView("write");
+    setSelectedBoardCode(boardCode);
+    setSelectedPostId(null);
+  }
+
+  function openEdit(postId) {
+    setCurrentView("edit");
+    setSelectedPostId(postId);
+  }
+
   function backToList() {
     setCurrentView("posts");
     setSelectedPostId(null);
   }
 
+  function handlePostCreated(postId) {
+    openPost(postId);
+  }
+
+  function handlePostSaved(postId) {
+    openPost(postId);
+  }
+
+  function handlePostDeleted() {
+    backToList();
+  }
+
   return (
     <main className="app-shell">
       <section className="app-header" aria-labelledby="app-title">
-        <div className="phase-label">Phase 4</div>
+        <div className="phase-label">Phase 5</div>
         <h1 id="app-title">Figure Community</h1>
-        <p className="subtitle">게시판 목록과 게시글 읽기</p>
+        <p className="subtitle">게시글 작성, 수정, 삭제를 연습하는 MVP 게시판</p>
       </section>
 
       <section className="status-strip" aria-label="connection status">
@@ -128,16 +153,39 @@ function App() {
           {currentView === "posts" && (
             <PostListPage
               initialBoardCode={selectedBoardCode}
+              isAuthenticated={auth.isAuthenticated}
               onBackHome={openHome}
               onOpenPost={openPost}
+              onOpenWrite={openWrite}
             />
           )}
 
           {currentView === "detail" && (
             <PostDetailPage
+              currentUser={auth.user}
               postId={selectedPostId}
               onBackHome={openHome}
               onBackToList={backToList}
+              onDeleted={handlePostDeleted}
+              onEditPost={openEdit}
+            />
+          )}
+
+          {currentView === "write" && (
+            <PostWritePage
+              currentUser={auth.user}
+              initialBoardCode={selectedBoardCode}
+              onCancel={backToList}
+              onCreated={handlePostCreated}
+            />
+          )}
+
+          {currentView === "edit" && (
+            <PostEditPage
+              currentUser={auth.user}
+              postId={selectedPostId}
+              onCancel={() => openPost(selectedPostId)}
+              onSaved={handlePostSaved}
             />
           )}
         </section>
@@ -178,7 +226,7 @@ function AccountPanel({ auth }) {
 
         <div className="account-actions">
           <button type="button" onClick={auth.loadMe}>
-            내 정보 조회
+            내 정보 새로고침
           </button>
           <button type="button" className="secondary-button" onClick={auth.logout}>
             로그아웃
