@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic-settings
+SQLAlchemy
+psycopg[binary]
+alembic
+PyJWT
+pwdlib[argon2]
+cryptography
+httpx
+pytest
