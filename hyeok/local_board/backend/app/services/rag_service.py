@@ -1,4 +1,6 @@
 import re
+from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -10,28 +12,7 @@ from app.models.tag import Tag, post_tags
 DEFAULT_SIMILAR_POST_LIMIT = 5
 MAX_SIMILAR_POST_LIMIT = 5
 SEARCH_CANDIDATE_LIMIT = 100
-
-STOPWORDS = {
-    "그리고",
-    "궁금",
-    "궁금해요",
-    "근처",
-    "너무",
-    "대해",
-    "또는",
-    "리뷰",
-    "있는",
-    "있나요",
-    "어때요",
-    "좀",
-    "좋은",
-    "추천",
-    "추천해주세요",
-    "하고",
-    "합니다",
-    "후기",
-    "해주세요",
-}
+STOPWORDS_FILE = Path(__file__).resolve().parents[1] / "data" / "rag_stopwords_ko.txt"
 
 FIELD_WEIGHTS = {
     "title": 4,
@@ -58,13 +39,38 @@ def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+@lru_cache(maxsize=1)
+def load_stopwords() -> set[str]:
+    stopwords: set[str] = set()
+
+    with STOPWORDS_FILE.open(encoding="utf-8") as file:
+        for line in file:
+            word = normalize_keyword(line)
+
+            if word and not word.startswith("#"):
+                stopwords.add(word)
+
+    return stopwords
+
+
+def remove_stopword_phrases(text: str, stopwords: set[str]) -> str:
+    cleaned_text = text.lower()
+
+    for stopword in stopwords:
+        if " " in stopword:
+            cleaned_text = cleaned_text.replace(stopword, " ")
+
+    return cleaned_text
+
+
 def extract_keywords(
     title: str,
     content: str,
     tag_names: list[str] | None = None,
     limit: int = 20,
 ) -> list[str]:
-    raw_text = f"{title} {content}"
+    stopwords = load_stopwords()
+    raw_text = remove_stopword_phrases(f"{title} {content}", stopwords)
     words = re.findall(r"[0-9a-zA-Z가-힣]+", raw_text.lower())
     keywords: list[str] = []
 
@@ -73,7 +79,7 @@ def extract_keywords(
 
         if (
             len(cleaned_word) >= 2
-            and cleaned_word not in STOPWORDS
+            and cleaned_word not in stopwords
             and cleaned_word not in keywords
         ):
             keywords.append(cleaned_word)
@@ -81,7 +87,11 @@ def extract_keywords(
     for tag_name in tag_names or []:
         cleaned_tag = normalize_keyword(tag_name)
 
-        if len(cleaned_tag) >= 2 and cleaned_tag not in keywords:
+        if (
+            len(cleaned_tag) >= 2
+            and cleaned_tag not in stopwords
+            and cleaned_tag not in keywords
+        ):
             keywords.append(cleaned_tag)
 
     return keywords[:limit]

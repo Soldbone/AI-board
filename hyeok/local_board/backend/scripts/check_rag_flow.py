@@ -10,7 +10,7 @@ sys.path.append(str(BACKEND_DIR))
 from app.database import SessionLocal
 from app.models.post import Post
 from app.models.user import User
-from app.services.rag_service import find_similar_posts
+from app.services.rag_service import extract_keywords, find_similar_posts
 
 
 def assert_condition(condition: bool, message: str) -> None:
@@ -22,6 +22,20 @@ def check_empty_input(db) -> None:
     results = find_similar_posts(db, title="", content="", tag_names=[], limit=5)
     assert_condition(results == [], "빈 입력은 빈 배열을 반환해야 합니다.")
     print("PASS empty input")
+
+
+def check_stopwords() -> None:
+    keywords = extract_keywords(
+        title="둔전역 진샤이 어때요?",
+        content="가보신 분 후기 궁금해요",
+        tag_names=[],
+    )
+
+    assert_condition("진샤이" in keywords, "핵심 키워드는 남아야 합니다.")
+    assert_condition("어때요" not in keywords, "불용어는 키워드에서 제외되어야 합니다.")
+    assert_condition("가보신" not in keywords, "불용어는 키워드에서 제외되어야 합니다.")
+    assert_condition("궁금해요" not in keywords, "불용어는 키워드에서 제외되어야 합니다.")
+    print("PASS stopwords")
 
 
 def check_no_result(db) -> None:
@@ -84,6 +98,7 @@ def main() -> None:
     db = SessionLocal()
 
     try:
+        check_stopwords()
         check_empty_input(db)
         check_no_result(db)
         check_limit(db)
