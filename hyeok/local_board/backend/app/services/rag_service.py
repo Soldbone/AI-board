@@ -29,6 +29,26 @@ STOPWORDS = {
     "해주세요",
 }
 
+FIELD_WEIGHTS = {
+    "title": 4,
+    "store_name": 4,
+    "tag": 3,
+    "category": 2,
+    "region": 2,
+    "content": 1,
+    "comment": 1,
+}
+
+FIELD_LABELS = {
+    "title": "제목",
+    "store_name": "가게명",
+    "tag": "태그",
+    "category": "분류",
+    "region": "동네",
+    "content": "본문",
+    "comment": "댓글",
+}
+
 
 def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
@@ -63,38 +83,70 @@ def extract_keywords(
     return keywords[:limit]
 
 
-def calculate_score(
+def calculate_match_detail(
     post: Post,
     tag_names: list[str],
     comment_text: str,
     matched_keywords: list[str],
-) -> int:
+) -> dict:
     score = 0
-    title = post.title.lower()
-    content = post.content.lower()
-    region = (post.region or "").lower()
-    store_name = (post.store_name or "").lower()
-    category = (post.category or "").lower()
-    tag_text = " ".join(tag_names).lower()
-    comments = comment_text.lower()
+    matched_fields: list[str] = []
+    fields = {
+        "title": post.title.lower(),
+        "store_name": (post.store_name or "").lower(),
+        "tag": " ".join(tag_names).lower(),
+        "category": (post.category or "").lower(),
+        "region": (post.region or "").lower(),
+        "content": post.content.lower(),
+        "comment": comment_text.lower(),
+    }
 
     for keyword in matched_keywords:
-        if keyword in title:
-            score += 4
-        if keyword in store_name:
-            score += 4
-        if keyword in tag_text:
-            score += 3
-        if keyword in category:
-            score += 2
-        if keyword in region:
-            score += 2
-        if keyword in content:
-            score += 1
-        if keyword in comments:
-            score += 1
+        for field_name, field_text in fields.items():
+            if field_text and keyword in field_text:
+                score += FIELD_WEIGHTS[field_name]
 
-    return score
+                field_label = FIELD_LABELS[field_name]
+                if field_label not in matched_fields:
+                    matched_fields.append(field_label)
+
+    return {
+        "score": score,
+        "matched_fields": matched_fields,
+    }
+
+
+def get_post_tag_names(db: Session, post_id: int) -> list[str]:
+    tag_rows = (
+        db.query(Tag.name)
+        .join(post_tags, Tag.id == post_tags.c.tag_id)
+        .filter(post_tags.c.post_id == post_id)
+        .all()
+    )
+
+    return [tag_name for (tag_name,) in tag_rows]
+
+
+def get_post_comment_text(db: Session, post_id: int) -> str:
+    comment_rows = (
+        db.query(Comment.content)
+        .filter(
+            Comment.post_id == post_id,
+            Comment.deleted_at.is_(None),
+        )
+        .limit(10)
+        .all()
+    )
+
+    return " ".join(comment for (comment,) in comment_rows)
+
+
+def build_searchable_text(post: Post, tag_names: list[str], comment_text: str) -> str:
+    return (
+        f"{post.title} {post.content} {post.region or ''} "
+        f"{post.store_name or ''} {post.category or ''} "
+        f"{' '.join(tag_names)} {comment_text}"
+    ).lower()
 
 
 def find_similar_posts(
@@ -120,29 +172,9 @@ def find_similar_posts(
     results = []
 
     for post in posts:
-        tag_rows = (
-            db.query(Tag.name)
-            .join(post_tags, Tag.id == post_tags.c.tag_id)
-            .filter(post_tags.c.post_id == post.id)
-            .all()
-        )
-        comment_rows = (
-            db.query(Comment.content)
-            .filter(
-                Comment.post_id == post.id,
-                Comment.deleted_at.is_(None),
-            )
-            .limit(10)
-            .all()
-        )
-
-        post_tag_names = [tag_name for (tag_name,) in tag_rows]
-        comment_text = " ".join(comment for (comment,) in comment_rows)
-        searchable_text = (
-            f"{post.title} {post.content} {post.region or ''} "
-            f"{post.store_name or ''} {post.category or ''} "
-            f"{' '.join(post_tag_names)} {comment_text}"
-        ).lower()
+        post_tag_names = get_post_tag_names(db, post.id)
+        comment_text = get_post_comment_text(db, post.id)
+        searchable_text = build_searchable_text(post, post_tag_names, comment_text)
 
         matched_keywords = [
             keyword for keyword in keywords
@@ -152,6 +184,13 @@ def find_similar_posts(
         if not matched_keywords:
             continue
 
+        match_detail = calculate_match_detail(
+            post=post,
+            tag_names=post_tag_names,
+            comment_text=comment_text,
+            matched_keywords=matched_keywords,
+        )
+
         results.append(
             {
                 "id": post.id,
@@ -160,8 +199,9 @@ def find_similar_posts(
                 "region": post.region,
                 "store_name": post.store_name,
                 "category": post.category,
-                "score": calculate_score(post, post_tag_names, comment_text, matched_keywords),
+                "score": match_detail["score"],
                 "matched_keywords": matched_keywords,
+                "matched_fields": match_detail["matched_fields"],
                 "created_at": post.created_at,
             }
         )
@@ -193,7 +233,9 @@ def suggest_tags(
     tag_scores: dict[str, int] = {}
 
     for post in posts:
-        searchable_text = f"{post.title} {post.content}".lower()
+        post_tag_names = get_post_tag_names(db, post.id)
+        comment_text = get_post_comment_text(db, post.id)
+        searchable_text = build_searchable_text(post, post_tag_names, comment_text)
 
         matched_keywords = [
             keyword for keyword in keywords
@@ -203,15 +245,15 @@ def suggest_tags(
         if not matched_keywords:
             continue
 
-        tag_rows = (
-            db.query(Tag.name)
-            .join(post_tags, Tag.id == post_tags.c.tag_id)
-            .filter(post_tags.c.post_id == post.id)
-            .all()
+        match_detail = calculate_match_detail(
+            post=post,
+            tag_names=post_tag_names,
+            comment_text=comment_text,
+            matched_keywords=matched_keywords,
         )
 
-        for (tag_name,) in tag_rows:
-            tag_scores[tag_name] = tag_scores.get(tag_name, 0) + len(matched_keywords)
+        for tag_name in post_tag_names:
+            tag_scores[tag_name] = tag_scores.get(tag_name, 0) + match_detail["score"]
 
     results = [
         {"name": tag_name, "score": score}

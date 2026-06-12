@@ -467,13 +467,13 @@ function App() {
     if (currentUser) {
       return (
         <>
-          <span className="rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+          <span className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
             {currentUser.nickname}님
           </span>
-          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { setViewMode('profile'); setMessage('') }} type="button">
+          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('profile'); setMessage('') }} type="button">
             마이페이지
           </button>
-          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={handleLogout} type="button">
+          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={handleLogout} type="button">
             로그아웃
           </button>
         </>
@@ -482,10 +482,10 @@ function App() {
 
     return (
       <>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { setViewMode('login'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('login'); setMessage('') }} type="button">
           로그인
         </button>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { setViewMode('signup'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('signup'); setMessage('') }} type="button">
           회원가입
         </button>
       </>
@@ -493,26 +493,27 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-5 py-8 pt-40 md:pt-32">
-      <section className="mx-auto max-w-5xl">
+    <main className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef7f2_48%,#f8fafc_100%)] px-4 py-8 pt-44 md:px-6 md:pt-32">
+      <section className="mx-auto max-w-6xl">
         <header className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur-md">
-          <div className="mx-auto max-w-7xl px-4 py-4 md:px-6">
-            <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
-              <div className="hidden flex-1 md:block" />
-
-              <button className="flex-1 text-center" onClick={goList} type="button">
-                <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">여기저기</h1>
-                <p className="mt-1.5 text-xs text-slate-500 md:text-sm">
+          <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <button className="text-left" onClick={goList} type="button">
+                <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  Local Board
+                </span>
+                <h1 className="mt-1 text-3xl font-bold text-slate-950 md:text-4xl">여기저기</h1>
+                <p className="mt-1 text-xs text-slate-500 md:text-sm">
                   우리동네 솔직 리뷰 게시판 · 전체 {totalCount}개
                 </p>
               </button>
 
-              <div className="flex flex-1 flex-wrap items-center justify-center gap-2 md:justify-end">
+              <div className="flex flex-wrap items-center gap-2">
                 {renderHeaderActions()}
-                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page, { sort: activeSort }) }} type="button">
+                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page, { sort: activeSort }) }} type="button">
                   목록
                 </button>
-                <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!hasAccessToken} onClick={openCreateForm} type="button">
+                <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!hasAccessToken} onClick={openCreateForm} type="button">
                   글쓰기
                 </button>
               </div>
@@ -520,7 +521,7 @@ function App() {
           </div>
         </header>
 
-        {message && <div className="mb-4 rounded-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">{message}</div>}
+        {message && <div className="mb-4 rounded-lg border border-emerald-100 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm">{message}</div>}
 
         {viewMode === 'list' && (
           <PostListPage

@@ -16,6 +16,7 @@ export type SimilarPostItem = {
   category: string | null
   score: number
   matched_keywords: string[]
+  matched_fields: string[]
   created_at: string
 }
 

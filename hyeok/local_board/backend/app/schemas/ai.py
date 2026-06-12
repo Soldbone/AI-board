@@ -19,6 +19,7 @@ class SimilarPostItem(BaseModel):
     category: str | None
     score: int
     matched_keywords: list[str]
+    matched_fields: list[str]
     created_at: datetime
 
 
