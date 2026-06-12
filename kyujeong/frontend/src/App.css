@@ -103,41 +103,6 @@
   border-radius: 999px;
 }
 
-.main-nav {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-  gap: 8px;
-  min-width: 0;
-}
-
-.main-nav button {
-  position: relative;
-  border: 0;
-  padding: 0 22px;
-  background: transparent;
-  color: #28332d;
-  font: inherit;
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.main-nav button.active {
-  color: #13833b;
-  font-weight: 800;
-}
-
-.main-nav button.active::after {
-  position: absolute;
-  right: 12px;
-  bottom: 0;
-  left: 12px;
-  height: 3px;
-  border-radius: 999px 999px 0 0;
-  background: #159447;
-  content: '';
-}
-
 .top-search,
 .board-search {
   position: relative;
@@ -980,19 +945,24 @@
 
 .mypage-view {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  min-height: 620px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 680px;
+  background: #ffffff;
 }
 
 .mypage-menu {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
   border-right: 1px solid #dde7e0;
-  padding: 34px 24px;
+  padding: 38px 26px;
+  background: linear-gradient(180deg, #fbfdfb 0%, #ffffff 100%);
 }
 
 .mypage-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-height: 46px;
   border: 0;
   border-radius: 8px;
@@ -1005,52 +975,137 @@
   text-align: left;
 }
 
+.mypage-menu button span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: #7a877f;
+  font-size: 13px;
+}
+
 .mypage-menu button.active {
   background: #eaf7ee;
   color: #13833b;
 }
 
+.mypage-menu button.active span {
+  color: #13833b;
+}
+
 .mypage-card {
-  padding: 42px;
+  display: grid;
+  align-content: start;
+  gap: 26px;
+  padding: 42px 48px 48px;
+}
+
+.mypage-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mypage-ready-pill {
+  border: 1px solid #dbe5df;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #526057;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .mypage-profile {
   display: flex;
   gap: 22px;
   align-items: center;
-  margin-top: 24px;
-  padding-bottom: 28px;
+  padding-bottom: 26px;
   border-bottom: 1px solid #e2e9e5;
 }
 
 .mypage-avatar {
+  position: relative;
   display: grid;
-  width: 76px;
-  height: 76px;
+  width: 82px;
+  height: 82px;
   place-items: center;
   border: 1px solid #cfe4d5;
   border-radius: 50%;
-  background: #dff2d9;
+  background:
+    radial-gradient(circle at 50% 33%, #f7b76a 0 6px, transparent 7px),
+    linear-gradient(180deg, #dff2d9 0%, #ccecca 100%);
   color: #147c3a;
   font-size: 28px;
+  font-weight: 900;
+}
+
+.mypage-avatar::before,
+.mypage-avatar::after {
+  position: absolute;
+  content: '';
+  background: #62a95e;
+}
+
+.mypage-avatar::before {
+  top: 17px;
+  left: 24px;
+  width: 34px;
+  height: 29px;
+  border-radius: 17px 17px 12px 12px;
+}
+
+.mypage-avatar::after {
+  top: 25px;
+  left: 18px;
+  width: 46px;
+  height: 13px;
+  border-radius: 999px;
+}
+
+.mypage-avatar span {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.mypage-profile-copy {
+  min-width: 0;
+}
+
+.mypage-profile-copy p {
+  margin: 0 0 8px;
+  color: #13833b;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .mypage-profile h1 {
   margin: 0;
   color: #101812;
-  font-size: 30px;
+  font-size: 32px;
+  line-height: 1.2;
 }
 
-.mypage-profile p {
+.mypage-profile-copy span {
+  display: block;
+  overflow: hidden;
   margin: 8px 0 0;
   color: #66736b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mypage-info {
   display: grid;
   margin: 0;
-  padding: 10px 0 24px;
+  padding: 0;
 }
 
 .mypage-info div {
@@ -1069,12 +1124,24 @@
 .mypage-info dd {
   margin: 0;
   color: #253029;
+  overflow-wrap: anywhere;
+}
+
+.mypage-overview {
+  display: grid;
+  gap: 16px;
+}
+
+.mypage-overview h2 {
+  margin: 0;
+  color: #101812;
+  font-size: 20px;
 }
 
 .mypage-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .mypage-stats div {
@@ -1096,7 +1163,7 @@
   display: block;
   margin-top: 8px;
   color: #101812;
-  font-size: 28px;
+  font-size: clamp(18px, 2vw, 28px);
 }
 
 .mypage-state {
@@ -1110,10 +1177,16 @@
   color: #b42318;
 }
 
+.mypage-state.compact {
+  min-height: 110px;
+  border: 1px solid #e2e9e5;
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+
 .mypage-posts {
   display: grid;
   gap: 22px;
-  margin-top: 24px;
 }
 
 .mypage-section-heading h1 {
@@ -1125,6 +1198,94 @@
 .mypage-section-heading p {
   margin: 10px 0 0;
   color: #66736b;
+}
+
+.mypage-section-heading.compact h1 {
+  font-size: 22px;
+}
+
+.mypage-section-heading.compact p {
+  font-size: 14px;
+}
+
+.mypage-activity-card {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid #e2e9e5;
+  padding-top: 24px;
+}
+
+.mypage-activity-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mypage-activity-list button {
+  display: grid;
+  grid-template-columns: 98px minmax(0, 1fr) 108px;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid #e2e9e5;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #ffffff;
+  color: #253029;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.mypage-activity-list button:hover strong {
+  color: #13833b;
+}
+
+.activity-type {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: #e3f5e8;
+  color: #13833b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.activity-type.comment {
+  background: #fff1dc;
+  color: #c66a16;
+}
+
+.mypage-activity-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mypage-activity-list time {
+  color: #66736b;
+  font-size: 13px;
+  text-align: right;
+}
+
+.mypage-more-button {
+  justify-self: center;
+  min-width: 120px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #253029;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.mypage-more-button::after {
+  content: ' >';
 }
 
 .mypage-post-list {
@@ -3130,12 +3291,6 @@
     padding: 24px;
   }
 
-  .main-nav {
-    order: 3;
-    height: 58px;
-    overflow-x: auto;
-  }
-
   .user-area {
     justify-content: flex-start;
   }
@@ -3186,6 +3341,14 @@
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid #dde7e0;
+  }
+
+  .mypage-card {
+    padding: 34px 32px 38px;
+  }
+
+  .mypage-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .login-hero {
@@ -3308,6 +3471,11 @@
     padding: 28px 18px;
   }
 
+  .mypage-topbar {
+    align-items: flex-start;
+    display: grid;
+  }
+
   .mypage-menu {
     display: flex;
     flex-wrap: wrap;
@@ -3318,12 +3486,18 @@
 
   .mypage-menu button {
     flex: 1 1 140px;
+    justify-content: center;
     text-align: center;
   }
 
   .mypage-info div,
-  .mypage-stats {
+  .mypage-stats,
+  .mypage-activity-list button {
     grid-template-columns: 1fr;
+  }
+
+  .mypage-activity-list time {
+    text-align: left;
   }
 
   .write-card {

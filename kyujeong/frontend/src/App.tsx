@@ -369,7 +369,7 @@ function App() {
   const [isMeLoading, setIsMeLoading] = useState(false)
   const [meErrorMessage, setMeErrorMessage] = useState('')
   const [myPageSection, setMyPageSection] = useState<
-    'info' | 'posts' | 'comments' | 'likes' | 'settings'
+    'info' | 'posts' | 'comments' | 'aiHistory' | 'likes' | 'settings'
   >('info')
   const [myPosts, setMyPosts] = useState<BoardPost[]>([])
   const [isMyPostsLoading, setIsMyPostsLoading] = useState(false)
@@ -422,6 +422,10 @@ function App() {
     8,
   )
   const aiTargetTitle = selectedPost?.title ?? '냉장고 재료 고민'
+  const recentMyPosts = myPosts.slice(0, 3)
+  const recentMyComments = myComments.slice(0, 2)
+  const hasMyActivity =
+    recentMyPosts.length > 0 || recentMyComments.length > 0
   const isAuthView =
     currentView === 'login' ||
     currentView === 'signup' ||
@@ -1575,6 +1579,7 @@ function App() {
                 type="button"
                 onClick={() => setMyPageSection('info')}
               >
+                <span aria-hidden="true">▣</span>
                 내 정보
               </button>
               <button
@@ -1582,39 +1587,54 @@ function App() {
                 type="button"
                 onClick={loadMyPosts}
               >
-                내가 작성한 글
+                <span aria-hidden="true">□</span>
+                내 게시글
               </button>
               <button
                 className={myPageSection === 'comments' ? 'active' : ''}
                 type="button"
                 onClick={loadMyComments}
               >
-                내가 작성한 댓글
+                <span aria-hidden="true">◇</span>
+                내 댓글
+              </button>
+              <button
+                className={myPageSection === 'aiHistory' ? 'active' : ''}
+                type="button"
+                onClick={() => setMyPageSection('aiHistory')}
+              >
+                <span aria-hidden="true">✧</span>
+                AI 추천 기록
               </button>
               <button
                 className={myPageSection === 'likes' ? 'active' : ''}
                 type="button"
                 onClick={() => setMyPageSection('likes')}
               >
-                좋아요한 글
+                <span aria-hidden="true">♡</span>
+                저장한 글
               </button>
               <button
                 className={myPageSection === 'settings' ? 'active' : ''}
                 type="button"
                 onClick={() => setMyPageSection('settings')}
               >
+                <span aria-hidden="true">⚙</span>
                 설정
               </button>
             </aside>
 
             <section className="mypage-card">
-              <button
-                className="back-button"
-                type="button"
-                onClick={() => setCurrentView('board')}
-              >
-                게시판으로
-              </button>
+              <div className="mypage-topbar">
+                <button
+                  className="back-button"
+                  type="button"
+                  onClick={() => setCurrentView('board')}
+                >
+                  게시판으로
+                </button>
+                <span className="mypage-ready-pill">정보 수정 준비 중</span>
+              </div>
 
               {myPageSection === 'info' && isMeLoading ? (
                 <div className="mypage-state">내 정보를 불러오는 중입니다.</div>
@@ -1624,11 +1644,12 @@ function App() {
                 <>
                   <div className="mypage-profile">
                     <div className="mypage-avatar" aria-hidden="true">
-                      {me.nickname.slice(0, 1)}
+                      <span>{me.nickname.slice(0, 1)}</span>
                     </div>
-                    <div>
+                    <div className="mypage-profile-copy">
+                      <p>내 정보</p>
                       <h1>{me.nickname}</h1>
-                      <p>{me.email}</p>
+                      <span>{me.email}</span>
                     </div>
                   </div>
 
@@ -1647,25 +1668,90 @@ function App() {
                     </div>
                   </dl>
 
-                  <div className="mypage-stats" aria-label="활동 통계">
-                    <div>
-                      <span>작성한 글</span>
-                      <strong>{myPosts.length || '-'}</strong>
+                  <section className="mypage-overview" aria-label="활동 통계">
+                    <h2>활동 통계</h2>
+                    <div className="mypage-stats">
+                      <div>
+                        <span>작성한 글</span>
+                        <strong>{myPosts.length}</strong>
+                      </div>
+                      <div>
+                        <span>작성한 댓글</span>
+                        <strong>{myComments.length}</strong>
+                      </div>
+                      <div>
+                        <span>AI 추천 기록</span>
+                        <strong>준비 중</strong>
+                      </div>
+                      <div>
+                        <span>저장한 글</span>
+                        <strong>준비 중</strong>
+                      </div>
                     </div>
-                    <div>
-                      <span>작성한 댓글</span>
-                      <strong>{myComments.length || '-'}</strong>
+                  </section>
+
+                  <section className="mypage-activity-card" aria-label="최근 활동">
+                    <div className="mypage-section-heading compact">
+                      <h1>최근 활동</h1>
+                      <p>내가 남긴 게시글과 댓글을 빠르게 확인합니다.</p>
                     </div>
-                    <div>
-                      <span>AI 추천 받은 횟수</span>
-                      <strong>-</strong>
-                    </div>
-                  </div>
+
+                    {hasMyActivity ? (
+                      <ul className="mypage-activity-list">
+                        {recentMyPosts.map((post) => (
+                          <li key={`post-${post.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCurrentView('board')
+                                loadPostDetail(post.id)
+                              }}
+                            >
+                              <span className="activity-type post">게시글</span>
+                              <strong>{post.title}</strong>
+                              <time dateTime={post.createdAt}>{post.createdAt}</time>
+                            </button>
+                          </li>
+                        ))}
+                        {recentMyComments.map((comment) => (
+                          <li key={`comment-${comment.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCurrentView('board')
+                                loadPostDetail(comment.post.id)
+                              }}
+                            >
+                              <span className="activity-type comment">댓글</span>
+                              <strong>{comment.post.title}</strong>
+                              <time dateTime={comment.createdAt}>
+                                {formatDate(comment.createdAt)}
+                              </time>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mypage-state compact">
+                        아직 표시할 활동이 없습니다.
+                      </div>
+                    )}
+
+                    <button
+                      className="mypage-more-button"
+                      type="button"
+                      onClick={loadMyPosts}
+                    >
+                      더보기
+                    </button>
+                  </section>
                 </>
+              ) : myPageSection === 'info' ? (
+                <div className="mypage-state">로그인 정보를 확인할 수 없습니다.</div>
               ) : myPageSection === 'posts' ? (
                 <div className="mypage-posts">
                   <div className="mypage-section-heading">
-                    <h1>내가 작성한 글</h1>
+                    <h1>내 게시글</h1>
                     <p>내 계정으로 작성한 게시글만 모아봅니다.</p>
                   </div>
 
@@ -1707,7 +1793,7 @@ function App() {
               ) : myPageSection === 'comments' ? (
                 <div className="mypage-posts">
                   <div className="mypage-section-heading">
-                    <h1>내가 작성한 댓글</h1>
+                    <h1>내 댓글</h1>
                     <p>내 계정으로 남긴 댓글을 모아봅니다.</p>
                   </div>
 
@@ -1741,17 +1827,32 @@ function App() {
                     </ul>
                   )}
                 </div>
-              ) : myPageSection === 'likes' ? (
+              ) : myPageSection === 'aiHistory' ? (
                 <div className="mypage-posts">
                   <div className="mypage-section-heading">
-                    <h1>좋아요한 글</h1>
-                    <p>좋아요 기능을 붙이면 이곳에서 모아볼 수 있습니다.</p>
+                    <h1>AI 추천 기록</h1>
+                    <p>추천 API가 연결되면 내가 받은 추천 결과를 모아봅니다.</p>
                   </div>
 
                   <div className="coming-soon-panel">
                     <strong>아직 연결 전입니다.</strong>
                     <p>
-                      좋아요 API가 준비되면 내가 저장한 게시글 목록으로 바뀝니다.
+                      지금은 프론트 mock 추천 화면만 있고, 실제 추천 기록 저장은
+                      준비 중입니다.
+                    </p>
+                  </div>
+                </div>
+              ) : myPageSection === 'likes' ? (
+                <div className="mypage-posts">
+                  <div className="mypage-section-heading">
+                    <h1>저장한 글</h1>
+                    <p>저장 기능을 붙이면 이곳에서 모아볼 수 있습니다.</p>
+                  </div>
+
+                  <div className="coming-soon-panel">
+                    <strong>아직 연결 전입니다.</strong>
+                    <p>
+                      저장 API가 준비되면 내가 보관한 게시글 목록으로 바뀝니다.
                     </p>
                   </div>
                 </div>
