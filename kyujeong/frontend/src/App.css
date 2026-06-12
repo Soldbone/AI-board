@@ -1404,24 +1404,31 @@
 .write-view {
   display: grid;
   gap: 18px;
-  max-width: 960px;
+  max-width: 1260px;
   margin: 0 auto;
   padding: 36px 42px 42px;
 }
 
+.write-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: start;
+}
+
 .write-card {
   display: grid;
-  gap: 26px;
+  gap: 24px;
   border: 1px solid #dbe5df;
   border-radius: 8px;
-  padding: 34px;
+  padding: 32px;
   background: #ffffff;
 }
 
 .write-heading h1 {
   margin: 0;
   color: #101812;
-  font-size: 34px;
+  font-size: 30px;
   line-height: 1.25;
 }
 
@@ -1454,7 +1461,7 @@
 }
 
 .write-card textarea {
-  min-height: 220px;
+  min-height: 230px;
   padding-top: 16px;
   line-height: 1.7;
   resize: vertical;
@@ -1465,15 +1472,6 @@
   color: #7a857e;
   font-size: 13px;
   font-weight: 700;
-}
-
-.write-tip {
-  border-radius: 8px;
-  padding: 18px;
-  background: #effaf2;
-  color: #25633c;
-  font-weight: 800;
-  line-height: 1.6;
 }
 
 .write-message {
@@ -1510,6 +1508,93 @@
 .write-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.write-guide-card {
+  display: grid;
+  gap: 18px;
+  border: 1px solid #dbe9df;
+  border-radius: 8px;
+  padding: 24px;
+  background: linear-gradient(180deg, #f4fbf6 0%, #ffffff 78%);
+}
+
+.write-guide-card h2,
+.write-guide-card h3 {
+  margin: 0;
+  color: #174326;
+}
+
+.write-guide-card h2 {
+  font-size: 18px;
+}
+
+.write-guide-card h3 {
+  font-size: 14px;
+}
+
+.write-guide-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 18px;
+  color: #2f3d34;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.write-example {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #dde9e2;
+  padding-top: 18px;
+}
+
+.write-example p {
+  margin: 0;
+  color: #526057;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.write-pot-illustration {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+}
+
+.write-pot-illustration::before {
+  position: absolute;
+  right: 38px;
+  bottom: 24px;
+  left: 38px;
+  height: 58px;
+  border-radius: 10px 10px 34px 34px;
+  background: linear-gradient(180deg, #6fcf8d 0%, #2d9a56 100%);
+  box-shadow: inset 0 -8px 0 rgba(26, 114, 61, 0.24);
+  content: '';
+}
+
+.write-pot-illustration::after {
+  position: absolute;
+  right: 50px;
+  bottom: 80px;
+  left: 50px;
+  height: 12px;
+  border-radius: 999px;
+  background: #1f8549;
+  content: '';
+}
+
+.write-pot-illustration span {
+  position: absolute;
+  right: 86px;
+  bottom: 93px;
+  width: 42px;
+  height: 24px;
+  border: 6px solid #1f8549;
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
 }
 
 .detail-view {
@@ -2510,6 +2595,11 @@
     gap: 20px;
   }
 
+  .write-layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 20px;
+  }
+
   .mypage-menu {
     grid-auto-flow: column;
     grid-auto-columns: max-content;
@@ -2574,6 +2664,10 @@
 
   .write-view {
     padding: 28px 18px;
+  }
+
+  .write-layout {
+    grid-template-columns: 1fr;
   }
 
   .utility-view {

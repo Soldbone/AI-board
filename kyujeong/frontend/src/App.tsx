@@ -1825,75 +1825,92 @@ function App() {
               목록으로
             </button>
 
-            <form className="write-card" onSubmit={handleCreatePost}>
-              <div className="write-heading">
-                <h1>{editingPostId ? '게시글 수정' : '새 글 작성'}</h1>
-                <p>
-                  {editingPostId
-                    ? '작성한 내용을 다시 정리해보세요.'
-                    : '냉장고에 있는 재료나 상황을 자세히 적어주세요.'}
-                </p>
-              </div>
+            <div className="write-layout">
+              <form className="write-card" onSubmit={handleCreatePost}>
+                <div className="write-heading">
+                  <h1>{editingPostId ? '게시글 수정' : '새 글 작성'}</h1>
+                  <p>
+                    {editingPostId
+                      ? '작성한 내용을 다시 정리해보세요.'
+                      : '냉장고에 있는 재료나 상황을 자세히 적어주세요.'}
+                  </p>
+                </div>
 
-              <label>
-                제목
-                <input
-                  type="text"
-                  maxLength={200}
-                  placeholder="제목을 입력하세요"
-                  value={postTitle}
-                  onChange={(event) => setPostTitle(event.target.value)}
-                  required
-                />
-                <span>{postTitle.length} / 200</span>
-              </label>
+                <label>
+                  제목
+                  <input
+                    type="text"
+                    maxLength={200}
+                    placeholder="제목을 입력하세요"
+                    value={postTitle}
+                    onChange={(event) => setPostTitle(event.target.value)}
+                    required
+                  />
+                  <span>{postTitle.length} / 200</span>
+                </label>
 
-              <label>
-                내용
-                <textarea
-                  maxLength={5000}
-                  placeholder="냉장고에 있는 재료와 상황을 자세히 적어주세요."
-                  value={postContent}
-                  onChange={(event) => setPostContent(event.target.value)}
-                  required
-                />
-                <span>{postContent.length} / 5000</span>
-              </label>
+                <label>
+                  내용
+                  <textarea
+                    maxLength={5000}
+                    placeholder="냉장고에 있는 재료와 상황을 자세히 적어주세요."
+                    value={postContent}
+                    onChange={(event) => setPostContent(event.target.value)}
+                    required
+                  />
+                  <span>{postContent.length} / 5000</span>
+                </label>
 
-              <label>
-                태그
-                <input
-                  type="text"
-                  placeholder="쉼표로 구분해서 입력하세요. 예: 계란, 김치, 10분요리"
-                  value={postTagInput}
-                  onChange={(event) => setPostTagInput(event.target.value)}
-                />
-                <span>최대 5개</span>
-              </label>
+                <label>
+                  태그
+                  <input
+                    type="text"
+                    placeholder="쉼표로 구분해서 입력하세요. 예: 계란, 김치, 10분요리"
+                    value={postTagInput}
+                    onChange={(event) => setPostTagInput(event.target.value)}
+                  />
+                  <span>최대 5개</span>
+                </label>
 
-              <div className="write-tip">
-                재료, 식사 상황, 조리 시간 등을 구체적으로 적으면 나중에 AI 추천을 붙이기 좋아요.
-              </div>
+                {postCreateErrorMessage ? (
+                  <p className="write-message error">{postCreateErrorMessage}</p>
+                ) : null}
 
-              {postCreateErrorMessage ? (
-                <p className="write-message error">{postCreateErrorMessage}</p>
-              ) : null}
+                <div className="write-actions">
+                  <button type="button" onClick={closeWriteView}>
+                    취소
+                  </button>
+                  <button type="submit" disabled={isPostCreating}>
+                    {isPostCreating
+                      ? editingPostId
+                        ? '수정 중'
+                        : '등록 중'
+                      : editingPostId
+                        ? '수정하기'
+                        : '등록하기'}
+                  </button>
+                </div>
+              </form>
 
-              <div className="write-actions">
-                <button type="button" onClick={closeWriteView}>
-                  취소
-                </button>
-                <button type="submit" disabled={isPostCreating}>
-                  {isPostCreating
-                    ? editingPostId
-                      ? '수정 중'
-                      : '등록 중'
-                    : editingPostId
-                      ? '수정하기'
-                      : '등록하기'}
-                </button>
-              </div>
-            </form>
+              <aside className="write-guide-card" aria-label="작성 팁">
+                <h2>작성 팁</h2>
+                <ul>
+                  <li>가지고 있는 재료를 구체적으로 적어주세요.</li>
+                  <li>조리 시간, 식사 상황, 취향을 함께 적어주면 좋아요.</li>
+                  <li>특별한 요구사항이 있다면 같이 적어주세요.</li>
+                </ul>
+                <section className="write-example" aria-label="작성 예시">
+                  <h3>예시</h3>
+                  <p>
+                    "냉장고에 계란, 김치, 양파가 있어요. 10분 안에 저녁으로
+                    먹을 수 있는 메뉴 추천해주세요."
+                  </p>
+                </section>
+                <div className="write-pot-illustration" aria-hidden="true">
+                  <span />
+                </div>
+              </aside>
+            </div>
           </section>
         ) : selectedPost || isDetailLoading || detailErrorMessage ? (
           <section className="detail-view">
