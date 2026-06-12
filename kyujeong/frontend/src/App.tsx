@@ -1703,22 +1703,70 @@ function App() {
             )}
           </section>
         ) : currentView === 'signup' ? (
-          <section className="login-view" aria-label="회원가입">
-            <div className="login-hero">
-              <strong>냉장고 파먹기를</strong>
-              <p>함께 시작해요!</p>
-              <div className="login-mascot" aria-hidden="true">
-                <span className="chef-hat" />
-                <span className="chef-face" />
-                <span className="chef-body" />
-                <span className="basket" />
+          <section className="login-view signup-view" aria-label="회원가입">
+            <div className="login-hero signup-hero">
+              <div className="auth-brand">
+                <div className="brand-mark" aria-hidden="true">
+                  <span />
+                </div>
+                <div>
+                  <strong>냉장고 파먹기</strong>
+                  <p>AI 레시피 추천 커뮤니티</p>
+                </div>
+              </div>
+
+              <ul className="signup-benefits" aria-label="서비스 특징">
+                <li>
+                  <span>AI</span>
+                  <div>
+                    <strong>AI 기반 레시피 추천</strong>
+                    <p>가지고 있는 재료와 상황에 맞춰 오늘의 메뉴를 추천해드려요.</p>
+                  </div>
+                </li>
+                <li>
+                  <span>분석</span>
+                  <div>
+                    <strong>실시간 냉장고 방향</strong>
+                    <p>재료를 입력하면 조합을 빠르게 떠올릴 수 있어요.</p>
+                  </div>
+                </li>
+                <li>
+                  <span>공유</span>
+                  <div>
+                    <strong>커뮤니티와 함께 성장</strong>
+                    <p>다른 사람들의 냉장고 활용 글을 참고하고 나눌 수 있어요.</p>
+                  </div>
+                </li>
+              </ul>
+
+              <div className="signup-mascot" aria-hidden="true">
+                <span className="pot" />
+                <span className="robot-head" />
+                <span className="robot-body" />
+                <span className="spark spark-one" />
+                <span className="spark spark-two" />
+                <span className="veggie veggie-one" />
+                <span className="veggie veggie-two" />
+                <span className="veggie veggie-three" />
               </div>
             </div>
 
             <form className="login-card" onSubmit={handleSignupSubmit}>
               <div>
                 <h1>회원가입</h1>
-                <p>냉장고 파먹기를 함께 시작해요!</p>
+                <p>
+                  이미 계정이 있다면?
+                  <button
+                    className="inline-link"
+                    type="button"
+                    onClick={() => {
+                      setSignupErrorMessage('')
+                      setCurrentView('login')
+                    }}
+                  >
+                    로그인
+                  </button>
+                </p>
               </div>
 
               <label>
@@ -1783,12 +1831,17 @@ function App() {
                 <input
                   type="text"
                   maxLength={20}
-                  placeholder="닉네임을 입력하세요"
+                  placeholder="닉네임을 입력하세요 (2~10자)"
                   value={signupNickname}
                   onChange={(event) => setSignupNickname(event.target.value)}
                   required
                 />
               </label>
+
+              <p className="signup-policy">
+                <span aria-hidden="true">□</span>
+                이용약관 및 개인정보처리방침에 동의합니다.
+              </p>
 
               {signupErrorMessage ? (
                 <p className="login-message error">{signupErrorMessage}</p>
@@ -1797,19 +1850,6 @@ function App() {
               <button type="submit" disabled={isSignupSubmitting}>
                 {isSignupSubmitting ? '가입 중' : '회원가입'}
               </button>
-
-              <p className="auth-switch">
-                이미 계정이 있으신가요?
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSignupErrorMessage('')
-                    setCurrentView('login')
-                  }}
-                >
-                  로그인
-                </button>
-              </p>
             </form>
           </section>
         ) : currentView === 'write' ? (

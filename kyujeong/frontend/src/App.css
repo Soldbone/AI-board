@@ -557,6 +557,176 @@
   transform: rotate(18deg);
 }
 
+.signup-view {
+  grid-template-columns: minmax(420px, 0.95fr) minmax(420px, 1fr);
+}
+
+.signup-hero {
+  gap: 28px;
+}
+
+.signup-benefits {
+  display: grid;
+  gap: 20px;
+  max-width: 430px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signup-benefits li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.signup-benefits li > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #159447;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.signup-benefits strong {
+  display: block;
+  color: #17231c;
+  font-size: 16px;
+}
+
+.signup-benefits p {
+  margin: 7px 0 0;
+  color: #526057;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.signup-mascot {
+  position: relative;
+  min-height: 230px;
+  margin-top: 10px;
+}
+
+.signup-mascot span {
+  position: absolute;
+  display: block;
+}
+
+.signup-mascot .robot-head {
+  left: 142px;
+  bottom: 80px;
+  width: 112px;
+  height: 82px;
+  border-radius: 28px;
+  background: #159447;
+  box-shadow:
+    inset 0 -10px 0 rgba(0, 0, 0, 0.08),
+    0 14px 30px rgba(35, 99, 61, 0.18);
+}
+
+.signup-mascot .robot-head::before,
+.signup-mascot .robot-head::after {
+  position: absolute;
+  top: 35px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  content: '';
+}
+
+.signup-mascot .robot-head::before {
+  left: 32px;
+}
+
+.signup-mascot .robot-head::after {
+  right: 32px;
+}
+
+.signup-mascot .robot-body {
+  left: 160px;
+  bottom: 34px;
+  width: 78px;
+  height: 58px;
+  border-radius: 22px 22px 16px 16px;
+  background: #bfe8c9;
+}
+
+.signup-mascot .pot {
+  left: 105px;
+  bottom: 18px;
+  width: 190px;
+  height: 46px;
+  border-radius: 50%;
+  background: #e5c184;
+  box-shadow: inset 0 -10px 0 rgba(113, 72, 24, 0.12);
+}
+
+.signup-mascot .veggie {
+  bottom: 50px;
+  border-radius: 50%;
+}
+
+.signup-mascot .veggie-one {
+  left: 100px;
+  width: 36px;
+  height: 36px;
+  background: #f0a13a;
+}
+
+.signup-mascot .veggie-two {
+  left: 252px;
+  width: 42px;
+  height: 36px;
+  background: #8fc76d;
+}
+
+.signup-mascot .veggie-three {
+  left: 72px;
+  width: 38px;
+  height: 30px;
+  background: #db6b57;
+}
+
+.signup-mascot .spark {
+  width: 14px;
+  height: 14px;
+  background: #2baa53;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+}
+
+.signup-mascot .spark-one {
+  right: 84px;
+  bottom: 150px;
+}
+
+.signup-mascot .spark-two {
+  left: 112px;
+  bottom: 170px;
+  transform: scale(0.72);
+}
+
+.signup-policy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -2px 0 0;
+  color: #66736b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signup-policy span {
+  color: #13833b;
+  font-weight: 900;
+}
+
 .login-card {
   display: grid;
   align-content: center;
@@ -2062,6 +2232,10 @@
     grid-template-columns: minmax(340px, 0.95fr) minmax(420px, 1fr);
   }
 
+  .auth-shell .signup-view {
+    grid-template-columns: minmax(380px, 0.95fr) minmax(420px, 1fr);
+  }
+
   .mypage-view {
     grid-template-columns: 1fr;
   }
@@ -2160,8 +2334,22 @@
     grid-template-columns: 1fr;
   }
 
+  .auth-shell .signup-view {
+    grid-template-columns: 1fr;
+  }
+
   .login-hero-home {
     min-height: auto;
+  }
+
+  .signup-benefits {
+    gap: 14px;
+  }
+
+  .signup-mascot {
+    min-height: 190px;
+    transform: scale(0.86);
+    transform-origin: left bottom;
   }
 
   .login-hero-copy h1 {
