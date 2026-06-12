@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Param,
   ParseIntPipe,
   Patch,
@@ -31,5 +32,14 @@ export class CommentActionsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.commentsService.update(id, updateCommentDto, request.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.commentsService.remove(id, request.user.sub);
   }
 }

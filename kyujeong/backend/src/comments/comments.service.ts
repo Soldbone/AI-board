@@ -120,4 +120,28 @@ export class CommentsService {
       },
     });
   }
+
+  async remove(id: number, userId: number) {
+    const comment = await this.prismaService.comment.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own comment');
+    }
+
+    await this.prismaService.comment.delete({
+      where: { id },
+    });
+
+    return { id };
+  }
 }

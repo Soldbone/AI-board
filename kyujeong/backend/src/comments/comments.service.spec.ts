@@ -22,6 +22,7 @@ describe('CommentsService', () => {
               findMany: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
+              delete: jest.fn(),
             },
           },
         },
@@ -232,5 +233,51 @@ describe('CommentsService', () => {
         3,
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('should delete a comment when user is the author', async () => {
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+    jest.spyOn(prismaService.comment, 'delete').mockResolvedValue({
+      id: 1,
+      content: 'Deleted comment',
+      postId: 1,
+      authorId: 2,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await expect(service.remove(1, 2)).resolves.toEqual({ id: 1 });
+    expect(prismaService.comment.findUnique).toHaveBeenCalledWith({
+      where: { id: 1 },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+    expect(prismaService.comment.delete).toHaveBeenCalledWith({
+      where: { id: 1 },
+    });
+  });
+
+  it('should throw NotFoundException when deleting a missing comment', async () => {
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.remove(999, 2)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('should throw ForbiddenException when deleting another user comment', async () => {
+    jest.spyOn(prismaService.comment, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 2,
+    });
+
+    await expect(service.remove(1, 3)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
