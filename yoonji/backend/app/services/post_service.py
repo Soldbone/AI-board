@@ -13,6 +13,7 @@ from app.models.post_figure_info import PostFigureInfo
 from app.models.post_image import PostImage
 from app.models.post_tag import PostTag
 from app.models.user import User
+from app.repositories import image_repository
 from app.repositories import post_repository
 from app.repositories.post_repository import PostSort
 from app.schemas.board_schema import BoardSummary
@@ -100,6 +101,12 @@ def create_post(
     _ensure_mvp_writable_board(board.code)
     _ensure_published_status(payload.status)
     _ensure_create_figure_info_rule(board.code, payload.figure_info)
+    images = _get_attachable_images(
+        db,
+        image_ids=payload.image_ids,
+        current_user=current_user,
+        current_post_id=None,
+    )
 
     try:
         post = post_repository.create_post(
@@ -117,6 +124,8 @@ def create_post(
                 post=post,
                 values=_build_figure_info_values(payload.figure_info),
             )
+
+        _sync_post_images(post=post, images=images)
 
         db.commit()
         db.refresh(post)
@@ -143,6 +152,15 @@ def update_post(
     post = _get_mutable_post(db, post_id=post_id)
     _ensure_post_author(post, current_user)
     _ensure_update_figure_info_rule(post, payload)
+    images: list[PostImage] | None = None
+
+    if payload.image_ids is not None:
+        images = _get_attachable_images(
+            db,
+            image_ids=payload.image_ids,
+            current_user=current_user,
+            current_post_id=post.id,
+        )
 
     try:
         if payload.title is not None:
@@ -157,6 +175,9 @@ def update_post(
             and payload.figure_info is not None
         ):
             _upsert_review_figure_info(db, post=post, payload=payload.figure_info)
+
+        if images is not None:
+            _sync_post_images(post=post, images=images)
 
         db.commit()
         db.refresh(post)
@@ -264,6 +285,105 @@ def _ensure_post_author(post: Post, current_user: User) -> None:
         code="POST_AUTHOR_REQUIRED",
         status_code=403,
     )
+
+
+def _get_attachable_images(
+    db: Session,
+    *,
+    image_ids: list[int],
+    current_user: User,
+    current_post_id: int | None,
+) -> list[PostImage]:
+    if not image_ids:
+        return []
+
+    images = image_repository.get_images_by_ids(db, image_ids)
+    images_by_id = {image.id: image for image in images}
+    missing_ids = [
+        image_id for image_id in image_ids if image_id not in images_by_id
+    ]
+
+    if missing_ids:
+        raise AppException(
+            "이미지를 찾을 수 없습니다.",
+            code="IMAGE_NOT_FOUND",
+            status_code=400,
+            details={"image_ids": missing_ids},
+        )
+
+    ordered_images = [images_by_id[image_id] for image_id in image_ids]
+
+    for image in ordered_images:
+        _ensure_attachable_image(
+            image,
+            current_user=current_user,
+            current_post_id=current_post_id,
+        )
+
+    return ordered_images
+
+
+def _ensure_attachable_image(
+    image: PostImage,
+    *,
+    current_user: User,
+    current_post_id: int | None,
+) -> None:
+    if image.uploader_id != current_user.id:
+        raise AppException(
+            "본인이 업로드한 이미지만 게시글에 연결할 수 있습니다.",
+            code="IMAGE_UPLOADER_REQUIRED",
+            status_code=403,
+        )
+
+    if image.status == ImageStatus.DELETED:
+        raise AppException(
+            "삭제된 이미지는 게시글에 연결할 수 없습니다.",
+            code="IMAGE_ALREADY_DELETED",
+            status_code=400,
+            details={"image_id": image.id},
+        )
+
+    if image.status == ImageStatus.FAILED:
+        raise AppException(
+            "업로드에 실패한 이미지는 게시글에 연결할 수 없습니다.",
+            code="IMAGE_UPLOAD_FAILED",
+            status_code=400,
+            details={"image_id": image.id},
+        )
+
+    if image.post_id is not None and image.post_id != current_post_id:
+        raise AppException(
+            "이미 다른 게시글에 연결된 이미지입니다.",
+            code="IMAGE_ALREADY_ATTACHED",
+            status_code=400,
+            details={"image_id": image.id, "post_id": image.post_id},
+        )
+
+    if image.status == ImageStatus.ATTACHED and image.post_id != current_post_id:
+        raise AppException(
+            "이미 연결된 이미지는 같은 게시글 수정에서만 유지할 수 있습니다.",
+            code="IMAGE_ALREADY_ATTACHED",
+            status_code=400,
+            details={"image_id": image.id},
+        )
+
+
+def _sync_post_images(*, post: Post, images: list[PostImage]) -> None:
+    requested_image_ids = {image.id for image in images}
+
+    for image in list(post.images):
+        if image.id in requested_image_ids or image.status == ImageStatus.DELETED:
+            continue
+
+        image.post_id = None
+        image.status = ImageStatus.TEMP
+        image.sort_order = 0
+
+    for sort_order, image in enumerate(images):
+        image.post_id = post.id
+        image.status = ImageStatus.ATTACHED
+        image.sort_order = sort_order
 
 
 def _upsert_review_figure_info(

@@ -1,16 +1,23 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
 load_dotenv()
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 
 class Settings:
     def __init__(self) -> None:
         self.app_name = os.getenv("APP_NAME", "Figure Community API")
         self.api_prefix = os.getenv("API_PREFIX", "/api/v1")
+        self.upload_root = os.getenv(
+            "UPLOAD_ROOT",
+            str(PROJECT_ROOT / "uploads"),
+        )
         self.database_url = os.getenv(
             "DATABASE_URL",
             "postgresql://figure_user:figure_password@localhost:5432/figure_community",

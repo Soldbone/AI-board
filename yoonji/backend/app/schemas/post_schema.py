@@ -48,6 +48,7 @@ class PostCreateRequest(BaseModel):
     content: str = Field(min_length=1)
     status: PostStatus = PostStatus.PUBLISHED
     figure_info: PostFigureInfoRequest | None = None
+    image_ids: list[int] = Field(default_factory=list, max_length=10)
 
     @field_validator("title", "content")
     @classmethod
@@ -59,11 +60,17 @@ class PostCreateRequest(BaseModel):
 
         return stripped
 
+    @field_validator("image_ids")
+    @classmethod
+    def validate_image_ids(cls, value: list[int]) -> list[int]:
+        return _validate_image_id_list(value)
+
 
 class PostUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     content: str | None = Field(default=None, min_length=1)
     figure_info: PostFigureInfoRequest | None = None
+    image_ids: list[int] | None = Field(default=None, max_length=10)
 
     @field_validator("title", "content")
     @classmethod
@@ -78,6 +85,14 @@ class PostUpdateRequest(BaseModel):
 
         return stripped
 
+    @field_validator("image_ids")
+    @classmethod
+    def validate_optional_image_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+
+        return _validate_image_id_list(value)
+
 
 class PostCreateResponse(BaseModel):
     id: int
@@ -85,6 +100,16 @@ class PostCreateResponse(BaseModel):
     title: str
     status: PostStatus
     created_at: datetime
+
+
+def _validate_image_id_list(value: list[int]) -> list[int]:
+    if any(image_id <= 0 for image_id in value):
+        raise ValueError("image_ids must contain positive integers")
+
+    if len(value) != len(set(value)):
+        raise ValueError("image_ids must not contain duplicates")
+
+    return value
 
 
 class PostFigureInfoSummary(BaseModel):

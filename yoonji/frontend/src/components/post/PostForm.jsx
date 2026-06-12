@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import FigureInfoForm from "./FigureInfoForm";
+import ImageUploader from "./ImageUploader";
 
 
 const WRITABLE_BOARD_CODES = ["REVIEW", "INFO", "QUESTION", "PURCHASE_HELP"];
@@ -36,6 +37,7 @@ function PostForm({
   const [figureInfo, setFigureInfo] = useState(() =>
     buildInitialFigureInfo(initialPost),
   );
+  const [images, setImages] = useState(() => initialPost?.images || []);
 
   useEffect(() => {
     if (!initialPost) {
@@ -46,6 +48,7 @@ function PostForm({
     setTitle(initialPost.title);
     setContent(initialPost.content);
     setFigureInfo(buildInitialFigureInfo(initialPost));
+    setImages(initialPost.images || []);
   }, [initialPost]);
 
   useEffect(() => {
@@ -79,6 +82,8 @@ function PostForm({
     if (isReviewBoard) {
       payload.figure_info = buildFigureInfoPayload(figureInfo);
     }
+
+    payload.image_ids = images.map((image) => image.id);
 
     onSubmit(payload);
   }
@@ -138,6 +143,12 @@ function PostForm({
       {isReviewBoard && (
         <FigureInfoForm value={figureInfo} onChange={setFigureInfo} />
       )}
+
+      <ImageUploader
+        disabled={isSubmitting}
+        value={images}
+        onChange={setImages}
+      />
 
       <div className="form-actions">
         <button type="submit" disabled={isSubmitting || !boardCode}>

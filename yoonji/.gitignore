@@ -16,3 +16,6 @@ frontend/dist/
 
 # Local editor files
 .vscode/
+
+# Uploaded local files
+uploads/temp/
