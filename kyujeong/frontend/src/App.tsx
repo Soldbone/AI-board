@@ -81,6 +81,47 @@ const categories = ['전체', '계란', '김치', '간단요리', '자취요리'
 
 const pageSize = 10
 
+const tagFilterGroups = [
+  '전체',
+  'ㄱ',
+  'ㄴ',
+  'ㄷ',
+  'ㄹ',
+  'ㅁ',
+  'ㅂ',
+  'ㅅ',
+  'ㅇ',
+  'ㅈ',
+  'ㅊ',
+  'ㅋ',
+  'ㅌ',
+  'ㅍ',
+  'ㅎ',
+  'A-Z',
+]
+
+const koreanInitials = [
+  'ㄱ',
+  'ㄲ',
+  'ㄴ',
+  'ㄷ',
+  'ㄸ',
+  'ㄹ',
+  'ㅁ',
+  'ㅂ',
+  'ㅃ',
+  'ㅅ',
+  'ㅆ',
+  'ㅇ',
+  'ㅈ',
+  'ㅉ',
+  'ㅊ',
+  'ㅋ',
+  'ㅌ',
+  'ㅍ',
+  'ㅎ',
+]
+
 function getSavedAccessToken() {
   return (
     localStorage.getItem('accessToken') ??
@@ -205,6 +246,44 @@ function formatDate(value: string) {
     .replace(/\.$/, '')
 }
 
+function getTagGroup(tagName: string) {
+  const firstLetter = tagName.trim().charAt(0)
+  const code = firstLetter.charCodeAt(0)
+
+  if (code >= 0xac00 && code <= 0xd7a3) {
+    const initialIndex = Math.floor((code - 0xac00) / 588)
+    const initial = koreanInitials[initialIndex]
+
+    if (initial === 'ㄲ') {
+      return 'ㄱ'
+    }
+
+    if (initial === 'ㄸ') {
+      return 'ㄷ'
+    }
+
+    if (initial === 'ㅃ') {
+      return 'ㅂ'
+    }
+
+    if (initial === 'ㅆ') {
+      return 'ㅅ'
+    }
+
+    if (initial === 'ㅉ') {
+      return 'ㅈ'
+    }
+
+    return initial
+  }
+
+  if (/^[a-z]/i.test(firstLetter)) {
+    return 'A-Z'
+  }
+
+  return '전체'
+}
+
 function mapPostListItem(post: PostListItem): BoardPost {
   return {
     id: post.id,
@@ -289,6 +368,10 @@ function App() {
   const [myComments, setMyComments] = useState<MyCommentItem[]>([])
   const [isMyCommentsLoading, setIsMyCommentsLoading] = useState(false)
   const [myCommentsErrorMessage, setMyCommentsErrorMessage] = useState('')
+  const [tagItems, setTagItems] = useState<Array<[string, number]>>([])
+  const [activeTagGroup, setActiveTagGroup] = useState('전체')
+  const [isTagsLoading, setIsTagsLoading] = useState(false)
+  const [tagErrorMessage, setTagErrorMessage] = useState('')
 
   const popularTagItems = useMemo(() => {
     const tagCounts = new Map<string, number>()
@@ -313,6 +396,17 @@ function App() {
         time: post.createdAt,
       })),
     [posts],
+  )
+  const filteredTagItems = useMemo(() => {
+    if (activeTagGroup === '전체') {
+      return tagItems
+    }
+
+    return tagItems.filter(([tag]) => getTagGroup(tag) === activeTagGroup)
+  }, [activeTagGroup, tagItems])
+  const topTagItems = (tagItems.length > 0 ? tagItems : popularTagItems).slice(
+    0,
+    8,
   )
   const isAuthView =
     currentView === 'login' ||
@@ -380,6 +474,71 @@ function App() {
     }
   }, [activeCategory, page, postListReloadKey, searchKeyword])
 
+  useEffect(() => {
+    if (currentView !== 'tags') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    async function loadTagItems() {
+      setIsTagsLoading(true)
+      setTagErrorMessage('')
+
+      try {
+        const response = await fetch('/api/posts?page=1&size=100', {
+          signal: controller.signal,
+        })
+        const data = (await response.json()) as PostListResponse & {
+          message?: string
+        }
+
+        if (!response.ok) {
+          throw new Error(data.message ?? '태그 목록을 불러오지 못했습니다.')
+        }
+
+        const tagCounts = new Map<string, number>()
+        data.items.forEach((post) => {
+          const tags = post.tags ?? []
+
+          tags.forEach((tag) => {
+            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+          })
+        })
+
+        setTagItems(
+          Array.from(tagCounts.entries()).sort((firstTag, secondTag) => {
+            if (secondTag[1] !== firstTag[1]) {
+              return secondTag[1] - firstTag[1]
+            }
+
+            return firstTag[0].localeCompare(secondTag[0], 'ko-KR')
+          }),
+        )
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setTagErrorMessage(
+          error instanceof Error
+            ? error.message
+            : '태그 목록을 불러오지 못했습니다.',
+        )
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsTagsLoading(false)
+        }
+      }
+    }
+
+    loadTagItems()
+
+    return () => {
+      controller.abort()
+    }
+  }, [currentView, postListReloadKey])
+
   function handleSearchKeywordChange(value: string) {
     setSearchKeyword(value)
     setPage(1)
@@ -388,6 +547,13 @@ function App() {
   function handleCategoryChange(category: string) {
     setActiveCategory(category)
     setPage(1)
+  }
+
+  function openPostsByTag(tag: string) {
+    setSearchKeyword('')
+    handleCategoryChange(tag)
+    setSelectedPost(null)
+    setCurrentView('board')
   }
 
   async function loadPostDetail(postId: number) {
@@ -1555,41 +1721,93 @@ function App() {
               게시판으로
             </button>
 
-            <div className="utility-heading">
-              <h1>태그</h1>
-              <p>관심 있는 태그를 선택하면 해당 태그의 게시글을 볼 수 있습니다.</p>
-            </div>
+            <div className="tag-page-card">
+              <div className="utility-heading tag-heading">
+                <div>
+                  <h1>태그</h1>
+                  <p>
+                    관심 있는 재료나 상황 태그를 선택하면 해당 게시글만 모아볼 수
+                    있습니다.
+                  </p>
+                </div>
+                <strong>{tagItems.length || popularTagItems.length}개 태그</strong>
+              </div>
 
-            <div className="tag-explorer">
-              {popularTagItems.length > 0
-                ? popularTagItems.map(([tag, count]) => (
+              <section className="popular-tag-section" aria-label="인기 태그">
+                <h2>인기 태그</h2>
+                <div className="popular-tag-strip">
+                  {topTagItems.length > 0
+                    ? topTagItems.map(([tag, count]) => (
+                        <button
+                          className="popular-tag-button"
+                          type="button"
+                          key={tag}
+                          onClick={() => openPostsByTag(tag)}
+                        >
+                          <span>{tag}</span>
+                          <strong>{count}</strong>
+                        </button>
+                      ))
+                    : categories
+                        .filter((category) => category !== '전체')
+                        .map((category) => (
+                          <button
+                            className="popular-tag-button"
+                            type="button"
+                            key={category}
+                            onClick={() => openPostsByTag(category)}
+                          >
+                            <span>{category}</span>
+                            <strong>0</strong>
+                          </button>
+                        ))}
+                </div>
+              </section>
+
+              <section className="all-tag-section" aria-label="전체 태그">
+                <div className="tag-section-title">
+                  <div>
+                    <h2>전체 태그</h2>
+                    <p>초성으로 빠르게 좁혀볼 수 있습니다.</p>
+                  </div>
+                  {isTagsLoading ? <span>불러오는 중</span> : null}
+                </div>
+
+                <div className="tag-filter-row" aria-label="태그 초성 필터">
+                  {tagFilterGroups.map((group) => (
                     <button
+                      className={group === activeTagGroup ? 'selected' : ''}
                       type="button"
-                      key={tag}
-                      onClick={() => {
-                        handleCategoryChange(tag)
-                        setCurrentView('board')
-                      }}
+                      key={group}
+                      onClick={() => setActiveTagGroup(group)}
                     >
-                      <span>{tag}</span>
-                      <strong>{count}</strong>
+                      {group}
                     </button>
-                  ))
-                : categories
-                    .filter((category) => category !== '전체')
-                    .map((category) => (
+                  ))}
+                </div>
+
+                {isTagsLoading && tagItems.length === 0 ? (
+                  <p className="tag-empty-state">태그를 불러오는 중입니다.</p>
+                ) : tagErrorMessage ? (
+                  <p className="tag-empty-state error">{tagErrorMessage}</p>
+                ) : filteredTagItems.length === 0 && !isTagsLoading ? (
+                  <p className="tag-empty-state">조건에 맞는 태그가 없습니다.</p>
+                ) : (
+                  <div className="all-tag-grid">
+                    {filteredTagItems.map(([tag, count]) => (
                       <button
+                        className="tag-token-button"
                         type="button"
-                        key={category}
-                        onClick={() => {
-                          handleCategoryChange(category)
-                          setCurrentView('board')
-                        }}
+                        key={tag}
+                        onClick={() => openPostsByTag(tag)}
                       >
-                        <span>{category}</span>
-                        <strong>0</strong>
+                        <span>{tag}</span>
+                        <strong>{count}</strong>
                       </button>
                     ))}
+                  </div>
+                )}
+              </section>
             </div>
           </section>
         ) : currentView === 'aiGuide' ? (
