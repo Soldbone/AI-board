@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.db.init_db import init_db
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.boards import router as boards_router
@@ -31,7 +32,11 @@ app.include_router(images_router, prefix=settings.api_prefix)
 app.include_router(posts_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
 
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
 
+    
 @app.get(f"{settings.api_prefix}/health")
 def health_check():
     return {"status": "ok", "service": "figure-community-api"}
