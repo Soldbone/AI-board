@@ -151,6 +151,11 @@ export class PostsService {
   }
 
   async update(id: number, updatePostDto: UpdatePostDto, userId: number) {
+    const shouldUpdateTags = Array.isArray(updatePostDto.tagNames);
+    const tagNames = shouldUpdateTags
+      ? this.normalizeTagNames(updatePostDto.tagNames)
+      : [];
+
     const post = await this.prismaService.post.findUnique({
       where: { id },
       select: {
@@ -167,11 +172,34 @@ export class PostsService {
       throw new ForbiddenException('You can only update your own post');
     }
 
-    return this.prismaService.post.update({
+    const updatedPost = await this.prismaService.post.update({
       where: { id },
       data: {
         title: updatePostDto.title,
         content: updatePostDto.content,
+        ...(shouldUpdateTags
+          ? {
+              postTags: {
+                deleteMany: {},
+                ...(tagNames.length > 0
+                  ? {
+                      create: tagNames.map((tagName) => ({
+                        tag: {
+                          connectOrCreate: {
+                            where: {
+                              name: tagName,
+                            },
+                            create: {
+                              name: tagName,
+                            },
+                          },
+                        },
+                      })),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -185,8 +213,19 @@ export class PostsService {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    return this.mapPostTagsToTags(updatedPost);
   }
 
   async remove(id: number, userId: number) {

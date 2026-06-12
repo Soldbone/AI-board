@@ -380,6 +380,13 @@ describe('PostsService', () => {
       author: {
         nickname: 'tester',
       },
+      postTags: [
+        {
+          tag: {
+            name: 'nestjs',
+          },
+        },
+      ],
     };
 
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
@@ -388,9 +395,16 @@ describe('PostsService', () => {
     });
     jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
 
-    await expect(service.update(1, updatePostDto, 1)).resolves.toBe(
-      updatedPost,
-    );
+    await expect(service.update(1, updatePostDto, 1)).resolves.toEqual({
+      id: updatedPost.id,
+      title: updatedPost.title,
+      content: updatedPost.content,
+      viewCount: updatedPost.viewCount,
+      createdAt: updatedPost.createdAt,
+      updatedAt: updatedPost.updatedAt,
+      author: updatedPost.author,
+      tags: ['nestjs'],
+    });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       select: {
@@ -416,8 +430,137 @@ describe('PostsService', () => {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
+  });
+
+  it('should replace tags when updating a post with tag names', async () => {
+    const updatePostDto = {
+      title: 'Updated title',
+      content: 'Updated content',
+      tagNames: [' prisma ', 'postgresql', 'prisma'],
+    };
+    const updatedPost = {
+      id: 1,
+      title: updatePostDto.title,
+      content: updatePostDto.content,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: {
+        nickname: 'tester',
+      },
+      postTags: [
+        {
+          tag: {
+            name: 'prisma',
+          },
+        },
+        {
+          tag: {
+            name: 'postgresql',
+          },
+        },
+      ],
+    };
+
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      authorId: 1,
+    });
+    jest.spyOn(prismaService.post, 'update').mockResolvedValue(updatedPost);
+
+    await expect(service.update(1, updatePostDto, 1)).resolves.toEqual({
+      id: updatedPost.id,
+      title: updatedPost.title,
+      content: updatedPost.content,
+      viewCount: updatedPost.viewCount,
+      createdAt: updatedPost.createdAt,
+      updatedAt: updatedPost.updatedAt,
+      author: updatedPost.author,
+      tags: ['prisma', 'postgresql'],
+    });
+    expect(prismaService.post.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+        postTags: {
+          deleteMany: {},
+          create: [
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'prisma',
+                  },
+                  create: {
+                    name: 'prisma',
+                  },
+                },
+              },
+            },
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'postgresql',
+                  },
+                  create: {
+                    name: 'postgresql',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should throw BadRequestException when updating a post with more than 5 tags', async () => {
+    await expect(
+      service.update(
+        1,
+        {
+          title: 'Updated title',
+          content: 'Updated content',
+          tagNames: ['one', 'two', 'three', 'four', 'five', 'six'],
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('should throw NotFoundException when updating a missing post', async () => {
