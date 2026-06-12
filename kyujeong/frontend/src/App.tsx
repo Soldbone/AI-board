@@ -1106,39 +1106,6 @@ function App() {
             </div>
           </div>
 
-          <nav className="main-nav" aria-label="주요 메뉴">
-            <button
-              className={currentView === 'board' ? 'active' : ''}
-              type="button"
-              onClick={() => {
-                setCurrentView('board')
-                setSelectedPost(null)
-              }}
-            >
-              게시판
-            </button>
-            <button
-              className={currentView === 'tags' ? 'active' : ''}
-              type="button"
-              onClick={() => {
-                setCurrentView('tags')
-                setSelectedPost(null)
-              }}
-            >
-              태그
-            </button>
-            <button
-              className={currentView === 'aiGuide' ? 'active' : ''}
-              type="button"
-              onClick={() => {
-                setCurrentView('aiGuide')
-                setSelectedPost(null)
-              }}
-            >
-              AI 추천 가이드
-            </button>
-          </nav>
-
           <label className="top-search">
             <span className="sr-only">게시글 검색</span>
             <input
@@ -2088,11 +2055,71 @@ function App() {
           </section>
         ) : (
         <div className="content-grid">
+          <aside className="home-sidebar" aria-label="홈 메뉴">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentView('board')
+                setSelectedPost(null)
+              }}
+            >
+              <span aria-hidden="true">⌂</span>
+              홈
+            </button>
+            <button className="active" type="button">
+              <span aria-hidden="true">▣</span>
+              게시판
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentView('tags')
+                setSelectedPost(null)
+              }}
+            >
+              <span aria-hidden="true">◇</span>
+              태그
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentView('aiGuide')
+                setSelectedPost(null)
+              }}
+            >
+              <span aria-hidden="true">✧</span>
+              AI 추천
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentView('aiGuide')
+                setSelectedPost(null)
+              }}
+            >
+              <span aria-hidden="true">?</span>
+              가이드
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!currentUser) {
+                  setCurrentView('login')
+                } else {
+                  openMyPage()
+                }
+              }}
+            >
+              <span aria-hidden="true">♙</span>
+              마이페이지
+            </button>
+          </aside>
+
           <section className="board-main">
             <div className="board-heading">
               <div>
-                <h1>게시판</h1>
-                <p>냉장고 속 재료로 만들 수 있는 요리를 함께 찾아보세요!</p>
+                <h1>최신 게시글</h1>
+                <p>냉장고 속 재료로 만든 요리 고민을 빠르게 확인해보세요.</p>
               </div>
               <button className="write-button" type="button" onClick={openWriteView}>
                 글쓰기
@@ -2155,7 +2182,8 @@ function App() {
                     role="cell"
                     onClick={() => loadPostDetail(post.id)}
                   >
-                    {post.title}
+                    <span className={`post-thumb thumb-${post.id % 5}`} aria-hidden="true" />
+                    <span>{post.title}</span>
                   </button>
                   <div className="tag-stack" role="cell">
                     {post.tags.slice(0, 3).map((tag) => (
@@ -2210,66 +2238,6 @@ function App() {
               </button>
             </div>
           </section>
-
-          <aside className="side-panel" aria-label="게시판 부가 정보">
-            <section className="side-card">
-              <h2>인기 태그</h2>
-              {popularTagItems.length === 0 ? (
-                <p className="side-empty">아직 집계할 태그가 없습니다.</p>
-              ) : (
-                <ul className="popular-list">
-                  {popularTagItems.map(([tag, count]) => (
-                    <li key={tag}>
-                      <button
-                        type="button"
-                        onClick={() => handleCategoryChange(tag)}
-                      >
-                        {tag}
-                      </button>
-                      <strong>{count}</strong>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="ai-card">
-              <div>
-                <h2>AI 추천이 궁금하다면?</h2>
-                <p>
-                  글을 작성하면 AI가 재료 분석부터 레시피 추천까지 도와드려요!
-                </p>
-              </div>
-              <div className="cook-mascot" aria-hidden="true">
-                <span className="hat" />
-                <span className="face" />
-                <span className="body" />
-              </div>
-            </section>
-
-            <section className="side-card">
-              <h2>최근 활동</h2>
-              {recentActivityItems.length === 0 ? (
-                <p className="side-empty">최근 활동이 아직 없습니다.</p>
-              ) : (
-                <ul className="activity-list">
-                  {recentActivityItems.map((activity) => (
-                    <li key={activity.id}>
-                      <span className="activity-dot" />
-                      <button
-                        type="button"
-                        onClick={() => loadPostDetail(activity.id)}
-                      >
-                        <strong>{activity.title}</strong>
-                        <p>{activity.detail}</p>
-                      </button>
-                      <time>{activity.time}</time>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </aside>
         </div>
         )}
       </section>
