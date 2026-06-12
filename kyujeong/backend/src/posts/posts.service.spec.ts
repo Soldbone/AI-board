@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostsService } from './posts.service';
 
@@ -217,6 +221,76 @@ describe('PostsService', () => {
         authorId: 1,
       },
     });
+  });
+
+  it('should create a post with tags', async () => {
+    const createPostDto = {
+      title: 'Test title',
+      content: 'Test content',
+      tagNames: [' nestjs ', 'prisma', 'nestjs'],
+    };
+
+    const createdPost = {
+      id: 1,
+      title: createPostDto.title,
+      content: createPostDto.content,
+      authorId: 1,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    jest.spyOn(prismaService.post, 'create').mockResolvedValue(createdPost);
+
+    await expect(service.create(createPostDto, 1)).resolves.toBe(createdPost);
+    expect(prismaService.post.create).toHaveBeenCalledWith({
+      data: {
+        title: createPostDto.title,
+        content: createPostDto.content,
+        authorId: 1,
+        postTags: {
+          create: [
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'nestjs',
+                  },
+                  create: {
+                    name: 'nestjs',
+                  },
+                },
+              },
+            },
+            {
+              tag: {
+                connectOrCreate: {
+                  where: {
+                    name: 'prisma',
+                  },
+                  create: {
+                    name: 'prisma',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it('should throw BadRequestException when creating a post with more than 5 tags', async () => {
+    await expect(
+      service.create(
+        {
+          title: 'Test title',
+          content: 'Test content',
+          tagNames: ['one', 'two', 'three', 'four', 'five', 'six'],
+        },
+        1,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('should update a post when the current user is the author', async () => {

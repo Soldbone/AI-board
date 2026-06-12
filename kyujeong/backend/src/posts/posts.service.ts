@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -89,11 +90,31 @@ export class PostsService {
   }
 
   async create(createPostDto: CreatePostDto, authorId: number) {
+    const tagNames = this.normalizeTagNames(createPostDto.tagNames);
+
     return this.prismaService.post.create({
       data: {
         title: createPostDto.title,
         content: createPostDto.content,
         authorId,
+        ...(tagNames.length > 0
+          ? {
+              postTags: {
+                create: tagNames.map((tagName) => ({
+                  tag: {
+                    connectOrCreate: {
+                      where: {
+                        name: tagName,
+                      },
+                      create: {
+                        name: tagName,
+                      },
+                    },
+                  },
+                })),
+              },
+            }
+          : {}),
       },
     });
   }
@@ -159,5 +180,21 @@ export class PostsService {
     });
 
     return { id };
+  }
+
+  private normalizeTagNames(tagNames?: string[]) {
+    const normalizedTagNames = [
+      ...new Set((tagNames ?? []).map((tagName) => tagName.trim())),
+    ].filter(Boolean);
+
+    if (normalizedTagNames.length > 5) {
+      throw new BadRequestException('Tags can be up to 5');
+    }
+
+    if (normalizedTagNames.some((tagName) => tagName.length > 20)) {
+      throw new BadRequestException('Tag name can be up to 20 characters');
+    }
+
+    return normalizedTagNames;
   }
 }
