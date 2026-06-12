@@ -12,18 +12,34 @@ import { UpdatePostDto } from './dto/update-post.dto';
 export class PostsService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  async findAll(page: number, size: number, search?: string) {
+  async findAll(page: number, size: number, search?: string, tag?: string) {
     const currentPage = Math.max(page, 1);
     const pageSize = Math.max(size, 1);
     const keyword = search?.trim();
+    const tagName = tag?.trim();
 
     const posts = await this.prismaService.post.findMany({
-      where: keyword
+      where: keyword || tagName
         ? {
-            title: {
-              contains: keyword,
-              mode: 'insensitive',
-            },
+            ...(keyword
+              ? {
+                  title: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                }
+              : {}),
+            ...(tagName
+              ? {
+                  postTags: {
+                    some: {
+                      tag: {
+                        name: tagName,
+                      },
+                    },
+                  },
+                }
+              : {}),
           }
         : undefined,
       skip: (currentPage - 1) * pageSize,

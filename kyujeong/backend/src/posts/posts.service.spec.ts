@@ -168,6 +168,94 @@ describe('PostsService', () => {
     });
   });
 
+  it('should search posts by tag name', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, undefined, 'nestjs')).resolves.toEqual(
+      [],
+    );
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        postTags: {
+          some: {
+            tag: {
+              name: 'nestjs',
+            },
+          },
+        },
+      },
+      skip: 0,
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should search posts by title and tag name together', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(service.findAll(1, 10, 'test', 'nestjs')).resolves.toEqual([]);
+    expect(prismaService.post.findMany).toHaveBeenCalledWith({
+      where: {
+        title: {
+          contains: 'test',
+          mode: 'insensitive',
+        },
+        postTags: {
+          some: {
+            tag: {
+              name: 'nestjs',
+            },
+          },
+        },
+      },
+      skip: 0,
+      take: 10,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        author: {
+          select: {
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it('should increment view count and return a post detail', async () => {
     const post = {
       id: 1,
