@@ -1906,151 +1906,189 @@ function App() {
             ) : detailErrorMessage ? (
               <div className="detail-card detail-state error">{detailErrorMessage}</div>
             ) : selectedPost ? (
-              <article className="detail-card">
-                <div className="detail-topline">
-                  <h1>{selectedPost.title}</h1>
-                  {currentUser?.id === selectedPost.author.id ? (
-                    <div className="detail-actions">
-                      <button type="button" onClick={openEditView}>
-                        수정
-                      </button>
-                      <button
-                        className="danger"
-                        type="button"
-                        onClick={handleDeletePost}
-                        disabled={isPostDeleting}
-                      >
-                        {isPostDeleting ? '삭제 중' : '삭제'}
-                      </button>
-                    </div>
+              <div className="detail-layout">
+                <article className="detail-card">
+                  <div className="detail-topline">
+                    <h1>{selectedPost.title}</h1>
+                    {currentUser?.id === selectedPost.author.id ? (
+                      <div className="detail-actions">
+                        <button type="button" onClick={openEditView}>
+                          수정
+                        </button>
+                        <button
+                          className="danger"
+                          type="button"
+                          onClick={handleDeletePost}
+                          disabled={isPostDeleting}
+                        >
+                          {isPostDeleting ? '삭제 중' : '삭제'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {postDeleteErrorMessage ? (
+                    <p className="detail-action-message error">
+                      {postDeleteErrorMessage}
+                    </p>
                   ) : null}
-                </div>
 
-                {postDeleteErrorMessage ? (
-                  <p className="detail-action-message error">
-                    {postDeleteErrorMessage}
-                  </p>
-                ) : null}
-
-                <div className="detail-meta">
-                  <span className="mini-avatar">
-                    {selectedPost.author.nickname.slice(0, 1)}
-                  </span>
-                  <strong>{selectedPost.author.nickname}</strong>
-                  <time dateTime={selectedPost.createdAt}>
-                    {formatDate(selectedPost.createdAt)}
-                  </time>
-                  <span>조회 {selectedPost.viewCount}</span>
-                </div>
-
-                <div className="detail-tags">
-                  {(selectedPost.tags ?? []).map((tag) => (
-                    <span className="tag-chip green" key={tag}>
-                      {tag}
+                  <div className="detail-meta">
+                    <span className="mini-avatar">
+                      {selectedPost.author.nickname.slice(0, 1)}
                     </span>
-                  ))}
-                </div>
-
-                <p className="detail-body">{selectedPost.content}</p>
-
-                <section className="recipe-info" aria-label="요리 조건">
-                  <div>
-                    <span className="info-label">식사 상황</span>
-                    <strong>저녁</strong>
+                    <strong>{selectedPost.author.nickname}</strong>
+                    <time dateTime={selectedPost.createdAt}>
+                      {formatDate(selectedPost.createdAt)}
+                    </time>
+                    <span>조회 {selectedPost.viewCount}</span>
                   </div>
-                  <div>
-                    <span className="info-label">조리 시간</span>
-                    <strong>10분 이내</strong>
+
+                  <div className="detail-tags">
+                    {(selectedPost.tags ?? []).map((tag) => (
+                      <span className="tag-chip green" key={tag}>
+                        {tag}
+                      </span>
+                    ))}
                   </div>
-                </section>
 
-                <section className="comment-box" aria-label="댓글">
-                  <h2>댓글 {comments.length}</h2>
-                  <form className="comment-input-row" onSubmit={handleCreateComment}>
-                    <input
-                      type="text"
-                      placeholder="댓글을 입력하세요..."
-                      value={commentContent}
-                      onChange={(event) => setCommentContent(event.target.value)}
-                    />
-                    <button type="submit" disabled={isCommentSubmitting}>
-                      {isCommentSubmitting ? '등록 중' : '등록'}
-                    </button>
-                  </form>
+                  <p className="detail-body">{selectedPost.content}</p>
 
-                  {commentSubmitMessage ? (
-                    <p className="comment-state success">{commentSubmitMessage}</p>
-                  ) : null}
+                  <section className="recipe-info" aria-label="요리 조건">
+                    <div>
+                      <span className="info-label">식사 상황</span>
+                      <strong>저녁</strong>
+                    </div>
+                    <div>
+                      <span className="info-label">조리 시간</span>
+                      <strong>10분 이내</strong>
+                    </div>
+                  </section>
 
-                  {commentErrorMessage ? (
-                    <p className="comment-state error">{commentErrorMessage}</p>
-                  ) : comments.length === 0 ? (
-                    <p className="comment-state">아직 댓글이 없습니다.</p>
-                  ) : (
-                    <ul className="comment-list">
-                      {comments.map((comment) => (
-                        <li key={comment.id}>
-                          <span className="mini-avatar">
-                            {comment.author.nickname.slice(0, 1)}
-                          </span>
-                          <div>
-                            <div className="comment-meta">
-                              <strong>{comment.author.nickname}</strong>
-                              <time dateTime={comment.createdAt}>
-                                {formatDate(comment.createdAt)}
-                              </time>
-                              {currentUser?.id === comment.author.id ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => startEditComment(comment)}
-                                    disabled={editingCommentId === comment.id}
-                                  >
-                                    수정
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteComment(comment.id)}
-                                    disabled={deletingCommentId === comment.id}
-                                  >
-                                    {deletingCommentId === comment.id
-                                      ? '삭제 중'
-                                      : '삭제'}
-                                  </button>
-                                </>
-                              ) : null}
-                            </div>
-                            {editingCommentId === comment.id ? (
-                              <div className="comment-edit-row">
-                                <input
-                                  type="text"
-                                  maxLength={500}
-                                  value={editingCommentContent}
-                                  onChange={(event) =>
-                                    setEditingCommentContent(event.target.value)
-                                  }
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateComment(comment.id)}
-                                  disabled={isCommentUpdating}
-                                >
-                                  {isCommentUpdating ? '저장 중' : '저장'}
-                                </button>
-                                <button type="button" onClick={cancelEditComment}>
-                                  취소
-                                </button>
+                  <section className="comment-box" aria-label="댓글">
+                    <h2>댓글 {comments.length}</h2>
+                    <form className="comment-input-row" onSubmit={handleCreateComment}>
+                      <input
+                        type="text"
+                        placeholder="댓글을 입력하세요..."
+                        value={commentContent}
+                        onChange={(event) => setCommentContent(event.target.value)}
+                      />
+                      <button type="submit" disabled={isCommentSubmitting}>
+                        {isCommentSubmitting ? '등록 중' : '등록'}
+                      </button>
+                    </form>
+
+                    {commentSubmitMessage ? (
+                      <p className="comment-state success">{commentSubmitMessage}</p>
+                    ) : null}
+
+                    {commentErrorMessage ? (
+                      <p className="comment-state error">{commentErrorMessage}</p>
+                    ) : comments.length === 0 ? (
+                      <p className="comment-state">아직 댓글이 없습니다.</p>
+                    ) : (
+                      <ul className="comment-list">
+                        {comments.map((comment) => (
+                          <li key={comment.id}>
+                            <span className="mini-avatar">
+                              {comment.author.nickname.slice(0, 1)}
+                            </span>
+                            <div>
+                              <div className="comment-meta">
+                                <strong>{comment.author.nickname}</strong>
+                                <time dateTime={comment.createdAt}>
+                                  {formatDate(comment.createdAt)}
+                                </time>
+                                {currentUser?.id === comment.author.id ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditComment(comment)}
+                                      disabled={editingCommentId === comment.id}
+                                    >
+                                      수정
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteComment(comment.id)}
+                                      disabled={deletingCommentId === comment.id}
+                                    >
+                                      {deletingCommentId === comment.id
+                                        ? '삭제 중'
+                                        : '삭제'}
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
-                            ) : (
-                              <p>{comment.content}</p>
-                            )}
-                          </div>
-                        </li>
-                      ))}
+                              {editingCommentId === comment.id ? (
+                                <div className="comment-edit-row">
+                                  <input
+                                    type="text"
+                                    maxLength={500}
+                                    value={editingCommentContent}
+                                    onChange={(event) =>
+                                      setEditingCommentContent(event.target.value)
+                                    }
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateComment(comment.id)}
+                                    disabled={isCommentUpdating}
+                                  >
+                                    {isCommentUpdating ? '저장 중' : '저장'}
+                                  </button>
+                                  <button type="button" onClick={cancelEditComment}>
+                                    취소
+                                  </button>
+                                </div>
+                              ) : (
+                                <p>{comment.content}</p>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </article>
+
+                <aside className="detail-ai-panel" aria-label="AI 추천 결과">
+                  <div className="detail-ai-panel-header">
+                    <span aria-hidden="true">AI</span>
+                    <strong>AI 추천 결과</strong>
+                  </div>
+                  <h2>
+                    {(selectedPost.tags ?? [])[0]
+                      ? `${(selectedPost.tags ?? [])[0]} 활용 레시피`
+                      : '냉장고 재료 활용 레시피'}
+                  </h2>
+                  <div className="detail-ai-visual" aria-hidden="true">
+                    <span />
+                  </div>
+                  <section>
+                    <h3>추천 이유</h3>
+                    <ul>
+                      <li>게시글의 재료와 상황을 기준으로 어울려요.</li>
+                      <li>짧은 조리 시간 안에 만들기 좋은 구성이에요.</li>
+                      <li>댓글로 추천 결과를 공유하기 쉬워요.</li>
                     </ul>
-                  )}
-                </section>
-              </article>
+                  </section>
+                  <section>
+                    <h3>부족한 재료</h3>
+                    <p>선택 재료는 추천 실행 단계에서 확인할 예정입니다.</p>
+                  </section>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentView('aiGuide')
+                      setSelectedPost(null)
+                    }}
+                  >
+                    자세히 보기
+                  </button>
+                </aside>
+              </div>
             ) : null}
           </section>
         ) : (
