@@ -100,6 +100,13 @@ const tagFilterGroups = [
   'A-Z',
 ]
 
+const aiRecommendationSteps = [
+  '재료와 상황 확인',
+  '유사한 요리 흐름 탐색',
+  '냉장고 조합 정리',
+  '추천 결과 구성',
+]
+
 const koreanInitials = [
   'ㄱ',
   'ㄲ',
@@ -374,6 +381,10 @@ function App() {
   const [activeTagGroup, setActiveTagGroup] = useState('전체')
   const [isTagsLoading, setIsTagsLoading] = useState(false)
   const [tagErrorMessage, setTagErrorMessage] = useState('')
+  const [aiModalState, setAiModalState] = useState<
+    'closed' | 'running' | 'result'
+  >('closed')
+  const [aiProgress, setAiProgress] = useState(0)
 
   const popularTagItems = useMemo(() => {
     const tagCounts = new Map<string, number>()
@@ -410,6 +421,7 @@ function App() {
     0,
     8,
   )
+  const aiTargetTitle = selectedPost?.title ?? '냉장고 재료 고민'
   const isAuthView =
     currentView === 'login' ||
     currentView === 'signup' ||
@@ -542,6 +554,25 @@ function App() {
       controller.abort()
     }
   }, [currentView, postListReloadKey])
+
+  useEffect(() => {
+    if (aiModalState !== 'running') {
+      return
+    }
+
+    const progressTimer = window.setInterval(() => {
+      setAiProgress((currentProgress) => Math.min(currentProgress + 16, 96))
+    }, 260)
+    const resultTimer = window.setTimeout(() => {
+      setAiProgress(100)
+      setAiModalState('result')
+    }, 1500)
+
+    return () => {
+      window.clearInterval(progressTimer)
+      window.clearTimeout(resultTimer)
+    }
+  }, [aiModalState])
 
   function handleSearchKeywordChange(value: string) {
     setSearchKeyword(value)
@@ -1166,6 +1197,16 @@ function App() {
     setPostTagInput('')
     setPostCreateErrorMessage('')
     setCurrentView('write')
+  }
+
+  function openAiRecommendationModal() {
+    setAiProgress(8)
+    setAiModalState('running')
+  }
+
+  function closeAiRecommendationModal() {
+    setAiProgress(0)
+    setAiModalState('closed')
   }
 
   function openEditView() {
@@ -1846,7 +1887,7 @@ function App() {
 
             <div className="utility-heading">
               <h1>AI 추천 가이드</h1>
-              <p>추천 기능을 붙이기 전까지는 게시글 작성 흐름만 준비해둡니다.</p>
+              <p>재료와 상황을 바탕으로 어울리는 한 끼를 정리해드려요.</p>
             </div>
 
             <div className="guide-grid">
@@ -1867,8 +1908,12 @@ function App() {
               </article>
             </div>
 
-            <button className="write-button" type="button" onClick={openWriteView}>
-              글쓰기
+            <button
+              className="write-button"
+              type="button"
+              onClick={openAiRecommendationModal}
+            >
+              AI 추천 실행
             </button>
           </section>
         ) : currentView === 'notifications' ? (
@@ -2339,12 +2384,9 @@ function App() {
                   </section>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCurrentView('aiGuide')
-                      setSelectedPost(null)
-                    }}
+                    onClick={openAiRecommendationModal}
                   >
-                    자세히 보기
+                    AI 추천 실행
                   </button>
                 </aside>
               </div>
@@ -2650,6 +2692,130 @@ function App() {
           </section>
         </div>
         )}
+        {aiModalState !== 'closed' ? (
+          <div className="ai-modal-backdrop">
+            {aiModalState === 'running' ? (
+              <section
+                className="ai-modal ai-modal-running"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="ai-running-title"
+              >
+                <div className="ai-modal-kicker">
+                  <span aria-hidden="true">AI</span>
+                  <button
+                    className="ai-modal-close"
+                    type="button"
+                    onClick={closeAiRecommendationModal}
+                    aria-label="AI 추천 창 닫기"
+                  >
+                    x
+                  </button>
+                </div>
+                <h2 id="ai-running-title">AI 추천 실행</h2>
+                <p>
+                  {aiTargetTitle}에 맞는 재료 조합과 조리 흐름을 정리하고
+                  있어요.
+                </p>
+
+                <ol className="ai-step-list">
+                  {aiRecommendationSteps.map((step, index) => (
+                    <li
+                      className={aiProgress >= (index + 1) * 24 ? 'active' : ''}
+                      key={step}
+                    >
+                      <span>{index + 1}</span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+
+                <div
+                  className="ai-progress"
+                  role="progressbar"
+                  aria-label="AI 추천 진행률"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={aiProgress}
+                >
+                  <span style={{ width: `${aiProgress}%` }} />
+                </div>
+
+                <button
+                  className="ai-secondary-button"
+                  type="button"
+                  onClick={closeAiRecommendationModal}
+                >
+                  취소
+                </button>
+              </section>
+            ) : (
+              <section
+                className="ai-modal ai-modal-result"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="ai-result-title"
+              >
+                <div className="ai-modal-kicker">
+                  <span aria-hidden="true">AI</span>
+                  <button
+                    className="ai-modal-close"
+                    type="button"
+                    onClick={closeAiRecommendationModal}
+                    aria-label="AI 추천 결과 닫기"
+                  >
+                    x
+                  </button>
+                </div>
+                <h2 id="ai-result-title">AI 추천 결과</h2>
+                <p className="ai-modal-source">{aiTargetTitle}</p>
+
+                <div className="ai-result-summary">
+                  <div className="ai-result-visual" aria-hidden="true">
+                    <span />
+                  </div>
+                  <div>
+                    <strong>계란김치볶음밥</strong>
+                    <p>
+                      김치의 매콤함과 계란의 고소함이 잘 어울리고, 짧은
+                      시간에 만들기 좋아요.
+                    </p>
+                  </div>
+                </div>
+
+                <dl className="ai-result-facts">
+                  <div>
+                    <dt>조리 시간</dt>
+                    <dd>10분 이내</dd>
+                  </div>
+                  <div>
+                    <dt>난이도</dt>
+                    <dd>쉬움</dd>
+                  </div>
+                  <div>
+                    <dt>부족 재료</dt>
+                    <dd>없음</dd>
+                  </div>
+                </dl>
+
+                <button
+                  className="ai-primary-button"
+                  type="button"
+                  onClick={closeAiRecommendationModal}
+                >
+                  댓글로 추천 결과 보기
+                </button>
+                <button
+                  className="ai-secondary-button"
+                  type="button"
+                  onClick={closeAiRecommendationModal}
+                >
+                  닫기
+                </button>
+              </section>
+            )}
+          </div>
+        ) : null}
       </section>
     </main>
   )
