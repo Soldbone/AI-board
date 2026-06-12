@@ -4,6 +4,7 @@ export type SimilarPostRequest = {
   title: string
   content: string
   tag_names: string[]
+  limit?: number
 }
 
 export type SimilarPostItem = {
@@ -24,4 +25,23 @@ type SimilarPostResponse = {
 
 export function getSimilarPosts(data: SimilarPostRequest) {
   return apiPost<SimilarPostResponse>('/ai/similar-posts', data)
+}
+
+export type AiTagSuggestionRequest = {
+  title: string
+  content: string
+  limit?: number
+}
+
+export type AiTagSuggestionItem = {
+  name: string
+  score: number
+}
+
+type AiTagSuggestionResponse = {
+  items: AiTagSuggestionItem[]
+}
+
+export function getAiTagSuggestions(data: AiTagSuggestionRequest) {
+  return apiPost<AiTagSuggestionResponse>('/ai/tag-suggestions', data)
 }

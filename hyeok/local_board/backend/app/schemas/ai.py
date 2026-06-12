@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SimilarPostRequest(BaseModel):
     title: str = ""
     content: str = ""
-    tag_names: list[str] = []
+    tag_names: list[str] = Field(default_factory=list)
+    limit: int = Field(default=5, ge=1, le=10)
 
 
 class SimilarPostItem(BaseModel):
@@ -23,3 +24,18 @@ class SimilarPostItem(BaseModel):
 
 class SimilarPostResponse(BaseModel):
     items: list[SimilarPostItem]
+
+
+class TagSuggestionRequest(BaseModel):
+    title: str = ""
+    content: str = ""
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class TagSuggestionItem(BaseModel):
+    name: str
+    score: int
+
+
+class TagSuggestionResponse(BaseModel):
+    items: list[TagSuggestionItem]
