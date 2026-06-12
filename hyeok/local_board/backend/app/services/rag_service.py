@@ -1,4 +1,6 @@
+import math
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,6 +21,10 @@ MAX_SIMILAR_POST_LIMIT = 5
 SEARCH_CANDIDATE_LIMIT = 100
 STOPWORDS_FILE = Path(__file__).resolve().parents[1] / "data" / "rag_stopwords_ko.txt"
 KIWI_KEYWORD_TAGS = {"NNG", "NNP", "NNB", "NR", "SL", "SN"}
+VIEW_BONUS_MAX = 3
+COMMENT_BONUS_MAX = 3
+RECENCY_BONUS_MAX = 2
+RECENCY_BONUS_DAYS = 30
 
 FIELD_WEIGHTS = {
     "title": 4,
@@ -202,6 +208,55 @@ def get_post_comment_text(db: Session, post_id: int) -> str:
     return " ".join(comment for (comment,) in comment_rows)
 
 
+def get_post_comment_count(db: Session, post_id: int) -> int:
+    return (
+        db.query(Comment.id)
+        .filter(
+            Comment.post_id == post_id,
+            Comment.deleted_at.is_(None),
+        )
+        .count()
+    )
+
+
+def calculate_log_bonus(value: int | None, max_bonus: int) -> int:
+    if not value or value <= 0:
+        return 0
+
+    return min(max_bonus, round(math.log1p(value)))
+
+
+def calculate_recency_bonus(created_at: datetime | None) -> int:
+    if created_at is None:
+        return 0
+
+    now = (
+        datetime.now(created_at.tzinfo)
+        if created_at.tzinfo
+        else datetime.now(UTC).replace(tzinfo=None)
+    )
+    days_old = max(0, (now - created_at).days)
+
+    if days_old >= RECENCY_BONUS_DAYS:
+        return 0
+
+    freshness_ratio = 1 - (days_old / RECENCY_BONUS_DAYS)
+    return round(freshness_ratio * RECENCY_BONUS_MAX)
+
+
+def calculate_ranking_bonus(post: Post, comment_count: int) -> dict[str, int]:
+    view_bonus = calculate_log_bonus(post.view_count, VIEW_BONUS_MAX)
+    comment_bonus = calculate_log_bonus(comment_count, COMMENT_BONUS_MAX)
+    recency_bonus = calculate_recency_bonus(post.created_at)
+
+    return {
+        "view_bonus": view_bonus,
+        "comment_bonus": comment_bonus,
+        "recency_bonus": recency_bonus,
+        "total": view_bonus + comment_bonus + recency_bonus,
+    }
+
+
 def build_searchable_text(post: Post, tag_names: list[str], comment_text: str) -> str:
     return (
         f"{post.title} {post.content} {post.region or ''} "
@@ -235,6 +290,7 @@ def find_similar_posts(
     for post in posts:
         post_tag_names = get_post_tag_names(db, post.id)
         comment_text = get_post_comment_text(db, post.id)
+        comment_count = get_post_comment_count(db, post.id)
         searchable_text = build_searchable_text(post, post_tag_names, comment_text)
 
         matched_keywords = [
@@ -251,6 +307,8 @@ def find_similar_posts(
             comment_text=comment_text,
             matched_keywords=matched_keywords,
         )
+        ranking_bonus = calculate_ranking_bonus(post, comment_count)
+        final_score = match_detail["score"] + ranking_bonus["total"]
 
         results.append(
             {
@@ -260,7 +318,9 @@ def find_similar_posts(
                 "region": post.region,
                 "store_name": post.store_name,
                 "category": post.category,
-                "score": match_detail["score"],
+                "score": final_score,
+                "base_score": match_detail["score"],
+                "ranking_bonus": ranking_bonus,
                 "matched_keywords": matched_keywords,
                 "matched_fields": match_detail["matched_fields"],
                 "created_at": post.created_at,
@@ -275,7 +335,7 @@ def rank_similar_posts(results: list[dict], limit: int = DEFAULT_SIMILAR_POST_LI
 
     ranked_results = sorted(
         results,
-        key=lambda item: (item["score"], item["created_at"]),
+        key=lambda item: (item["score"], item.get("base_score", 0), item["created_at"]),
         reverse=True,
     )
 

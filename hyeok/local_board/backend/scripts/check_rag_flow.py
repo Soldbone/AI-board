@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -10,7 +10,11 @@ sys.path.append(str(BACKEND_DIR))
 from app.database import SessionLocal
 from app.models.post import Post
 from app.models.user import User
-from app.services.rag_service import extract_keywords, find_similar_posts
+from app.services.rag_service import (
+    calculate_ranking_bonus,
+    extract_keywords,
+    find_similar_posts,
+)
 
 
 def assert_condition(condition: bool, message: str) -> None:
@@ -53,6 +57,37 @@ def check_kiwi_noun_keywords() -> None:
     assert_condition("찾고" not in keywords, "동사 표현은 제외되어야 합니다.")
     assert_condition("있어요" not in keywords, "일반 서술 표현은 제외되어야 합니다.")
     print("PASS kiwi noun keywords")
+
+
+def check_ranking_bonus() -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    popular_recent_post = Post(
+        author_id=1,
+        title="RAG_BONUS_TEST_POPULAR",
+        content="RAG_BONUS_TEST_POPULAR",
+        view_count=100,
+        created_at=now,
+    )
+    quiet_old_post = Post(
+        author_id=1,
+        title="RAG_BONUS_TEST_QUIET",
+        content="RAG_BONUS_TEST_QUIET",
+        view_count=0,
+        created_at=now - timedelta(days=60),
+    )
+
+    popular_bonus = calculate_ranking_bonus(popular_recent_post, comment_count=10)
+    quiet_bonus = calculate_ranking_bonus(quiet_old_post, comment_count=0)
+
+    assert_condition(
+        popular_bonus["total"] > quiet_bonus["total"],
+        "조회수, 댓글 수, 최신성이 높은 글은 더 큰 보너스를 받아야 합니다.",
+    )
+    assert_condition(
+        popular_bonus["total"] <= 8,
+        "랭킹 보너스는 검색 관련도 점수를 압도하지 않도록 제한되어야 합니다.",
+    )
+    print("PASS ranking bonus")
 
 
 def check_no_result(db) -> None:
@@ -117,6 +152,7 @@ def main() -> None:
     try:
         check_stopwords()
         check_kiwi_noun_keywords()
+        check_ranking_bonus()
         check_empty_input(db)
         check_no_result(db)
         check_limit(db)
