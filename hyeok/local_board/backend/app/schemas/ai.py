@@ -7,7 +7,7 @@ class SimilarPostRequest(BaseModel):
     title: str = ""
     content: str = ""
     tag_names: list[str] = Field(default_factory=list)
-    limit: int = Field(default=5, ge=1, le=10)
+    limit: int = Field(default=5, ge=1, le=5)
 
 
 class SimilarPostItem(BaseModel):

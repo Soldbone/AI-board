@@ -7,6 +7,10 @@ from app.models.post import Post
 from app.models.tag import Tag, post_tags
 
 
+DEFAULT_SIMILAR_POST_LIMIT = 5
+MAX_SIMILAR_POST_LIMIT = 5
+SEARCH_CANDIDATE_LIMIT = 100
+
 STOPWORDS = {
     "그리고",
     "궁금",
@@ -154,7 +158,7 @@ def find_similar_posts(
     title: str,
     content: str,
     tag_names: list[str],
-    limit: int = 5,
+    limit: int = DEFAULT_SIMILAR_POST_LIMIT,
 ):
     keywords = extract_keywords(title, content, tag_names)
 
@@ -165,7 +169,7 @@ def find_similar_posts(
         db.query(Post)
         .filter(Post.deleted_at.is_(None))
         .order_by(Post.created_at.desc())
-        .limit(100)
+        .limit(SEARCH_CANDIDATE_LIMIT)
         .all()
     )
 
@@ -206,9 +210,19 @@ def find_similar_posts(
             }
         )
 
-    results.sort(key=lambda item: (item["score"], item["created_at"]), reverse=True)
+    return rank_similar_posts(results, limit)
 
-    return results[:limit]
+
+def rank_similar_posts(results: list[dict], limit: int = DEFAULT_SIMILAR_POST_LIMIT):
+    normalized_limit = max(1, min(limit, MAX_SIMILAR_POST_LIMIT))
+
+    ranked_results = sorted(
+        results,
+        key=lambda item: (item["score"], item["created_at"]),
+        reverse=True,
+    )
+
+    return ranked_results[:normalized_limit]
 
 
 def suggest_tags(
