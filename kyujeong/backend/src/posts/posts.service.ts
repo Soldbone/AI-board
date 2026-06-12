@@ -17,7 +17,7 @@ export class PostsService {
     const pageSize = Math.max(size, 1);
     const keyword = search?.trim();
 
-    return this.prismaService.post.findMany({
+    const posts = await this.prismaService.post.findMany({
       where: keyword
         ? {
             title: {
@@ -40,8 +40,19 @@ export class PostsService {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    return posts.map((post) => this.mapPostTagsToTags(post));
   }
 
   async findOne(id: number) {
@@ -59,6 +70,15 @@ export class PostsService {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -66,7 +86,7 @@ export class PostsService {
       throw new NotFoundException('Post not found');
     }
 
-    return this.prismaService.post.update({
+    const updatedPost = await this.prismaService.post.update({
       where: { id },
       data: {
         viewCount: {
@@ -85,8 +105,19 @@ export class PostsService {
             nickname: true,
           },
         },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    return this.mapPostTagsToTags(updatedPost);
   }
 
   async create(createPostDto: CreatePostDto, authorId: number) {
@@ -196,5 +227,22 @@ export class PostsService {
     }
 
     return normalizedTagNames;
+  }
+
+  private mapPostTagsToTags<
+    T extends {
+      postTags: {
+        tag: {
+          name: string;
+        };
+      }[];
+    },
+  >(post: T) {
+    const { postTags, ...postWithoutPostTags } = post;
+
+    return {
+      ...postWithoutPostTags,
+      tags: postTags.map((postTag) => postTag.tag.name),
+    };
   }
 }
