@@ -1,6 +1,6 @@
 from sqlalchemy import func, or_
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -10,6 +10,7 @@ from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.post import PostCreate, PostListItem, PostListResponse, PostRead, PostUpdate
 from app.models.tag import Tag, post_tags
+from app.services.embedding_service import embed_post_by_id
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -29,6 +30,7 @@ def normalize_tag_names(tag_names: list[str]) -> list[str]:
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
 def create_post(
     post_data: PostCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -64,6 +66,7 @@ def create_post(
         )
 
     db.commit()
+    background_tasks.add_task(embed_post_by_id, new_post.id)
 
     return new_post
 
@@ -227,6 +230,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
 def update_post(
     post_id: int,
     post_data: PostUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -265,6 +269,7 @@ def update_post(
 
     db.commit()
     db.refresh(post)
+    background_tasks.add_task(embed_post_by_id, post.id)
 
     return post
 

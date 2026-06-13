@@ -8,14 +8,43 @@ from app.schemas.ai import (
     TagSuggestionRequest,
     TagSuggestionResponse,
 )
+from app.services.embedding_service import find_similar_posts_by_vector
 from app.services.rag_service import find_similar_posts, suggest_tags
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 @router.post("/similar-posts", response_model=SimilarPostResponse)
-@router.post("/rag/similar-posts", response_model=SimilarPostResponse)
+@router.post("/vector-similar-posts", response_model=SimilarPostResponse)
 def get_similar_posts(
+    request_data: SimilarPostRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        items = find_similar_posts_by_vector(
+            db=db,
+            title=request_data.title,
+            content=request_data.content,
+            tag_names=request_data.tag_names,
+            limit=request_data.limit,
+        )
+    except Exception:
+        items = []
+
+    if not items:
+        items = find_similar_posts(
+            db=db,
+            title=request_data.title,
+            content=request_data.content,
+            tag_names=request_data.tag_names,
+            limit=request_data.limit,
+        )
+
+    return {"items": items}
+
+
+@router.post("/rag/similar-posts", response_model=SimilarPostResponse)
+def get_keyword_similar_posts(
     request_data: SimilarPostRequest,
     db: Session = Depends(get_db),
 ):

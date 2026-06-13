@@ -3,16 +3,80 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.config import EMBEDDING_MODEL_NAME
+from app.config import EMBEDDING_DIMENSION, EMBEDDING_MODEL_NAME, OPENAI_API_KEY
+from app.database import SessionLocal
 from app.models.comment import Comment
 from app.models.post import Post
 from app.models.post_embedding import PostEmbedding
-from app.services.rag_service import extract_keywords, get_post_tag_names
-
+from app.services.rag_service import (
+    DEFAULT_SIMILAR_POST_LIMIT,
+    MAX_SIMILAR_POST_LIMIT,
+    extract_keywords,
+    get_post_tag_names,
+)
+from openai import OpenAI
 
 COMMENT_SUMMARY_LIMIT = 20
 REPRESENTATIVE_COMMENT_LIMIT = 5
 COMMENT_SUMMARY_MAX_LENGTH = 700
+VECTOR_MATCH_FIELD = "vector"
+
+def get_openai_client() -> OpenAI:
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    return OpenAI(api_key=OPENAI_API_KEY)
+
+
+def create_embedding(text: str) -> list[float]:
+    client = get_openai_client()
+
+    response = client.embeddings.create(
+        model=EMBEDDING_MODEL_NAME,
+        input=text,
+    )
+
+    return response.data[0].embedding
+
+
+def update_post_embedding_vector(post_embedding: PostEmbedding) -> PostEmbedding:
+    embedding = create_embedding(post_embedding.source_text)
+
+    if len(embedding) != EMBEDDING_DIMENSION:
+        raise ValueError(
+            f"Embedding dimension mismatch: expected {EMBEDDING_DIMENSION}, got {len(embedding)}"
+        )
+
+    post_embedding.embedding = embedding
+    post_embedding.embedding_model = EMBEDDING_MODEL_NAME
+
+    return post_embedding
+
+
+def embed_post_by_id(post_id: int) -> bool:
+    db = SessionLocal()
+
+    try:
+        post = (
+            db.query(Post)
+            .filter(Post.id == post_id, Post.deleted_at.is_(None))
+            .first()
+        )
+
+        if post is None:
+            return False
+
+        post_embedding = upsert_post_embedding_source(db, post)
+        update_post_embedding_vector(post_embedding)
+        db.commit()
+
+        return True
+    except Exception as exc:
+        db.rollback()
+        print(f"post embedding failed post_id={post_id}: {exc}")
+        return False
+    finally:
+        db.close()
 
 
 def normalize_text(value: str) -> str:
@@ -148,3 +212,88 @@ def sync_post_embedding_sources(db: Session, limit: int = 100) -> int:
     db.commit()
 
     return len(posts)
+
+
+def build_query_embedding_text(
+    title: str,
+    content: str,
+    tag_names: list[str] | None = None,
+) -> str:
+    source_parts = []
+
+    if title.strip():
+        source_parts.append(f"title: {normalize_text(title)}")
+
+    if content.strip():
+        source_parts.append(f"content: {normalize_text(content)}")
+
+    cleaned_tags = [
+        normalize_text(tag_name)
+        for tag_name in tag_names or []
+        if normalize_text(tag_name)
+    ]
+
+    if cleaned_tags:
+        source_parts.append(f"tags: {', '.join(cleaned_tags)}")
+
+    return "\n".join(source_parts).strip()
+
+
+def calculate_vector_score(distance: float | None) -> int:
+    if distance is None:
+        return 0
+
+    similarity = 1 - float(distance)
+    score = round(similarity * 100)
+
+    return max(0, min(100, score))
+
+
+def find_similar_posts_by_vector(
+    db: Session,
+    title: str,
+    content: str,
+    tag_names: list[str],
+    limit: int = DEFAULT_SIMILAR_POST_LIMIT,
+) -> list[dict]:
+    query_text = build_query_embedding_text(title, content, tag_names)
+
+    if not query_text:
+        return []
+
+    query_embedding = create_embedding(query_text)
+    normalized_limit = max(1, min(limit, MAX_SIMILAR_POST_LIMIT))
+    distance = PostEmbedding.embedding.cosine_distance(query_embedding).label("distance")
+
+    rows = (
+        db.query(Post, distance)
+        .join(PostEmbedding, PostEmbedding.post_id == Post.id)
+        .filter(
+            Post.deleted_at.is_(None),
+            PostEmbedding.embedding.isnot(None),
+        )
+        .order_by(distance.asc())
+        .limit(normalized_limit)
+        .all()
+    )
+
+    keywords = extract_keywords(title, content, tag_names, limit=8)
+    results = []
+
+    for post, vector_distance in rows:
+        results.append(
+            {
+                "id": post.id,
+                "title": post.title,
+                "content_preview": post.content[:80],
+                "region": post.region,
+                "store_name": post.store_name,
+                "category": post.category,
+                "score": calculate_vector_score(vector_distance),
+                "matched_keywords": keywords,
+                "matched_fields": [VECTOR_MATCH_FIELD],
+                "created_at": post.created_at,
+            }
+        )
+
+    return results
