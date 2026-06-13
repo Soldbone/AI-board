@@ -6,6 +6,7 @@ import {
   TranscriptStatus,
 } from '../../common/enums/video-status.enum';
 import { Post } from '../../posts/entities/post.entity';
+import { TranscriptChunk } from './transcript-chunk.entity';
 
 @Entity('videos')
 export class Video extends BaseModel {
@@ -59,6 +60,34 @@ export class Video extends BaseModel {
   })
   embeddingStatus: EmbeddingStatus;
 
+  @Column({ name: 'metadata_error_code', type: 'varchar', length: 80, nullable: true })
+  metadataErrorCode?: string | null;
+
+  @Column({ name: 'metadata_error_message', type: 'text', nullable: true })
+  metadataErrorMessage?: string | null;
+
+  @Column({ name: 'transcript_error_code', type: 'varchar', length: 80, nullable: true })
+  transcriptErrorCode?: string | null;
+
+  @Column({ name: 'transcript_error_message', type: 'text', nullable: true })
+  transcriptErrorMessage?: string | null;
+
+  @Column({ name: 'embedding_error_code', type: 'varchar', length: 80, nullable: true })
+  embeddingErrorCode?: string | null;
+
+  @Column({ name: 'embedding_error_message', type: 'text', nullable: true })
+  embeddingErrorMessage?: string | null;
+
+  @Column({ name: 'processed_at', type: 'timestamptz', nullable: true })
+  processedAt?: Date | null;
+
+  @Index()
+  @Column({ name: 'processing_locked_until', type: 'timestamptz', nullable: true })
+  processingLockedUntil?: Date | null;
+
   @OneToMany(() => Post, (post) => post.video)
   posts: Post[];
+
+  @OneToMany(() => TranscriptChunk, (chunk) => chunk.video)
+  transcriptChunks: TranscriptChunk[];
 }
