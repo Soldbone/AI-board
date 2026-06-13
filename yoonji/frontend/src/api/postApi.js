@@ -13,6 +13,14 @@ export async function getPost(postId) {
 }
 
 
+export async function getSimilarPosts(postId, limit = 3) {
+  const response = await axiosInstance.get(`/posts/${postId}/similar-posts`, {
+    params: { limit },
+  });
+  return response.data;
+}
+
+
 export async function createPost(payload) {
   const response = await axiosInstance.post("/posts", payload);
   return response.data;

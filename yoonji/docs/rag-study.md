@@ -689,3 +689,207 @@ backend\.venv\Scripts\python.exe scripts\reindex_content_chunks.py
 - Phase 4에서 질문 참고 답변 retriever와 prompt를 연결한다.
 - Phase 5에서 구매 고민 요약 retriever와 LLM 생성을 연결한다.
 - 운영 단계에서는 pgvector migration과 cosine/ivfflat/hnsw index를 검토한다.
+
+---
+
+## 13. Phase 3 구현 요약
+
+AI Phase 3에서는 후기 게시글 상세에서 현재 후기와 비슷한 후기 게시글을 추천하는 기능을 구현했다.
+이 기능은 RAG 흐름 중 Retrieval만 사용하는 기능이다.
+LLM으로 문장을 생성하지 않고, 인덱싱된 REVIEW chunk를 vector similarity로 검색해 추천 목록을 만든다.
+
+API는 다음과 같다.
+
+```text
+GET /api/v1/posts/{post_id}/similar-posts?limit=3
+```
+
+동작 흐름:
+
+```text
+현재 게시글 조회
+-> REVIEW 게시글인지 확인
+-> 현재 게시글을 Document 검색 문맥으로 변환
+-> OpenAI embedding으로 query vector 생성
+-> REVIEW + POST chunk만 vector search
+-> 현재 게시글 제외
+-> 같은 게시글의 여러 chunk는 최고 점수만 사용
+-> 게시글 요약, score, 추천 이유 반환
+```
+
+추천 결과는 `AiOutput`에 저장하지 않는다.
+새 후기가 추가되거나 재인덱싱이 일어나면 추천 결과가 달라질 수 있으므로 실시간 계산이 더 자연스럽기 때문이다.
+
+## 14. Phase 3 수정 파일별 설명
+
+### `backend/app/ai/rag/retriever.py`
+
+`retrieve_similar_review_posts`를 구현했다.
+
+이 함수는 현재 REVIEW 게시글을 검색 query로 만들고, `VectorStore.similarity_search`를 호출한다.
+검색 조건은 다음과 같다.
+
+- `board_code=REVIEW`
+- `source_type=POST`
+- 현재 `post_id` 제외
+
+검색 결과는 chunk 단위로 나오지만, 화면에는 게시글 단위 추천이 필요하다.
+그래서 같은 게시글에서 여러 chunk가 검색되면 가장 높은 score만 남긴다.
+
+### `backend/app/ai/usecases/similar_posts.py`
+
+유사 후기 추천 usecase를 구현했다.
+
+역할:
+
+- 대상 게시글 존재 여부 확인
+- REVIEW 게시글인지 검증
+- retriever 호출
+- 추천 후보 게시글 조회
+- `SimilarPostListResponse` 생성
+- 같은 피규어명, 같은 제조사, 비슷한 가격대, 공유 태그를 바탕으로 간단한 reason 생성
+
+이 파일이 필요한 이유는 retriever가 검색만 담당하고, API 응답으로 어떤 정보를 보여줄지는 usecase가 담당해야 계층이 섞이지 않기 때문이다.
+
+### `backend/app/repositories/post_repository.py`
+
+`get_public_posts_by_ids`를 추가했다.
+retriever가 반환한 `post_id` 목록을 실제 게시글 응답 정보로 바꾸기 위해 필요하다.
+
+### `backend/app/api/routes/posts.py`
+
+아래 API를 추가했다.
+
+```text
+GET /posts/{post_id}/similar-posts
+```
+
+권한은 비회원도 접근 가능하다.
+게시글 상세 조회처럼 공개 후기 기반 추천이기 때문이다.
+
+### `frontend/src/api/postApi.js`
+
+`getSimilarPosts(postId, limit)`를 추가했다.
+프론트 상세 화면에서 백엔드 추천 API를 호출하기 위한 함수다.
+
+### `frontend/src/components/post/SimilarPostList.jsx`
+
+후기 상세 화면에 표시할 유사 후기 목록 컴포넌트를 추가했다.
+
+상태:
+
+- 로딩
+- API 오류
+- 추천 없음
+- 추천 카드 목록
+
+추천 카드에는 제목, thumbnail, match score, 추천 이유, 가격대, 만족도를 표시한다.
+
+### `frontend/src/pages/PostDetailPage.jsx`
+
+현재 게시글이 `REVIEW`일 때만 `SimilarPostList`를 렌더링하도록 연결했다.
+
+### `frontend/src/routes/Router.jsx`
+
+유사 후기 카드를 클릭했을 때 해당 게시글 상세로 이동할 수 있도록 `onOpenPost`를 전달했다.
+
+### `frontend/src/App.css`
+
+유사 후기 목록 카드 스타일과 모바일 1열 반응형 스타일을 추가했다.
+
+## 15. Phase 3 핵심 코드 설명
+
+### 현재 후기 게시글을 검색 query로 사용
+
+```python
+document = document_loader.build_post_document(post)
+query_vector = _embed_query(document.page_content)
+```
+
+현재 후기의 제목, 본문, 피규어명, 제조사, 가격대, 태그가 모두 검색 문맥에 들어간다.
+이렇게 해야 단순히 제목이 비슷한 글이 아니라 실제 후기 내용과 피규어 정보가 비슷한 글을 찾을 수 있다.
+
+### REVIEW chunk만 검색
+
+```python
+search_results = get_vector_store().similarity_search(
+    db,
+    query_vector=query_vector,
+    board_code=BoardCode.REVIEW,
+    source_types=[ContentSourceType.POST],
+    exclude_post_id=post.id,
+)
+```
+
+유사 후기 추천은 후기 게시판 안에서만 동작한다.
+질문 글이나 구매 고민 글이 섞이면 추천 품질이 떨어지고 사용자가 기대한 "비슷한 후기"가 아니게 된다.
+
+### chunk 결과를 post 결과로 압축
+
+```python
+if current is None or score > current.score:
+    candidates_by_post_id[chunk.post_id] = SimilarPostCandidate(...)
+```
+
+Vector search는 chunk 단위로 결과를 준다.
+하지만 화면에서는 같은 게시글이 여러 번 나오면 안 된다.
+그래서 게시글별 최고 점수 chunk만 추천 후보로 사용한다.
+
+## 16. Phase 3 실행 방법
+
+먼저 Phase 2 인덱싱으로 REVIEW 게시글 chunk가 만들어져 있어야 한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\reindex_content_chunks.py
+```
+
+그 다음 후기 게시글 상세 추천 API를 호출한다.
+
+```text
+GET /api/v1/posts/10/similar-posts?limit=3
+```
+
+예상 응답:
+
+```json
+{
+  "items": [
+    {
+      "post": {
+        "id": 11,
+        "board_code": "REVIEW",
+        "title": "슷한 피규어 후기",
+        "thumbnail_url": "/uploads/posts/11/thumb.jpg",
+        "satisfaction_score": 5,
+        "price_range": "50000_100000"
+      },
+      "score": 0.9132,
+      "reason": "same manufacturer, similar price range, shared tags"
+    }
+  ]
+}
+```
+
+관련 chunk가 없으면 빈 목록을 반환한다.
+
+```json
+{
+  "items": []
+}
+```
+
+## 17. Phase 3 한계와 다음 개선 방향
+
+현재 한계:
+
+- 추천 이유는 rule 기반으로 간단히 만든다.
+- 현재는 DB JSON vector 기반 cosine search를 사용한다.
+- 아직 reranker나 hybrid search는 없다.
+- 인덱싱되지 않은 후기가 많으면 추천 결과가 부족할 수 있다.
+
+다음 개선:
+
+- pgvector 전환 후 ANN index를 적용한다.
+- figure metadata match와 vector score를 섞은 reranking을 추가한다.
+- 사용자가 보고 있는 게시글의 이미지, 태그, 만족도까지 더 정교하게 반영한다.
+- Phase 4에서 질문 참고 답변 생성으로 넘어간다.

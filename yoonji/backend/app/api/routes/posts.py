@@ -4,7 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.ai.rag import indexing_service
+from app.ai.usecases import similar_posts
 from app.models.enums import BoardCode
+from app.schemas.ai_schema import SimilarPostListResponse
 from app.schemas.post_schema import (
     PostCreateRequest,
     PostCreateResponse,
@@ -62,6 +64,19 @@ def create_post(
         post_id=response.id,
     )
     return response
+
+
+@router.get("/{post_id}/similar-posts", response_model=SimilarPostListResponse)
+def get_similar_posts(
+    post_id: Annotated[int, Path(gt=0)],
+    db: DbSession,
+    limit: int = Query(default=3, ge=1, le=10),
+) -> SimilarPostListResponse:
+    return similar_posts.get_similar_review_posts(
+        db,
+        post_id=post_id,
+        limit=limit,
+    )
 
 
 @router.get("/{post_id}", response_model=PostDetailResponse)

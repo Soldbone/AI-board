@@ -149,6 +149,11 @@ function PostDetailRoute({ auth }) {
           state: { from: listPath },
         });
       }}
+      onOpenPost={(selectedPostId) => {
+        navigate(`/posts/${selectedPostId}`, {
+          state: { from: listPath },
+        });
+      }}
     />
   );
 }

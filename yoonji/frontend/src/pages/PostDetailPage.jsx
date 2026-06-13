@@ -6,6 +6,7 @@ import CommentForm from "../components/comment/CommentForm";
 import CommentList from "../components/comment/CommentList";
 import Button from "../components/common/Button";
 import Modal from "../components/common/Modal";
+import SimilarPostList from "../components/post/SimilarPostList";
 import { useComments } from "../hooks/useComments";
 import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
 
@@ -16,6 +17,7 @@ function PostDetailPage({
   onBackToList,
   onDeleted,
   onEditPost,
+  onOpenPost,
   postId,
 }) {
   const { errorMessage, isLoading, post, reloadPost } = usePostDetail(postId);
@@ -206,6 +208,13 @@ function PostDetailPage({
             />
           ))}
         </section>
+      )}
+
+      {post.board.code === "REVIEW" && (
+        <SimilarPostList
+          onSelectPost={onOpenPost}
+          postId={post.id}
+        />
       )}
 
       <section className="comments-section" aria-labelledby="comments-title">

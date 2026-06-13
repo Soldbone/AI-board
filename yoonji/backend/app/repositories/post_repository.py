@@ -207,6 +207,29 @@ def get_public_post_by_id(db: Session, post_id: int) -> Post | None:
     return db.scalar(statement)
 
 
+def get_public_posts_by_ids(db: Session, *, post_ids: list[int]) -> list[Post]:
+    if not post_ids:
+        return []
+
+    statement = (
+        _public_posts_statement(
+            board_code=None,
+            q=None,
+            normalized_q=None,
+            normalized_tag=None,
+        )
+        .options(
+            joinedload(Post.board),
+            joinedload(Post.author),
+            selectinload(Post.figure_infos),
+            selectinload(Post.images),
+            selectinload(Post.tag_links).joinedload(PostTag.tag),
+        )
+        .where(Post.id.in_(post_ids))
+    )
+    return list(db.scalars(statement).all())
+
+
 def get_active_board_by_code(db: Session, code: BoardCode) -> Board | None:
     statement = select(Board).where(
         Board.code == code,

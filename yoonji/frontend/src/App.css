@@ -814,6 +814,104 @@ button:disabled {
   padding-top: 8px;
 }
 
+.similar-posts-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.similar-posts-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(208, 224, 225, 0.78);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 8px 22px rgba(35, 45, 65, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.similar-posts-heading h3 {
+  margin: 0;
+  color: #101828;
+  font-size: 24px;
+}
+
+.similar-post-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.similar-post-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  min-width: 0;
+  min-height: 230px;
+  padding: 12px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202733;
+  text-align: left;
+  box-shadow: 0 10px 26px rgba(35, 45, 65, 0.06);
+}
+
+.similar-post-card:hover {
+  border-color: #5d9a9f;
+  box-shadow: 0 14px 30px rgba(47, 95, 99, 0.14);
+}
+
+.similar-post-card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  background: #e6ebf2;
+  object-fit: cover;
+}
+
+.similar-post-card span {
+  color: #2f5f63;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.similar-post-card h4 {
+  margin: 6px 0;
+  color: #101828;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.similar-post-card p {
+  margin: 0;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.similar-post-card dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.similar-post-card dt,
+.similar-post-card dd {
+  display: inline;
+  margin: 0;
+}
+
+.similar-post-card dt {
+  font-weight: 900;
+}
+
 .comments-heading {
   display: flex;
   align-items: center;
@@ -959,7 +1057,8 @@ button:disabled {
   .auth-stack,
   .detail-meta,
   .figure-info-grid,
-  .image-grid {
+  .image-grid,
+  .similar-post-grid {
     grid-template-columns: 1fr;
   }
 
