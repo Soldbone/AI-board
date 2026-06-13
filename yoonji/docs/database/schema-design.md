@@ -120,8 +120,6 @@
 `source_type`
 
 - `USER`
-- `AI_DRAFT`
-- `AI_PUBLISHED`
 
 `status`
 
@@ -371,28 +369,20 @@ AI 기능 디버깅을 위해 사용자가 실제로 입력한 질문 또는 작
 | `confidence_score` | 신뢰도 점수 |
 | `model_name` | 사용 모델명 |
 | `metadata_json` | 요청 옵션, 프롬프트 버전, 토큰 사용량 등 |
-| `published_post_id` | AI 초안이 게시글로 발행된 경우 연결 게시글 ID |
-| `reviewer_id` | 검수자 ID |
-| `reviewed_at` | 검수 시각 |
 | `created_at` | 생성 시각 |
 
 상태값 후보:
 
 `output_type`
 
-- `QNA_ANSWER`
 - `QUESTION_REFERENCE_ANSWER`
 - `PURCHASE_SUMMARY`
-- `SIMILAR_POST_SUMMARY`
-- `BEGINNER_INFO_DRAFT`
 
 `status`
 
+- `REQUESTED`
+- `PROCESSING`
 - `GENERATED`
-- `PENDING_REVIEW`
-- `APPROVED`
-- `PUBLISHED`
-- `REJECTED`
 - `FAILED`
 
 `grounding_status`
@@ -405,7 +395,7 @@ AI 기능 디버깅을 위해 사용자가 실제로 입력한 질문 또는 작
 
 ## 1.12 AiOutputSource
 
-AI 답변이 어떤 게시글, 댓글, 외부 URL을 근거로 생성되었는지 저장하는 엔티티.
+AI 답변이 어떤 게시글 또는 댓글을 근거로 생성되었는지 저장하는 엔티티.
 
 RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 
@@ -418,7 +408,6 @@ RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 | `content_chunk_id` | 참조한 청크 ID |
 | `source_post_id` | 근거 게시글 ID |
 | `source_comment_id` | 근거 댓글 ID |
-| `source_url` | 외부 근거 URL |
 | `relevance_score` | 관련도 점수 |
 | `rank_order` | 근거 노출 순서 |
 | `excerpt` | 근거 발췌문 |
@@ -698,9 +687,6 @@ erDiagram
       float confidence_score
       string model_name
       json metadata_json
-      bigint published_post_id
-      bigint reviewer_id
-      datetime reviewed_at
     }
 
     AI_OUTPUT_SOURCE {
@@ -709,7 +695,6 @@ erDiagram
       bigint content_chunk_id
       bigint source_post_id
       bigint source_comment_id
-      string source_url
       float relevance_score
       int rank_order
       text excerpt

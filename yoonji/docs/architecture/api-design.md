@@ -76,7 +76,7 @@ UserStatus = ACTIVE | INACTIVE | SUSPENDED | DELETED
 
 BoardCode = REVIEW | INFO | QUESTION | PURCHASE_HELP | NOTICE | FAQ
 
-PostSourceType = USER | AI_DRAFT | AI_PUBLISHED
+PostSourceType = USER
 PostStatus = DRAFT | PUBLISHED | PENDING_REVIEW | HIDDEN | DELETED
 
 FigureType = SCALE | NENDOROID | FIGMA | ACTION_FIGURE | PRIZE | GARAGE_KIT | OTHER
@@ -91,20 +91,13 @@ TagStatus = ACTIVE | MERGED | BLOCKED | DELETED
 ImageStatus = TEMP | ATTACHED | DELETED | FAILED
 
 AiOutputType =
-  QNA_ANSWER
-  | QUESTION_REFERENCE_ANSWER
+  QUESTION_REFERENCE_ANSWER
   | PURCHASE_SUMMARY
-  | SIMILAR_POST_SUMMARY
-  | BEGINNER_INFO_DRAFT
 
 AiOutputStatus =
   REQUESTED
   | PROCESSING
   | GENERATED
-  | PENDING_REVIEW
-  | APPROVED
-  | PUBLISHED
-  | REJECTED
   | FAILED
 
 GroundingStatus = GROUNDED | PARTIALLY_GROUNDED | NO_EVIDENCE
@@ -194,7 +187,6 @@ API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬
   "id": 100,
   "source_post_id": 12,
   "source_comment_id": null,
-  "source_url": null,
   "relevance_score": 0.87,
   "rank_order": 1,
   "excerpt": "먼지는 부드러운 붓으로 털고 직사광선을 피하는 것이 좋습니다."
@@ -206,11 +198,11 @@ API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬
 ```json
 {
   "id": 50,
-  "output_type": "QNA_ANSWER",
-  "target_post_id": null,
+  "output_type": "QUESTION_REFERENCE_ANSWER",
+  "target_post_id": 10,
   "query_text": "피규어 먼지 관리는 어떻게 해?",
-  "title": "피규어 먼지 관리 요약",
-  "content": "게시판 글 기준으로는 부드러운 붓, 아크릴 케이스, 습도 관리가 자주 언급됩니다.",
+  "title": "과거 답변 기반 참고 답변",
+  "content": "과거 질문과 댓글 기준으로는 부드러운 붓, 아크릴 케이스, 습도 관리가 자주 언급됩니다.",
   "status": "GENERATED",
   "grounding_status": "GROUNDED",
   "confidence_score": 0.82,
@@ -859,54 +851,25 @@ MVP에서는 PostgreSQL 텍스트 검색과 태그 매칭을 우선 사용한다
 
 AI API는 실제 결과 생성이 오래 걸릴 수 있으므로 `202 Accepted`로 `AiOutput`을 먼저 만들고, 클라이언트가 `GET /ai/outputs/{id}`로 상태를 폴링하는 방식을 기본으로 한다.
 
-### 11.1 RAG Q&A 요청
-
-`POST /api/v1/ai/qna`
-
-권한: 회원
-
-Request:
-
-```json
-{
-  "query_text": "피규어 먼지 관리는 어떻게 해야 해?",
-  "board_codes": ["INFO", "QUESTION", "FAQ"],
-  "top_k": 5
-}
-```
-
-Response `202 Accepted`:
-
-```json
-{
-  "id": 50,
-  "output_type": "QNA_ANSWER",
-  "query_text": "피규어 먼지 관리는 어떻게 해야 해?",
-  "status": "REQUESTED",
-  "grounding_status": null,
-  "created_at": "2026-06-09T10:00:00+09:00"
-}
-```
-
-### 11.2 AI 결과 조회
+### 11.1 AI 결과 조회
 
 `GET /api/v1/ai/outputs/{ai_output_id}`
 
 권한:
 
 - 게시글에 연결되어 공개된 AI 결과: 비회원
-- 개인 Q&A 요청 결과: 요청자 또는 운영자
+- 생성이 필요한 AI 결과: 요청자 또는 운영자
 
 Response `200 OK`:
 
 ```json
 {
   "id": 50,
-  "output_type": "QNA_ANSWER",
-  "target_post_id": null,
+  "output_type": "QUESTION_REFERENCE_ANSWER",
+  "target_post_id": 10,
   "query_text": "피규어 먼지 관리는 어떻게 해야 해?",
-  "title": "피규어 먼지 관리 요약",
-  "content": "게시판 근거에 따르면 부드러운 붓, 아크릴 케이스, 직사광선 회피가 자주 언급됩니다.",
+  "title": "과거 답변 기반 참고 답변",
+  "content": "과거 질문과 댓글 근거에 따르면 부드러운 붓, 아크릴 케이스, 직사광선 회피가 자주 언급됩니다.",
   "status": "GENERATED",
   "grounding_status": "GROUNDED",
   "confidence_score": 0.82,
@@ -916,7 +879,6 @@ Response `200 OK`:
       "id": 100,
       "source_post_id": 12,
       "source_comment_id": null,
-      "source_url": null,
       "relevance_score": 0.87,
       "rank_order": 1,
       "excerpt": "먼지는 부드러운 붓으로 털고 직사광선을 피하는 것이 좋습니다."
@@ -926,7 +888,7 @@ Response `200 OK`:
 }
 ```
 
-### 11.3 게시글 기반 유사 게시글 추천
+### 11.2 게시글 기반 유사 게시글 추천
 
 `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
 
@@ -955,7 +917,7 @@ Response `200 OK`:
 
 MVP에서는 이 결과를 저장하지 않고 실시간 검색 결과로 반환한다.
 
-### 11.4 질문 게시글 참고 답변 생성
+### 11.3 질문 게시글 참고 답변 생성
 
 `POST /api/v1/posts/{post_id}/ai/reference-answer`
 
@@ -979,7 +941,7 @@ Response `202 Accepted`: AiOutput
 - `target_post_id`: 질문 게시글 ID
 - 화면에서는 일반 댓글이 아니라 AI 참고 답변 영역에 표시한다.
 
-### 11.5 구매 고민 요약 생성
+### 11.4 구매 고민 요약 생성
 
 `POST /api/v1/posts/{post_id}/ai/purchase-summary`
 
@@ -1005,79 +967,6 @@ Response `202 Accepted`: AiOutput
 - 유사 가격대 추천 글
 - 자주 언급된 장점과 단점
 - 근거 게시글 링크
-
-### 11.6 입문자용 정보글 초안 생성
-
-`POST /api/v1/ai/beginner-info-drafts`
-
-권한: 운영자
-
-Request:
-
-```json
-{
-  "topic": "피규어 먼지 관리 기본 가이드",
-  "source_board_codes": ["QUESTION", "INFO", "FAQ"],
-  "top_k": 10
-}
-```
-
-Response `202 Accepted`: AiOutput
-
-생성 결과:
-
-- `output_type`: `BEGINNER_INFO_DRAFT`
-- `status`: `PENDING_REVIEW`
-- 검수 후 정보 게시판 글로 발행할 수 있다.
-
-### 11.7 AI 초안 검수
-
-`PATCH /api/v1/ai/outputs/{ai_output_id}/review`
-
-권한: 운영자
-
-Request:
-
-```json
-{
-  "status": "APPROVED",
-  "review_note": "근거 링크 확인 완료"
-}
-```
-
-Response: AiOutput
-
-### 11.8 AI 초안을 게시글로 발행
-
-`POST /api/v1/ai/outputs/{ai_output_id}/publish`
-
-권한: 운영자
-
-Request:
-
-```json
-{
-  "board_code": "INFO",
-  "title": "피규어 먼지 관리 기본 가이드",
-  "tags": [
-    {
-      "name": "먼지 관리",
-      "tag_type": "TOPIC"
-    }
-  ]
-}
-```
-
-Response `201 Created`:
-
-```json
-{
-  "post_id": 80,
-  "ai_output_id": 60,
-  "source_type": "AI_PUBLISHED",
-  "status": "PUBLISHED"
-}
-```
 
 ## 12. 신고 및 운영자 API
 
@@ -1165,14 +1054,6 @@ Response `202 Accepted`:
 
 Response `202 Accepted`
 
-### 13.3 실패한 AI 작업 재시도
-
-`POST /api/v1/internal/ai/outputs/{ai_output_id}/retry`
-
-권한: 내부 서비스 또는 운영자
-
-Response `202 Accepted`
-
 ## 14. 주요 화면별 API 사용 흐름
 
 ### 14.1 홈 화면
@@ -1204,13 +1085,6 @@ Response `202 Accepted`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
 4. `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
 
-### 14.5 입문자 정보글 생성
-
-1. 운영자가 `POST /api/v1/ai/beginner-info-drafts`
-2. `GET /api/v1/ai/outputs/{ai_output_id}`로 결과 확인
-3. `PATCH /api/v1/ai/outputs/{ai_output_id}/review`
-4. `POST /api/v1/ai/outputs/{ai_output_id}/publish`
-
 ## 15. MVP 우선 구현 범위
 
 ### 15.1 1순위
@@ -1236,7 +1110,6 @@ Response `202 Accepted`
 
 ### 15.2 2순위
 
-- `POST /ai/qna`
 - `GET /ai/outputs/{ai_output_id}`
 - `GET /posts/{post_id}/similar-posts`
 - `POST /posts/{post_id}/ai/reference-answer`
@@ -1245,9 +1118,6 @@ Response `202 Accepted`
 
 ### 15.3 3순위
 
-- `POST /ai/beginner-info-drafts`
-- `PATCH /ai/outputs/{ai_output_id}/review`
-- `POST /ai/outputs/{ai_output_id}/publish`
 - 신고 및 운영자 API
 
 ## 16. 설계상 보완 제안

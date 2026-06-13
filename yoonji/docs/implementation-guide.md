@@ -971,7 +971,7 @@ posts
 - `author_id`: 작성자
 - `title`: 제목
 - `content`: 본문
-- `source_type`: `USER`, `AI_DRAFT`, `AI_PUBLISHED`
+- `source_type`: `USER`
 - `status`: `DRAFT`, `PUBLISHED`, `PENDING_REVIEW`, `HIDDEN`, `DELETED`
 - `view_count`: 조회수
 - `comment_count`: 댓글 수

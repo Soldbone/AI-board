@@ -14,7 +14,6 @@ figure-community/
 │   ├── architecture/
 │   │   ├── system-architecture.md
 │   │   ├── api-design.md
-│   │   ├── rag-agent-flow.md
 │   │   └── mcp-design.md
 │   │
 │   └── database/
@@ -50,8 +49,7 @@ figure-community/
 │       │   ├── PostWritePage.jsx
 │       │   ├── PostEditPage.jsx
 │       │   ├── SearchResultPage.jsx
-│       │   ├── MyPage.jsx
-│       │   └── AiQnaPage.jsx
+│       │   └── MyPage.jsx
 │       │
 │       ├── components/
 │       │   ├── common/
@@ -78,7 +76,6 @@ figure-community/
 │       │   └── ai/
 │       │   │   ├── AiAnswerBox.jsx
 │       │   │   ├── AiSourceList.jsx
-│       │   │   ├── AiDraftCard.jsx
 │       │   │   └── PurchaseSummaryBox.jsx
 │       │
 │       ├── hooks/
@@ -190,19 +187,10 @@ figure-community/
 │       │   │   ├── rag_chain.py
 │       │   │   └── indexing_service.py
 │       │   │
-│       │   ├── agent/
-│       │   │   ├── state.py
-│       │   │   ├── graph.py
-│       │   │   ├── nodes.py
-│       │   │   ├── edges.py
-│       │   │   └── tools.py
-│       │   │
 │       │   └── usecases/
-│       │       ├── qna_answer.py
 │       │       ├── similar_posts.py
 │       │       ├── question_reference_answer.py
-│       │       ├── purchase_summary.py
-│       │       └── beginner_info_draft.py
+│       │       └── purchase_summary.py
 │       │
 │       ├── storage/
 │       │   ├── local_storage.py
