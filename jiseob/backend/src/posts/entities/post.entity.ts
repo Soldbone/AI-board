@@ -1,4 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Comment } from '../../comments/entities/comment.entity';
 import { BaseModel } from '../../common/entities/base.entity';
 import { User } from '../../users/entities/user.entity';
 import { Video } from '../../videos/entities/video.entity';
@@ -49,4 +50,7 @@ export class Post extends BaseModel {
 
   @OneToMany(() => PostLike, (postLike) => postLike.post)
   postLikes: PostLike[];
+
+  @OneToMany(() => Comment, (comment) => comment.post)
+  comments: Comment[];
 }
