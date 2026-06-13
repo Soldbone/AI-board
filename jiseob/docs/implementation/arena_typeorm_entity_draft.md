@@ -236,10 +236,20 @@ export class Video extends BaseModel {
   @Column({ name: 'metadata_status', type: 'varchar', length: 20, default: MetadataStatus.PENDING })
   metadataStatus: MetadataStatus;
 
-  @Column({ name: 'transcript_status', type: 'varchar', length: 20, default: TranscriptStatus.PENDING })
+  @Column({
+    name: 'transcript_status',
+    type: 'varchar',
+    length: 20,
+    default: TranscriptStatus.PENDING,
+  })
   transcriptStatus: TranscriptStatus;
 
-  @Column({ name: 'embedding_status', type: 'varchar', length: 20, default: EmbeddingStatus.PENDING })
+  @Column({
+    name: 'embedding_status',
+    type: 'varchar',
+    length: 20,
+    default: EmbeddingStatus.PENDING,
+  })
   embeddingStatus: EmbeddingStatus;
 
   @OneToMany(() => Post, (post) => post.video)
@@ -384,7 +394,12 @@ export class Comment extends BaseModel {
   @Column({ type: 'text' })
   content: string;
 
-  @Column({ name: 'moderation_status', type: 'varchar', length: 30, default: ModerationStatus.NORMAL })
+  @Column({
+    name: 'moderation_status',
+    type: 'varchar',
+    length: 30,
+    default: ModerationStatus.NORMAL,
+  })
   moderationStatus: ModerationStatus;
 
   @OneToOne(() => CommentAnalysis, (analysis) => analysis.comment)
@@ -477,7 +492,12 @@ export class CommentAnalysis extends BaseModel {
   @Column({ name: 'comment_type', type: 'varchar', length: 30, nullable: true })
   commentType?: CommentType | null;
 
-  @Column({ name: 'ai_analysis_status', type: 'varchar', length: 20, default: AiAnalysisStatus.PENDING })
+  @Column({
+    name: 'ai_analysis_status',
+    type: 'varchar',
+    length: 20,
+    default: AiAnalysisStatus.PENDING,
+  })
   aiAnalysisStatus: AiAnalysisStatus;
 
   @Column({ name: 'rag_status', type: 'varchar', length: 20, default: RagStatus.NOT_REQUIRED })
