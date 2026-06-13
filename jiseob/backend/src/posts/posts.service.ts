@@ -70,7 +70,7 @@ export class PostsService {
   ) {}
 
   async createPost(user: AuthenticatedUser, createPostDto: CreatePostDto): Promise<PostResponse> {
-    const postId = await this.dataSource.transaction(async (manager) => {
+    const { postId, videoId } = await this.dataSource.transaction(async (manager) => {
       const video = await this.videosService.findOrCreateByYoutubeUrl(
         createPostDto.youtubeUrl,
         manager,
@@ -95,8 +95,13 @@ export class PostsService {
         );
       }
 
-      return post.id;
+      return {
+        postId: post.id,
+        videoId: video.id,
+      };
     });
+
+    void this.videosService.enqueueProcessing(videoId).catch(() => undefined);
 
     return this.getPost(postId);
   }
