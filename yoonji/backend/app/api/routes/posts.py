@@ -22,7 +22,9 @@ def list_posts(
     db: DbSession,
     board_code: BoardCode | None = Query(default=None),
     tag: str | None = Query(default=None, max_length=100),
-    sort: Literal["latest", "views"] = Query(default="latest"),
+    sort: Literal["latest", "views", "satisfaction", "comments"] = Query(
+        default="latest"
+    ),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
 ) -> PostListResponse:

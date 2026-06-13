@@ -53,7 +53,9 @@ function HomePage({ onOpenBoard, onOpenPost }) {
           </div>
         </div>
 
-        {isBoardLoading && <p className="empty-text">게시판을 불러오는 중입니다.</p>}
+        {isBoardLoading && (
+          <p className="empty-text">게시판을 불러오는 중입니다.</p>
+        )}
         {boardErrorMessage && (
           <p className="form-message error">{boardErrorMessage}</p>
         )}

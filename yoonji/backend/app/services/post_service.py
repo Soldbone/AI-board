@@ -69,6 +69,21 @@ def list_posts(
         size=size,
     )
 
+    return build_post_list_response(
+        posts=posts,
+        page=page,
+        size=size,
+        total=total,
+    )
+
+
+def build_post_list_response(
+    *,
+    posts: list[Post],
+    page: int,
+    size: int,
+    total: int,
+) -> PostListResponse:
     return PostListResponse(
         items=[_build_post_list_item(post) for post in posts],
         page=page,

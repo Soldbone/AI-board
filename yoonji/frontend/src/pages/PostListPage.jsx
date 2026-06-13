@@ -174,7 +174,10 @@ function PostListPage({
             </label>
 
             {tagSuggestions.length > 0 && (
-              <div className="tag-suggestion-list compact" aria-label="tag filter suggestions">
+              <div
+                className="tag-suggestion-list compact"
+                aria-label="tag filter suggestions"
+              >
                 {tagSuggestions.map((tag) => (
                   <button
                     key={`${tag.id}-${tag.tag_type}`}
@@ -211,6 +214,8 @@ function PostListPage({
             <select value={sort} onChange={handleSortChange}>
               <option value="latest">최신순</option>
               <option value="views">조회수순</option>
+              <option value="satisfaction">만족도순</option>
+              <option value="comments">댓글순</option>
             </select>
           </label>
         </div>
@@ -221,9 +226,7 @@ function PostListPage({
         {tagErrorMessage && (
           <p className="form-message error">{tagErrorMessage}</p>
         )}
-        {tagFilter && (
-          <p className="empty-text">선택한 태그: {tagFilter}</p>
-        )}
+        {tagFilter && <p className="empty-text">선택한 태그: {tagFilter}</p>}
 
         <PostList
           errorMessage={posts.errorMessage}
@@ -243,7 +246,7 @@ function PostListPage({
               이전
             </button>
             <span>
-              {posts.data.page} / 총 {posts.data.total}개
+              {posts.data.page}페이지 / 총 {posts.data.total}개
             </span>
             <button
               type="button"

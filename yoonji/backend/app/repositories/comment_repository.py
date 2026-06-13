@@ -54,6 +54,37 @@ def count_public_comments(db: Session, *, post_id: int) -> int:
     return int(db.scalar(statement) or 0)
 
 
+def list_my_comments(
+    db: Session,
+    *,
+    author_id: int,
+    page: int,
+    size: int,
+) -> list[Comment]:
+    statement = (
+        select(Comment)
+        .join(Comment.post)
+        .join(Post.board)
+        .options(joinedload(Comment.post))
+        .where(*_my_comment_filters(author_id=author_id))
+        .order_by(Comment.created_at.desc(), Comment.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    return list(db.scalars(statement).all())
+
+
+def count_my_comments(db: Session, *, author_id: int) -> int:
+    statement = (
+        select(func.count(Comment.id))
+        .select_from(Comment)
+        .join(Comment.post)
+        .join(Post.board)
+        .where(*_my_comment_filters(author_id=author_id))
+    )
+    return int(db.scalar(statement) or 0)
+
+
 def create_comment(
     db: Session,
     *,
@@ -111,4 +142,15 @@ def _public_comment_filters(*, post_id: int) -> list[object]:
         Comment.post_id == post_id,
         Comment.status == CommentStatus.PUBLISHED,
         Comment.deleted_at.is_(None),
+    ]
+
+
+def _my_comment_filters(*, author_id: int) -> list[object]:
+    return [
+        Comment.author_id == author_id,
+        Comment.status != CommentStatus.DELETED,
+        Comment.deleted_at.is_(None),
+        Post.status == PostStatus.PUBLISHED,
+        Post.deleted_at.is_(None),
+        Board.is_active.is_(True),
     ]

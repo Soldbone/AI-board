@@ -17,6 +17,20 @@
   color: #1f2937;
 }
 
+.app-header-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .app-header h1 {
   margin: 18px 0 8px;
   color: #101828;
@@ -306,6 +320,8 @@
 
 .list-toolbar select,
 .list-toolbar input,
+.search-panel select,
+.search-panel input,
 .auth-form input,
 .post-form input,
 .post-form select,
@@ -322,6 +338,90 @@
   background: #ffffff;
   color: #101828;
   font: inherit;
+}
+
+.search-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.search-panel label {
+  display: grid;
+  gap: 7px;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.result-count {
+  color: #475467;
+  font-weight: 900;
+}
+
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tab-button {
+  border: 1px solid #cdd6e2;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.tab-button.active {
+  border-color: #2f5f63;
+  background: #2f5f63;
+  color: #ffffff;
+}
+
+.activity-list {
+  display: grid;
+  gap: 12px;
+}
+
+.activity-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(35, 45, 65, 0.06);
+}
+
+.activity-card p {
+  margin: 0;
+  color: #202733;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activity-title-button {
+  justify-self: start;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #101828;
+  font-size: 18px;
+  font-weight: 900;
+  text-align: left;
 }
 
 .post-form textarea,
@@ -890,6 +990,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .search-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .auth-sidebar {
     position: static;
   }
@@ -930,7 +1034,18 @@ button:disabled {
     flex-direction: column;
   }
 
+  .app-header-topline,
+  .app-nav {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-panel {
+    grid-template-columns: 1fr;
+  }
+
   .heading-actions,
+  .search-actions,
   .form-actions,
   .image-uploader-heading,
   .tag-input-controls,
@@ -939,6 +1054,8 @@ button:disabled {
   }
 
   .heading-actions button,
+  .app-nav button,
+  .search-actions button,
   .form-actions button,
   .file-button,
   .tag-input-controls button,

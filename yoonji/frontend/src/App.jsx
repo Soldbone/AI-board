@@ -5,10 +5,12 @@ import { API_BASE_URL, healthCheck } from "./api/client";
 import { useAuth } from "./hooks/useAuth";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MyPage from "./pages/MyPage";
 import PostDetailPage from "./pages/PostDetailPage";
 import PostEditPage from "./pages/PostEditPage";
 import PostListPage from "./pages/PostListPage";
 import PostWritePage from "./pages/PostWritePage";
+import SearchResultPage from "./pages/SearchResultPage";
 import SignupPage from "./pages/SignupPage";
 
 
@@ -24,6 +26,7 @@ function App() {
   const [healthResponse, setHealthResponse] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [currentView, setCurrentView] = useState("home");
+  const [returnView, setReturnView] = useState("posts");
   const [selectedBoardCode, setSelectedBoardCode] = useState("");
   const [selectedPostId, setSelectedPostId] = useState(null);
   const auth = useAuth();
@@ -62,12 +65,26 @@ function App() {
 
   function openBoard(boardCode) {
     setCurrentView("posts");
+    setReturnView("posts");
     setSelectedBoardCode(boardCode);
     setSelectedPostId(null);
   }
 
-  function openPost(postId) {
+  function openSearch() {
+    setCurrentView("search");
+    setReturnView("search");
+    setSelectedPostId(null);
+  }
+
+  function openMyPage() {
+    setCurrentView("mypage");
+    setReturnView("mypage");
+    setSelectedPostId(null);
+  }
+
+  function openPost(postId, nextReturnView = currentView) {
     setCurrentView("detail");
+    setReturnView(nextReturnView);
     setSelectedPostId(postId);
   }
 
@@ -83,16 +100,31 @@ function App() {
   }
 
   function backToList() {
+    if (returnView === "home") {
+      openHome();
+      return;
+    }
+
+    if (returnView === "search") {
+      openSearch();
+      return;
+    }
+
+    if (returnView === "mypage") {
+      openMyPage();
+      return;
+    }
+
     setCurrentView("posts");
     setSelectedPostId(null);
   }
 
   function handlePostCreated(postId) {
-    openPost(postId);
+    openPost(postId, "posts");
   }
 
   function handlePostSaved(postId) {
-    openPost(postId);
+    openPost(postId, returnView);
   }
 
   function handlePostDeleted() {
@@ -102,9 +134,32 @@ function App() {
   return (
     <main className="app-shell">
       <section className="app-header" aria-labelledby="app-title">
-        <div className="phase-label">Phase 5</div>
+        <div className="app-header-topline">
+          <div className="phase-label">Phase 9</div>
+          <nav className="app-nav" aria-label="main navigation">
+            <button type="button" className="text-button" onClick={openHome}>
+              홈
+            </button>
+            <button type="button" className="text-button" onClick={() => openBoard("")}>
+              게시글
+            </button>
+            <button type="button" className="text-button" onClick={openSearch}>
+              검색
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={openMyPage}
+              disabled={!auth.isAuthenticated}
+            >
+              마이페이지
+            </button>
+          </nav>
+        </div>
         <h1 id="app-title">Figure Community</h1>
-        <p className="subtitle">게시글 작성, 수정, 삭제를 연습하는 MVP 게시판</p>
+        <p className="subtitle">
+          게시글 검색, 정렬, 필터와 내 활동 조회를 연습하는 MVP 게시판입니다.
+        </p>
       </section>
 
       <section className="status-strip" aria-label="connection status">
@@ -147,7 +202,10 @@ function App() {
       <div className="app-workspace">
         <section className="content-area" aria-label="board content">
           {currentView === "home" && (
-            <HomePage onOpenBoard={openBoard} onOpenPost={openPost} />
+            <HomePage
+              onOpenBoard={openBoard}
+              onOpenPost={(postId) => openPost(postId, "home")}
+            />
           )}
 
           {currentView === "posts" && (
@@ -155,8 +213,24 @@ function App() {
               initialBoardCode={selectedBoardCode}
               isAuthenticated={auth.isAuthenticated}
               onBackHome={openHome}
-              onOpenPost={openPost}
+              onOpenPost={(postId) => openPost(postId, "posts")}
               onOpenWrite={openWrite}
+            />
+          )}
+
+          {currentView === "search" && (
+            <SearchResultPage
+              onBackHome={openHome}
+              onOpenPost={(postId) => openPost(postId, "search")}
+            />
+          )}
+
+          {currentView === "mypage" && (
+            <MyPage
+              currentUser={auth.user}
+              isAuthenticated={auth.isAuthenticated}
+              onBackHome={openHome}
+              onOpenPost={(postId) => openPost(postId, "mypage")}
             />
           )}
 
@@ -184,14 +258,14 @@ function App() {
             <PostEditPage
               currentUser={auth.user}
               postId={selectedPostId}
-              onCancel={() => openPost(selectedPostId)}
+              onCancel={() => openPost(selectedPostId, returnView)}
               onSaved={handlePostSaved}
             />
           )}
         </section>
 
         <aside className="auth-sidebar" aria-label="account">
-          <AccountPanel auth={auth} />
+          <AccountPanel auth={auth} onOpenMyPage={openMyPage} />
         </aside>
       </div>
     </main>
@@ -199,7 +273,7 @@ function App() {
 }
 
 
-function AccountPanel({ auth }) {
+function AccountPanel({ auth, onOpenMyPage }) {
   if (auth.user) {
     return (
       <section className="account-panel" aria-labelledby="account-title">
@@ -225,10 +299,13 @@ function AccountPanel({ auth }) {
         </dl>
 
         <div className="account-actions">
-          <button type="button" onClick={auth.loadMe}>
-            내 정보 새로고침
+          <button type="button" onClick={onOpenMyPage}>
+            내 활동 보기
           </button>
-          <button type="button" className="secondary-button" onClick={auth.logout}>
+          <button type="button" className="secondary-button" onClick={auth.loadMe}>
+            새로고침
+          </button>
+          <button type="button" className="text-button" onClick={auth.logout}>
             로그아웃
           </button>
         </div>

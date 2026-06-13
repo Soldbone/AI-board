@@ -1287,3 +1287,473 @@ Phase 8은 이후 탐색 기능의 기반이다.
   - 하지만 MVP에서는 태그를 AI 기능에 연결하지 않는다.
 
 이번 Phase의 핵심은 다대다 관계다. `Post`와 `Tag`를 직접 붙이지 않고 `PostTag` 연결 테이블을 통해 관계를 표현한다는 점을 이해하면, 이후 더 복잡한 관계형 데이터 모델을 읽고 설계하는 데 큰 도움이 된다.
+---
+
+# MVP Phase 9 검색 / 정렬 / 마이페이지 구현 가이드
+
+Phase 9에서는 게시판 MVP를 "탐색 가능한 서비스"로 만드는 기능을 추가했다. 핵심은 세 가지다.
+
+1. 여러 조건으로 게시글을 검색한다.
+2. 최신순, 조회수순, 만족도순, 댓글순, 관련도순으로 정렬한다.
+3. 로그인한 사용자가 마이페이지에서 자신이 쓴 게시글과 댓글을 조회한다.
+
+이번 단계에서도 AI, pgvector, LangChain, 의미 검색은 붙이지 않는다. 검색은 PostgreSQL의 문자열 검색과 SQLAlchemy ORM 조건 조합으로 구현했다.
+
+## 1. 이번 Phase에서 바꾼 파일
+
+### 백엔드
+
+- `backend/app/schemas/search_schema.py`
+  - 검색 정렬 타입과 마이페이지 댓글 응답 schema를 추가했다.
+  - `MyCommentResponse`, `MyCommentListResponse`는 `GET /users/me/comments` 응답 모양을 정의한다.
+
+- `backend/app/repositories/post_repository.py`
+  - 검색용 게시글 조회/count 함수를 추가했다.
+  - 내 게시글 조회/count 함수를 추가했다.
+  - `latest`, `views`, `satisfaction`, `comments`, `relevance` 정렬을 처리한다.
+
+- `backend/app/repositories/comment_repository.py`
+  - 내 댓글 조회/count 함수를 추가했다.
+  - 삭제된 댓글과 삭제된 게시글에 달린 댓글은 제외한다.
+
+- `backend/app/services/search_service.py`
+  - query parameter를 정리하고 repository를 호출한다.
+  - API 응답을 `PostListResponse`로 조립한다.
+
+- `backend/app/services/user_service.py`
+  - `list_my_posts`, `list_my_comments`를 추가했다.
+  - 현재 로그인 사용자의 id를 기준으로 내 활동만 조회한다.
+
+- `backend/app/api/routes/search.py`
+  - `GET /api/v1/search/posts` endpoint를 추가했다.
+
+- `backend/app/api/routes/users.py`
+  - `GET /api/v1/users/me/posts`
+  - `GET /api/v1/users/me/comments`
+  - 두 endpoint를 추가했다.
+
+- `backend/app/api/routes/posts.py`
+  - 일반 게시글 목록에서도 `satisfaction`, `comments` 정렬을 받을 수 있게 허용값을 넓혔다.
+
+- `backend/app/main.py`
+  - search router를 FastAPI 앱에 연결했다.
+
+### 프론트엔드
+
+- `frontend/src/api/searchApi.js`
+  - `searchPosts(params)` API 호출 함수를 추가했다.
+
+- `frontend/src/api/userApi.js`
+  - `getMyPosts(params)`, `getMyComments(params)`를 추가했다.
+
+- `frontend/src/pages/SearchResultPage.jsx`
+  - 검색어, 게시판, 태그, 피규어명, 제조사, 가격대, 정렬 조건을 입력하는 검색 화면을 구현했다.
+
+- `frontend/src/pages/MyPage.jsx`
+  - 내 게시글 / 내 댓글 탭을 가진 마이페이지 화면을 구현했다.
+
+- `frontend/src/App.jsx`
+  - 기존 `currentView` 상태 전환 방식에 `search`, `mypage` 화면을 추가했다.
+  - 상단 네비게이션과 로그인 사용자용 "내 활동 보기" 버튼을 추가했다.
+
+- `frontend/src/pages/HomePage.jsx`, `frontend/src/pages/PostListPage.jsx`
+  - 기존 파일에 깨진 JSX 문자열이 있어 빌드를 막을 수 있었기 때문에 정상 한국어 JSX로 정리했다.
+  - 기존 기능인 게시판 목록, 최신 글, 게시글 목록, 태그 필터는 유지했다.
+
+- `frontend/src/App.css`
+  - 검색 form, 마이페이지 탭, 내 댓글 카드, 상단 네비게이션 스타일을 추가했다.
+
+## 2. FastAPI route의 역할
+
+검색 route는 `backend/app/api/routes/search.py`에 있다.
+
+```python
+@router.get("/posts", response_model=PostListResponse)
+def search_posts(...):
+    return search_service.search_posts(...)
+```
+
+FastAPI route는 얇게 유지했다. route가 직접 SQLAlchemy query를 만들지 않고 다음 일만 한다.
+
+- URL과 HTTP method를 정한다.
+- query parameter를 받는다.
+- `DbSession` dependency로 DB session을 받는다.
+- service 함수를 호출한다.
+- response schema를 지정한다.
+
+이 구조를 쓰면 API 입구와 비즈니스 로직이 섞이지 않는다. 예를 들어 검색 조건이 복잡해져도 `search.py`가 아니라 `search_service.py`와 repository만 보면 된다.
+
+마이페이지 route는 `backend/app/api/routes/users.py`에 추가했다.
+
+```python
+@router.get("/me/posts", response_model=PostListResponse)
+def list_my_posts(current_user: CurrentUser, db: DbSession, ...):
+    ...
+```
+
+여기서 중요한 점은 `CurrentUser`다. `CurrentUser` dependency는 JWT access token을 읽고 현재 로그인 사용자를 찾아준다. 그래서 route 함수 안에서 따로 token을 직접 파싱하지 않아도 된다.
+
+```text
+Authorization: Bearer access-token
+-> CurrentUser dependency
+-> User model
+-> user_service.list_my_posts()
+```
+
+비로그인 사용자가 `/users/me/posts` 또는 `/users/me/comments`를 호출하면 `CurrentUser` 단계에서 401로 막힌다.
+
+## 3. Pydantic schema의 역할
+
+이번 Phase에서는 검색 결과 게시글 목록 응답에 기존 `PostListResponse`를 재사용했다.
+
+```python
+class PostListResponse(BaseModel):
+    items: list[PostListItemResponse]
+    page: int
+    size: int
+    total: int
+    has_next: bool
+```
+
+이미 게시글 목록 화면에서 쓰는 응답 모양과 검색 결과 응답 모양이 같기 때문이다. 이렇게 schema를 재사용하면 프론트엔드도 `PostList` 컴포넌트를 그대로 쓸 수 있다.
+
+반면 내 댓글 응답은 게시글 목록과 모양이 다르다.
+
+```python
+class MyCommentResponse(BaseModel):
+    id: int
+    post_id: int
+    post_title: str
+    content: str
+    status: CommentStatus
+    created_at: datetime
+    updated_at: datetime
+```
+
+댓글 목록에는 댓글 본문뿐 아니라 "어떤 게시글에 단 댓글인지"가 필요하다. 그래서 `post_id`, `post_title`을 함께 내려준다. 이 응답을 통해 프론트에서는 댓글 카드의 게시글 제목을 누르면 해당 게시글 상세로 이동할 수 있다.
+
+## 4. Service 계층의 역할
+
+`search_service.py`는 query parameter를 정리한 뒤 repository에 넘긴다.
+
+```python
+cleaned_q = _clean_optional_text(q)
+normalized_q = normalize_tag_name(cleaned_q) if cleaned_q else None
+```
+
+사용자가 입력한 검색어에는 앞뒤 공백이 있을 수 있다. service에서 이런 입력을 정리해두면 repository는 이미 정리된 값만 받아 SQL 조건을 만들 수 있다.
+
+또 태그 검색을 위해 `normalize_tag_name()`을 사용한다.
+
+```text
+" 미쿠  " -> "미쿠"
+"미 쿠"   -> "미쿠"
+```
+
+태그는 Phase 8에서 `normalized_name`을 저장하도록 만들었기 때문에 검색에서도 같은 정규화 규칙을 사용해야 한다.
+
+마이페이지는 `user_service.py`에서 처리한다.
+
+```python
+def list_my_posts(db, *, current_user, page, size):
+    ...
+```
+
+여기서 `current_user.id`를 repository에 넘긴다. 즉 프론트가 `user_id`를 query로 보내지 않는다. 이것이 중요하다. 사용자가 임의로 다른 사람 id를 넣어 요청하는 문제를 피할 수 있다.
+
+```text
+좋은 방식:
+GET /users/me/posts
+서버가 token에서 user_id를 알아냄
+
+피해야 할 방식:
+GET /users/3/posts
+프론트가 user_id를 직접 고름
+```
+
+## 5. SQLAlchemy 검색 조건
+
+검색은 `post_repository.py`에서 처리한다. 모든 공개 게시글 조회에는 기본 조건이 붙는다.
+
+```python
+Post.status == PostStatus.PUBLISHED
+Post.deleted_at.is_(None)
+Board.is_active.is_(True)
+```
+
+이 조건은 "사용자에게 보여도 되는 게시글"만 가져오기 위한 최소 조건이다.
+
+검색어 `q`는 여러 컬럼에 대해 OR 조건으로 적용된다.
+
+```python
+or_(
+    Post.title.ilike(pattern),
+    Post.content.ilike(pattern),
+    Post.figure_infos.any(...),
+    Post.tag_links.any(...),
+)
+```
+
+`ilike`는 PostgreSQL에서 대소문자를 구분하지 않는 LIKE 검색을 만든다.
+
+```sql
+WHERE title ILIKE '%검색어%'
+```
+
+`Post.figure_infos.any(...)`와 `Post.tag_links.any(...)`는 SQLAlchemy relationship을 이용한 조건이다. 내부적으로는 관련 테이블에 해당 row가 존재하는지 확인하는 `EXISTS` 형태의 SQL이 만들어진다.
+
+예를 들어 `Post.figure_infos.any(PostFigureInfo.figure_name_text.ilike(...))`는 이런 의미다.
+
+```text
+이 게시글에 연결된 figure_info 중
+figure_name_text가 검색어와 맞는 row가 하나라도 있는가?
+```
+
+처음 계획에서는 join/outerjoin을 언급했지만, 실제 구현에서는 중복 게시글 문제를 줄이기 위해 relationship `any()`를 사용했다. 게시글 하나에 태그가 여러 개 있고 피규어 정보도 붙을 수 있으므로 단순 join을 하면 같은 게시글이 여러 row로 늘어날 수 있다. `any()`는 "존재 여부"를 묻기 때문에 목록 중복을 피하기 좋다.
+
+## 6. 정렬 구현
+
+정렬은 `_post_order_by()`에서 한 곳에 모았다.
+
+```python
+def _post_order_by(sort, *, q=None, normalized_q=None):
+    ...
+```
+
+지원하는 정렬은 다음과 같다.
+
+- `latest`: 게시일 최신순
+- `views`: 조회수 높은 순
+- `satisfaction`: 후기 만족도 높은 순
+- `comments`: 댓글 많은 순
+- `relevance`: 검색어 관련도순
+
+만족도순은 `PostFigureInfo.satisfaction_score`를 기준으로 한다. 게시글과 피규어 정보는 1:N 관계라서 scalar subquery를 사용했다.
+
+```python
+satisfaction_score = (
+    select(func.max(PostFigureInfo.satisfaction_score))
+    .where(PostFigureInfo.post_id == Post.id)
+    .scalar_subquery()
+)
+```
+
+이 코드는 각 게시글마다 연결된 피규어 정보의 최대 만족도 점수를 가져오는 SQL 조각을 만든다. MVP에서는 후기 게시글에 대표 피규어 정보 하나만 쓰지만, 모델은 1:N 구조이므로 이렇게 작성하면 관계 구조와 잘 맞는다.
+
+관련도순은 pgvector나 full-text search가 없는 MVP용 단순 규칙이다.
+
+```text
+제목 match
+본문 match
+피규어명/제조사 match
+태그 match
+같은 조건이면 최신순
+```
+
+`case()`를 써서 조건이 맞으면 1, 아니면 0으로 정렬한다.
+
+```python
+case((Post.title.ilike(pattern), 1), else_=0).desc()
+```
+
+이 방식은 진짜 검색 엔진의 relevance score는 아니지만, "제목에 검색어가 들어간 글을 먼저 보여준다"는 MVP 요구에는 충분하다.
+
+## 7. Pagination
+
+검색과 마이페이지 목록은 모두 같은 페이지네이션 구조를 쓴다.
+
+```python
+.offset((page - 1) * size)
+.limit(size)
+```
+
+그리고 응답에는 다음 값을 포함한다.
+
+```python
+page=page
+size=size
+total=total
+has_next=page * size < total
+```
+
+`total`은 전체 개수다. `items`는 현재 페이지에 들어갈 데이터만 담는다. 프론트는 `has_next`를 보고 다음 버튼을 활성화할지 결정한다.
+
+## 8. React API 함수와 화면 분리
+
+프론트에서는 API 호출 함수를 화면 컴포넌트 안에 직접 쓰지 않고 `api` 폴더에 분리했다.
+
+```javascript
+export async function searchPosts(params = {}) {
+  const response = await axiosInstance.get("/search/posts", { params });
+  return response.data;
+}
+```
+
+이렇게 하면 화면은 "검색 버튼을 눌렀을 때 어떤 상태를 바꿀지"에 집중하고, API 경로와 axios 사용법은 `searchApi.js`에 모인다.
+
+마이페이지도 같다.
+
+```javascript
+getMyPosts({ page, size })
+getMyComments({ page, size })
+```
+
+JWT access token은 `axiosInstance` interceptor가 자동으로 붙인다. 그래서 마이페이지 컴포넌트는 token 저장 위치를 알 필요가 없다.
+
+```text
+MyPage
+-> userApi.getMyPosts()
+-> axiosInstance
+-> Authorization header 자동 추가
+-> FastAPI CurrentUser
+```
+
+## 9. SearchResultPage 구조
+
+검색 화면은 두 종류의 상태를 나눈다.
+
+- `filters`: 사용자가 현재 form에서 입력 중인 값
+- `appliedFilters`: 실제 API 요청에 사용 중인 값
+
+이렇게 나누면 input을 한 글자 칠 때마다 검색 API가 호출되지 않는다. 사용자가 검색 버튼을 눌렀을 때만 `appliedFilters`가 바뀌고, 그때 API를 호출한다.
+
+```javascript
+function handleSubmit(event) {
+  event.preventDefault();
+  setAppliedFilters(filters);
+  setPage(1);
+}
+```
+
+검색 결과는 기존 `PostList` 컴포넌트를 재사용한다. 백엔드가 기존 `PostListResponse`를 그대로 반환하기 때문에 가능하다.
+
+```jsx
+<PostList
+  posts={data?.items || []}
+  onSelectPost={onOpenPost}
+/>
+```
+
+이 구조는 "응답 schema를 재사용하면 프론트 컴포넌트도 재사용하기 쉬워진다"는 점을 보여준다.
+
+## 10. MyPage 구조
+
+마이페이지에는 탭이 두 개 있다.
+
+- 내 게시글
+- 내 댓글
+
+`activeTab` 상태로 현재 탭을 관리한다.
+
+```javascript
+const [activeTab, setActiveTab] = useState("posts");
+```
+
+내 게시글 탭에서는 `getMyPosts`를 호출하고, 내 댓글 탭에서는 `getMyComments`를 호출한다. 두 목록은 page 상태도 따로 둔다.
+
+```javascript
+const [postsPage, setPostsPage] = useState(1);
+const [commentsPage, setCommentsPage] = useState(1);
+```
+
+이렇게 하면 게시글 3페이지를 보다가 댓글 탭으로 갔다가 다시 돌아왔을 때 게시글 페이지 상태를 유지하기 쉽다.
+
+내 댓글 목록은 게시글 카드와 모양이 다르므로 별도 `CommentActivityList`를 만들었다. 댓글 카드의 제목 버튼은 `post_id`로 게시글 상세를 연다.
+
+```jsx
+onClick={() => onOpenPost(comment.post_id)}
+```
+
+## 11. App.jsx 화면 전환
+
+아직 Phase 10의 React Router 단계가 아니므로 기존 방식대로 `currentView` 상태를 유지했다.
+
+```javascript
+const [currentView, setCurrentView] = useState("home");
+```
+
+새로 추가된 view는 다음 두 개다.
+
+```text
+search
+mypage
+```
+
+검색 결과나 마이페이지에서 게시글 상세로 들어간 뒤 뒤로 가는 흐름을 위해 `returnView`도 추가했다.
+
+```javascript
+openPost(postId, "search")
+openPost(postId, "mypage")
+```
+
+상세 화면에서 `onBackToList`를 누르면 `returnView`에 따라 검색 화면 또는 마이페이지로 돌아갈 수 있다.
+
+## 12. 이번 Phase에서 DB migration이 필요 없는 이유
+
+이번 구현은 새 테이블이나 새 컬럼을 만들지 않았다.
+
+사용한 기존 테이블은 다음과 같다.
+
+- `posts`
+- `boards`
+- `post_figure_infos`
+- `tags`
+- `post_tags`
+- `comments`
+- `users`
+
+따라서 Alembic migration은 만들지 않는다. 이미 있는 관계와 컬럼을 조합해서 조회 기능만 확장했다.
+
+## 13. 직접 검증한 명령
+
+백엔드 문법 확인:
+
+```powershell
+$env:PYTHONPYCACHEPREFIX="$env:TEMP\yoonji-pycache"
+C:\Users\yoonj\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m compileall backend\app
+```
+
+프론트 빌드 확인:
+
+```powershell
+cd frontend
+cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
+```
+
+두 검증 모두 통과했다.
+
+## 14. 수동 API 확인 시나리오
+
+백엔드 서버를 켠 뒤 다음 흐름을 확인하면 된다.
+
+```text
+GET /api/v1/search/posts?q=검색어
+GET /api/v1/search/posts?board_code=REVIEW
+GET /api/v1/search/posts?tag=미쿠
+GET /api/v1/search/posts?figure_name=미쿠&manufacturer=Good Smile Company
+GET /api/v1/search/posts?price_range=50000_100000
+GET /api/v1/search/posts?sort=satisfaction
+GET /api/v1/search/posts?sort=comments
+GET /api/v1/search/posts?sort=relevance&q=미쿠
+```
+
+로그인 후에는 다음 API를 확인한다.
+
+```text
+GET /api/v1/users/me/posts
+GET /api/v1/users/me/comments
+```
+
+비로그인 상태에서는 두 API가 401을 반환해야 한다. 로그인 상태에서는 현재 사용자의 게시글과 댓글만 반환해야 한다.
+
+## 15. 다음 Phase와 연결되는 지점
+
+Phase 9는 Phase 10의 프론트 라우팅 정리와 잘 연결된다. 지금은 `currentView`로 화면을 바꾸지만, `SearchResultPage`와 `MyPage`는 독립 page 컴포넌트로 만들어 두었다. 그래서 Phase 10에서 React Router를 붙일 때 다음처럼 옮기기 쉽다.
+
+```text
+/search -> SearchResultPage
+/me -> MyPage
+/posts/:postId -> PostDetailPage
+```
+
+또 검색 service와 repository가 분리되어 있으므로 이후 AI Phase에서 pgvector 의미 검색을 붙일 때도 `GET /search/posts`의 응답 모양은 유지하면서 내부 검색 구현만 확장할 수 있다.
