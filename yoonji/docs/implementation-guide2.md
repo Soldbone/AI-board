@@ -1757,3 +1757,348 @@ Phase 9는 Phase 10의 프론트 라우팅 정리와 잘 연결된다. 지금은
 ```
 
 또 검색 service와 repository가 분리되어 있으므로 이후 AI Phase에서 pgvector 의미 검색을 붙일 때도 `GET /search/posts`의 응답 모양은 유지하면서 내부 검색 구현만 확장할 수 있다.
+
+---
+
+# MVP Phase 10. 프론트 라우팅과 UX 정리
+
+Phase 10에서는 백엔드 API나 DB 스키마를 바꾸지 않고, React 화면 이동 구조를 정리했다.
+
+Phase 9까지는 `App.jsx` 안에서 `currentView`라는 문자열 상태로 화면을 바꿨다.
+
+```javascript
+const [currentView, setCurrentView] = useState("home");
+```
+
+이 방식은 처음 학습할 때 이해하기 쉽지만, 주소창 URL과 화면 상태가 분리된다. 예를 들어 게시글 상세를 보고 있어도 브라우저 주소는 그대로 `/`일 수 있다. Phase 10에서는 `react-router-dom`을 사용해 URL이 곧 현재 화면을 의미하도록 바꿨다.
+
+## 1. App.jsx의 역할 축소
+
+수정 파일:
+
+```text
+frontend/src/App.jsx
+```
+
+`App.jsx`는 이제 두 가지 전역 상태만 관리한다.
+
+- 백엔드 health check 상태
+- 로그인/로그아웃 인증 상태
+
+실제 페이지 이동은 `AppRouter`에게 맡긴다.
+
+```jsx
+return (
+  <AppRouter
+    auth={auth}
+    connectionErrorMessage={errorMessage}
+    connectionStatus={connectionStatus}
+    healthResponse={healthResponse}
+  />
+);
+```
+
+이 구조에서 배울 점은 `App.jsx`가 모든 화면 조건을 직접 알 필요가 없다는 것이다. 앱 전체에서 공유해야 하는 상태만 들고, 화면 배치는 라우터와 레이아웃으로 넘긴다.
+
+## 2. Router.jsx와 URL 기반 화면 전환
+
+수정 파일:
+
+```text
+frontend/src/routes/Router.jsx
+```
+
+Phase 10의 핵심 파일이다. 다음 URL을 실제 페이지 컴포넌트와 연결했다.
+
+```text
+/                  -> HomePage
+/boards            -> PostListPage
+/boards/:boardCode -> PostListPage
+/posts/new         -> PostWritePage
+/posts/:postId     -> PostDetailPage
+/posts/:postId/edit -> PostEditPage
+/search            -> SearchResultPage
+/mypage            -> MyPage
+/login             -> LoginPage
+/signup            -> SignupPage
+```
+
+예를 들어 `/boards/REVIEW`로 들어오면 `useParams()`로 `boardCode`를 읽는다.
+
+```javascript
+const { boardCode = "" } = useParams();
+```
+
+그리고 기존 `PostListPage`가 받던 props 형태에 맞춰 넘긴다.
+
+```jsx
+<PostListPage
+  initialBoardCode={boardCode}
+  isAuthenticated={auth.isAuthenticated}
+  onBackHome={() => navigate("/")}
+  onOpenPost={(postId) => navigateToPost(navigate, postId, location)}
+  onOpenWrite={(selectedBoardCode) => {
+    const query = selectedBoardCode
+      ? `?board_code=${encodeURIComponent(selectedBoardCode)}`
+      : "";
+    navigate(`/posts/new${query}`);
+  }}
+/>
+```
+
+여기서 중요한 점은 기존 페이지 컴포넌트를 크게 뜯지 않았다는 것이다. `Router.jsx`가 URL 세계와 기존 props 세계 사이의 adapter 역할을 한다.
+
+## 3. useNavigate, useParams, useSearchParams
+
+React Router에서 자주 쓰는 hook 세 개를 이번 Phase에서 사용했다.
+
+`useNavigate()`는 버튼 클릭 후 다른 URL로 이동할 때 쓴다.
+
+```javascript
+const navigate = useNavigate();
+navigate("/boards");
+```
+
+`useParams()`는 URL 경로에 들어 있는 값을 읽을 때 쓴다.
+
+```javascript
+const { postId } = useParams();
+```
+
+`useSearchParams()`는 query string을 읽을 때 쓴다.
+
+```javascript
+const [searchParams] = useSearchParams();
+const initialBoardCode = searchParams.get("board_code") || "";
+```
+
+그래서 `/posts/new?board_code=REVIEW`로 들어오면 글쓰기 화면의 초기 게시판이 `REVIEW`가 된다.
+
+## 4. 보호 라우트
+
+수정 파일:
+
+```text
+frontend/src/routes/Router.jsx
+```
+
+로그인이 필요한 화면은 `ProtectedRoute`로 감쌌다.
+
+```jsx
+<ProtectedRoute auth={auth}>
+  <MyPageRoute auth={auth} />
+</ProtectedRoute>
+```
+
+보호 대상은 다음 세 곳이다.
+
+```text
+/mypage
+/posts/new
+/posts/:postId/edit
+```
+
+`auth.status`가 `loading`이면 로그인 상태 확인 중이라는 로딩 UI를 보여준다. 비로그인 상태면 빈 화면을 보여주지 않고 로그인 안내 화면을 보여준다.
+
+```jsx
+if (!auth.isAuthenticated) {
+  return (
+    <section className="protected-panel">
+      <h2>로그인이 필요한 페이지입니다.</h2>
+      ...
+    </section>
+  );
+}
+```
+
+이렇게 하면 사용자가 주소창에 `/mypage`를 직접 입력해도 앱이 깨지지 않는다.
+
+## 5. 비로그인 상태의 마이페이지 버튼 숨김
+
+수정 파일:
+
+```text
+frontend/src/components/common/Header.jsx
+```
+
+사용자 요청에 맞춰 비로그인 상태에서는 Header에 마이페이지 버튼을 렌더링하지 않는다.
+
+```jsx
+{auth.isAuthenticated && (
+  <NavLink className="nav-link" to="/mypage">
+    마이페이지
+  </NavLink>
+)}
+```
+
+여기서 `disabled` 버튼을 쓰지 않은 이유는 UX 때문이다. 누를 수 없는 버튼이 보이면 사용자는 “왜 안 눌리지?”라고 느끼기 쉽다. 이번 구현에서는 비로그인 사용자가 볼 필요 없는 메뉴를 아예 숨기고, 직접 URL 접근만 보호 라우트에서 처리한다.
+
+## 6. Header와 Layout 분리
+
+수정 파일:
+
+```text
+frontend/src/components/common/Header.jsx
+frontend/src/components/common/Layout.jsx
+```
+
+`Header.jsx`는 상단 navigation만 담당한다.
+
+- 홈
+- 게시글
+- 검색
+- 게시판 메뉴
+- 로그인/회원가입
+- 로그인 상태의 글쓰기/마이페이지/로그아웃
+
+`Layout.jsx`는 앱의 공통 뼈대를 담당한다.
+
+- Header 표시
+- Phase 제목 영역
+- health check 상태 표시
+- 현재 page content 표시
+
+역할을 나누면 Header를 수정할 때 페이지 라우팅 로직을 건드리지 않아도 되고, Layout을 수정할 때 로그인 폼을 건드리지 않아도 된다.
+
+## 7. 공통 UI 컴포넌트
+
+수정 파일:
+
+```text
+frontend/src/components/common/Button.jsx
+frontend/src/components/common/Input.jsx
+frontend/src/components/common/Loading.jsx
+frontend/src/components/common/Modal.jsx
+```
+
+`Button`은 버튼의 모양을 `variant`로 고른다.
+
+```jsx
+<Button variant="danger">삭제</Button>
+```
+
+`Input`은 label과 input을 함께 묶는다. 같은 패턴을 로그인/회원가입에서 반복하지 않기 위해 만들었다.
+
+```jsx
+<Input
+  label="로그인 ID"
+  name="login_id"
+  value={form.login_id}
+  onChange={handleChange}
+/>
+```
+
+`Loading`은 인증 확인 같은 공통 로딩 상태에 사용한다.
+
+`Modal`은 확인이 필요한 작업에 사용한다. 이번 Phase에서는 게시글 삭제 확인에 연결했다.
+
+## 8. window.confirm을 Modal로 교체
+
+수정 파일:
+
+```text
+frontend/src/pages/PostDetailPage.jsx
+```
+
+기존에는 게시글 삭제 때 브라우저 기본 확인창을 사용했다.
+
+```javascript
+window.confirm("게시글을 삭제할까요?");
+```
+
+Phase 10에서는 React 상태로 모달을 열고 닫는다.
+
+```javascript
+const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+```
+
+삭제 버튼을 누르면 모달을 열고, 모달 안의 삭제 버튼을 누르면 실제 API를 호출한다.
+
+```jsx
+<Modal
+  isOpen={isDeleteModalOpen}
+  title="게시글 삭제"
+  actions={...}
+>
+  <p>이 게시글을 삭제할까요?</p>
+</Modal>
+```
+
+이 방식은 앱 디자인과 같은 스타일의 확인 UI를 만들 수 있고, 나중에 “삭제 사유 입력” 같은 기능을 붙이기도 쉽다.
+
+## 9. 상수 파일
+
+수정 파일:
+
+```text
+frontend/src/constants/boardTypes.js
+frontend/src/constants/postStatus.js
+```
+
+`boardTypes.js`에는 기본 게시판 코드와 한글 라벨을 넣었다.
+
+```javascript
+export const BOARD_TYPES = [
+  { code: "REVIEW", name: "후기", ... },
+  { code: "INFO", name: "정보", ... },
+];
+```
+
+Header는 서버에서 게시판 목록을 가져오려고 시도한다. 실패하면 이 상수 목록을 fallback으로 사용한다. 그래서 백엔드가 잠깐 꺼져 있어도 상단 메뉴의 기본 구조는 유지된다.
+
+`postStatus.js`는 게시글 상태 라벨을 모아 둔 파일이다. 아직 화면에서 많이 쓰지는 않지만, 이후 목록이나 관리자 화면에서 상태 표시가 필요할 때 같은 라벨을 재사용할 수 있다.
+
+## 10. 전역 스타일
+
+수정 파일:
+
+```text
+frontend/src/styles/global.css
+frontend/src/main.jsx
+```
+
+`main.jsx`에서 전역 스타일을 import한다.
+
+```javascript
+import './styles/global.css'
+```
+
+`global.css`는 기존 `App.css`를 import한 뒤 Phase 10에서 추가한 Header, Router layout, Modal, Button, Input 스타일을 덮어쓴다.
+
+```css
+@import "../App.css";
+```
+
+이렇게 한 이유는 기존 Phase 4-9 화면 스타일을 한 번에 다 지우지 않고, Phase 10에 필요한 전역 구조만 추가하기 위해서다.
+
+## 11. 화면 상태와 API 상태의 차이
+
+Phase 10에서 중요한 학습 포인트는 화면 상태와 API 상태를 구분하는 것이다.
+
+화면 상태는 URL이 담당한다.
+
+```text
+/search
+/mypage
+/posts/1
+```
+
+API 상태는 각 page 컴포넌트가 담당한다.
+
+```javascript
+const [isLoading, setIsLoading] = useState(false);
+const [errorMessage, setErrorMessage] = useState("");
+```
+
+즉 “어느 화면인가?”는 Router가 결정하고, “그 화면의 데이터를 불러오는 중인가?”는 page가 결정한다.
+
+## 12. 직접 검증한 명령
+
+프론트 빌드 확인:
+
+```powershell
+cd frontend
+cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
+```
+
+빌드가 통과하면 React Router import, JSX 문법, 컴포넌트 export/import 문제가 없다는 뜻이다.

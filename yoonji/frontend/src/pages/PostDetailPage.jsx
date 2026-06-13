@@ -4,6 +4,8 @@ import { API_BASE_URL } from "../api/client";
 import { deletePost } from "../api/postApi";
 import CommentForm from "../components/comment/CommentForm";
 import CommentList from "../components/comment/CommentList";
+import Button from "../components/common/Button";
+import Modal from "../components/common/Modal";
 import { useComments } from "../hooks/useComments";
 import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
 
@@ -19,20 +21,16 @@ function PostDetailPage({
   const { errorMessage, isLoading, post, reloadPost } = usePostDetail(postId);
   const comments = useComments(postId);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleDelete() {
-    const confirmed = window.confirm("게시글을 삭제할까요?");
-
-    if (!confirmed) {
-      return;
-    }
-
     setIsDeleting(true);
     setDeleteErrorMessage("");
 
     try {
       await deletePost(post.id);
+      setIsDeleteModalOpen(false);
       onDeleted();
     } catch (error) {
       setDeleteErrorMessage(getApiErrorMessage(error));
@@ -102,7 +100,7 @@ function PostDetailPage({
             <button
               type="button"
               className="danger-button"
-              onClick={handleDelete}
+              onClick={() => setIsDeleteModalOpen(true)}
               disabled={isDeleting}
             >
               삭제
@@ -114,6 +112,28 @@ function PostDetailPage({
       {deleteErrorMessage && (
         <p className="form-message error">{deleteErrorMessage}</p>
       )}
+
+      <Modal
+        actions={
+          <>
+            <Button
+              disabled={isDeleting}
+              onClick={() => setIsDeleteModalOpen(false)}
+              variant="ghost"
+            >
+              취소
+            </Button>
+            <Button isLoading={isDeleting} onClick={handleDelete} variant="danger">
+              삭제
+            </Button>
+          </>
+        }
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="게시글 삭제"
+      >
+        <p>이 게시글을 삭제할까요? 삭제한 글은 목록과 검색 결과에서 보이지 않습니다.</p>
+      </Modal>
 
       <header className="detail-header">
         <p className="eyebrow">{post.board.name}</p>

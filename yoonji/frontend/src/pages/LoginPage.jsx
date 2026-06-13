@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import Button from "../components/common/Button";
+import Input from "../components/common/Input";
+
 
 const INITIAL_FORM = {
   login_id: "",
@@ -39,34 +42,32 @@ function LoginPage({ onLogin }) {
     <section className="auth-panel" aria-labelledby="login-title">
       <h2 id="login-title">로그인</h2>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <label>
-          로그인 ID
-          <input
-            name="login_id"
-            value={form.login_id}
-            onChange={handleChange}
-            minLength={3}
-            maxLength={50}
-            required
-          />
-        </label>
+        <Input
+          autoComplete="username"
+          label="로그인 ID"
+          maxLength={50}
+          minLength={3}
+          name="login_id"
+          onChange={handleChange}
+          required
+          value={form.login_id}
+        />
 
-        <label>
-          비밀번호
-          <input
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            minLength={8}
-            maxLength={72}
-            required
-          />
-        </label>
+        <Input
+          autoComplete="current-password"
+          label="비밀번호"
+          maxLength={72}
+          minLength={8}
+          name="password"
+          onChange={handleChange}
+          required
+          type="password"
+          value={form.password}
+        />
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "로그인 중" : "로그인"}
-        </button>
+        <Button type="submit" isLoading={isSubmitting}>
+          로그인
+        </Button>
       </form>
 
       {message && <p className="form-message success">{message}</p>}
