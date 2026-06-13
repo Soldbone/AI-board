@@ -27,6 +27,18 @@ def normalize_tag_names(tag_names: list[str]) -> list[str]:
     return normalized_names
 
 
+def get_post_tag_names(db: Session, post_id: int) -> list[str]:
+    tag_rows = (
+        db.query(Tag.name)
+        .join(post_tags, Tag.id == post_tags.c.tag_id)
+        .filter(post_tags.c.post_id == post_id)
+        .order_by(Tag.name.asc())
+        .all()
+    )
+
+    return [tag_name for (tag_name,) in tag_rows]
+
+
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
 def create_post(
     post_data: PostCreate,
@@ -68,7 +80,20 @@ def create_post(
     db.commit()
     background_tasks.add_task(embed_post_by_id, new_post.id)
 
-    return new_post
+    return {
+        "id": new_post.id,
+        "author_id": new_post.author_id,
+        "title": new_post.title,
+        "content": new_post.content,
+        "region": new_post.region,
+        "store_name": new_post.store_name,
+        "category": new_post.category,
+        "view_count": new_post.view_count,
+        "comment_count": 0,
+        "tag_names": normalized_tag_names,
+        "created_at": new_post.created_at,
+        "updated_at": new_post.updated_at,
+    }
 
 @router.get("", response_model=PostListResponse)
 def read_posts(
@@ -210,6 +235,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         .filter(Comment.post_id == post.id, Comment.deleted_at.is_(None))
         .scalar()
     )
+    tag_names = get_post_tag_names(db, post.id)
 
     return {
         "id": post.id,
@@ -221,6 +247,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         "category": post.category,
         "view_count": post.view_count,
         "comment_count": comment_count,
+        "tag_names": tag_names,
         "created_at": post.created_at,
         "updated_at": post.updated_at,
     }
@@ -271,7 +298,26 @@ def update_post(
     db.refresh(post)
     background_tasks.add_task(embed_post_by_id, post.id)
 
-    return post
+    comment_count = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.post_id == post.id, Comment.deleted_at.is_(None))
+        .scalar()
+    )
+
+    return {
+        "id": post.id,
+        "author_id": post.author_id,
+        "title": post.title,
+        "content": post.content,
+        "region": post.region,
+        "store_name": post.store_name,
+        "category": post.category,
+        "view_count": post.view_count,
+        "comment_count": comment_count,
+        "tag_names": get_post_tag_names(db, post.id),
+        "created_at": post.created_at,
+        "updated_at": post.updated_at,
+    }
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)

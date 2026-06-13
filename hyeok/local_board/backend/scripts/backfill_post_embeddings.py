@@ -15,36 +15,66 @@ from app.services.embedding_service import (
 )
 
 
-BACKFILL_LIMIT = 100
+def get_backfill_limit() -> int | None:
+    if len(sys.argv) < 2:
+        return None
+
+    limit = int(sys.argv[1])
+
+    if limit < 1:
+        return None
+
+    return limit
 
 
 def main() -> None:
     enable_pgvector_extension()
     Base.metadata.create_all(bind=engine)
 
+    limit = get_backfill_limit()
     db = SessionLocal()
 
     try:
-        posts = (
+        query = (
             db.query(Post)
             .filter(Post.deleted_at.is_(None))
             .order_by(Post.id.asc())
-            .limit(BACKFILL_LIMIT)
-            .all()
         )
 
-        for post in posts:
-            post_embedding = upsert_post_embedding_source(db, post)
+        if limit is not None:
+            query = query.limit(limit)
 
-            if post_embedding.embedding is not None:
-                print(f"skip post_id={post.id}")
+        posts = query.all()
+        embedded_count = 0
+        skipped_count = 0
+        failed_count = 0
+
+        for post in posts:
+            try:
+                post_embedding = upsert_post_embedding_source(db, post)
+
+                if post_embedding.embedding is not None:
+                    skipped_count += 1
+                    print(f"skip post_id={post.id}")
+                    continue
+
+                update_post_embedding_vector(post_embedding)
+                db.commit()
+                embedded_count += 1
+                print(f"embedded post_id={post.id}")
+            except Exception as exc:
+                db.rollback()
+                failed_count += 1
+                print(f"failed post_id={post.id} error={exc}")
                 continue
 
-            update_post_embedding_vector(post_embedding)
-            print(f"embedded post_id={post.id}")
-
-        db.commit()
-        print(f"done count={len(posts)}")
+        print(
+            "done "
+            f"checked={len(posts)} "
+            f"embedded={embedded_count} "
+            f"skipped={skipped_count} "
+            f"failed={failed_count}"
+        )
     finally:
         db.close()
 

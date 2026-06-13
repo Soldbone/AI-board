@@ -318,6 +318,7 @@ def find_similar_posts(
                 "region": post.region,
                 "store_name": post.store_name,
                 "category": post.category,
+                "comment_count": comment_count,
                 "score": final_score,
                 "base_score": match_detail["score"],
                 "ranking_bonus": ranking_bonus,

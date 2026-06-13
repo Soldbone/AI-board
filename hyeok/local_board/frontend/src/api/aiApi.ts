@@ -14,6 +14,7 @@ export type SimilarPostItem = {
   region: string | null
   store_name: string | null
   category: string | null
+  comment_count: number
   score: number
   matched_keywords: string[]
   matched_fields: string[]

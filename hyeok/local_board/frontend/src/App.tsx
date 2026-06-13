@@ -506,6 +506,18 @@ function App() {
     setMessage('')
   }, [])
 
+  const searchPostsByTag = useCallback((tagName: string) => {
+    const nextTag = tagName.trim()
+
+    if (!nextTag) return
+
+    setActiveTag(nextTag)
+    setActiveKeyword('')
+    setKeywordInput('')
+    goList()
+    void loadPosts(1, { keyword: '', tag: nextTag, sort: activeSort })
+  }, [activeSort, goList, loadPosts])
+
   useEffect(() => {
     if (!isHistoryReady.current) {
       const state = window.history.state
@@ -650,6 +662,7 @@ function App() {
             onCreateComment={handleCreateComment}
             onEdit={openEditForm}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
+            onTagSearch={searchPostsByTag}
             post={selectedPost}
             replyTargetId={replyTargetId}
           />

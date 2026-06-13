@@ -12,6 +12,7 @@ from app.services.rag_service import (
     DEFAULT_SIMILAR_POST_LIMIT,
     MAX_SIMILAR_POST_LIMIT,
     extract_keywords,
+    get_post_comment_count,
     get_post_tag_names,
 )
 from openai import OpenAI
@@ -281,6 +282,8 @@ def find_similar_posts_by_vector(
     results = []
 
     for post, vector_distance in rows:
+        comment_count = get_post_comment_count(db, post.id)
+
         results.append(
             {
                 "id": post.id,
@@ -289,6 +292,7 @@ def find_similar_posts_by_vector(
                 "region": post.region,
                 "store_name": post.store_name,
                 "category": post.category,
+                "comment_count": comment_count,
                 "score": calculate_vector_score(vector_distance),
                 "matched_keywords": keywords,
                 "matched_fields": [VECTOR_MATCH_FIELD],

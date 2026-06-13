@@ -315,6 +315,7 @@ export function PostFormPage({
                   {post.region && <span>{post.region}</span>}
                   {post.store_name && <span>{post.store_name}</span>}
                   {post.category && <span>{post.category}</span>}
+                  <span>댓글 {post.comment_count}개</span>
                   <span>{formatDate(post.created_at)}</span>
                 </div>
 
