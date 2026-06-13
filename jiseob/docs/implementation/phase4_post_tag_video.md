@@ -217,7 +217,55 @@ pnpm.cmd --filter @arena/backend migration:run
 
 ---
 
-## 9. 다음 단계
+## 9. API smoke test 결과
+
+로컬 PostgreSQL 컨테이너와 빌드된 backend 서버를 사용해 실제 HTTP 요청 흐름을 검증했다.
+
+실행 조건:
+
+```text
+API base: http://localhost:3000/api/v1
+WEB_ORIGIN: http://localhost:5173
+JWT_ACCESS_SECRET: smoke-jwt-access-secret
+CSRF_SECRET: smoke-csrf-secret
+```
+
+검증한 흐름:
+
+- `GET /health` → `200`
+- `GET /health/db` → `200`
+- `POST /auth/signup` → `201`
+- `POST /auth/login` → `200`, Access Token 반환 및 CSRF cookie 발급 확인
+- 인증 없이 `POST /posts` → `401`
+- Access Token은 있지만 CSRF header 없이 `POST /posts` → `403`
+- Access Token과 CSRF header 포함 `POST /posts` → `201`
+- 게시글 생성 응답에서 `commentCount=0`, `viewCount=0`, `likeCount=0` 확인
+- 게시글 생성 응답에서 영상 상태값 `metadataStatus=PENDING`, `transcriptStatus=PENDING`, `embeddingStatus=PENDING` 확인
+- `GET /posts?q=Smoke&tag=arena` → `200`
+- `GET /posts/:postId` → `200`
+- `GET /tags` → `200`
+- `GET /videos/:videoId` → `200`
+- `POST /posts/:postId/views` 2회 호출 → `viewCount`가 1, 2로 증가
+- `POST /posts/:postId/like` → `200`, `likeCount=1`
+- 같은 사용자로 중복 `POST /posts/:postId/like` → `409`
+- `DELETE /posts/:postId/like` → `204`
+- 좋아요하지 않은 상태에서 다시 `DELETE /posts/:postId/like` → `204`
+- `PATCH /posts/:postId`에서 `youtubeUrl` 변경 시도 → `400`
+- `PATCH /posts/:postId`에서 `title/content/tags` 수정 → `200`
+- `DELETE /posts/:postId` → `204`
+- 삭제 후 `GET /posts/:postId` → `404`
+- 삭제 후 `POST /posts/:postId/views` → `404`
+- 삭제 후 `POST /posts/:postId/like` → `404`
+
+Smoke test 중 발견한 이슈:
+
+- `GET /posts?q=Smoke&tag=arena` 호출 시 TypeORM query builder에서 `500 Internal Server Error`가 발생했다.
+- 원인은 join, pagination, order by를 함께 쓰는 목록 쿼리에서 `orderBy('post.created_at')`처럼 DB 컬럼명을 직접 사용한 것이다.
+- TypeORM entity property 경로인 `orderBy('post.createdAt')`로 수정해 목록 검색/태그 필터 API가 `200`으로 동작하는 것을 재확인했다.
+
+---
+
+## 10. 다음 단계
 
 다음은 Phase 5 `Comment / Reply 구현`이다.
 

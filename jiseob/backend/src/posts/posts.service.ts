@@ -112,7 +112,7 @@ export class PostsService {
       .leftJoinAndSelect('post.postTags', 'postTag')
       .leftJoinAndSelect('postTag.tag', 'tag')
       .where('post.deleted_at IS NULL')
-      .orderBy('post.created_at', 'DESC')
+      .orderBy('post.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
