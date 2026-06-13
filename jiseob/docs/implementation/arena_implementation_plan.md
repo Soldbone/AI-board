@@ -286,13 +286,16 @@ DELETE /api/v1/comments/:commentId
 
 ### 작업 목록
 
-- McpModule 또는 YoutubeToolService 작성
-- 유튜브 메타데이터 수집 service 작성
-- 자막 수집 service 작성
+- 영상 처리 provider adapter 구조 작성
+- YouTube Data API v3 기반 메타데이터 수집 service 작성
+- `youtube-transcript-api` CLI 기반 자막 수집 adapter 작성
 - 자막 청킹 service 작성
-- 임베딩 생성 service 작성
+- OpenAI embeddings 기반 임베딩 생성 service 작성
 - TranscriptChunk 저장 구현
 - pgvector extension migration 작성
+- backend Docker 구성에 Python과 `youtube-transcript-api` CLI 설치 추가
+- 게시글 작성 직후 영상 처리 비동기 자동 트리거 구현
+- 영상 처리 retry API 구현
 - 영상 처리 실패 시 상태값 업데이트
 
 ### 완료 기준
@@ -302,10 +305,13 @@ DELETE /api/v1/comments/:commentId
 - 메타데이터 수집 실패 시 metadataStatus=FAILED가 된다.
 - 자막 없음은 transcriptStatus=NOT_AVAILABLE로 표현한다.
 - 임베딩 완료 후 embeddingStatus=SUCCESS가 된다.
+- 영상 처리 실패 시 사용자에게 노출 가능한 정제된 errorCode/errorMessage가 저장된다.
+- backend Docker 환경에서 `youtube_transcript_api` CLI를 실행할 수 있다.
+- 게시글 작성 성공 여부는 영상 처리 성공 여부와 분리된다.
 
 ### 직접 했다면 접근법
 
-YouTube API, 자막 수집, 임베딩을 한 번에 붙이지 않는다. 먼저 가짜 service로 status 변경 흐름을 테스트하고, 그 다음 실제 외부 API를 붙인다.
+영상 처리는 provider adapter 뒤에 숨긴다. 메타데이터는 공식 YouTube Data API v3를 사용하고, 자막은 공식 API 한계 때문에 MVP에서 `youtube-transcript-api` CLI를 사용한다. 임베딩은 OpenAI embeddings API를 실제 호출한다.
 
 ### 유의사항
 
@@ -313,6 +319,11 @@ YouTube API, 자막 수집, 임베딩을 한 번에 붙이지 않는다. 먼저 
 - 서버 내부 비동기 작업은 서버 재시작 시 유실될 수 있다.
 - 실패한 작업은 상태값으로 남기고 관리자 재시도 또는 추후 PostgreSQL 작업 큐로 보완한다.
 - pgvector column을 쓰기 전에 반드시 extension migration이 필요하다.
+- `youtube-transcript-api`는 비공식 transcript provider이므로 차단, 응답 구조 변경, cloud IP 제한 가능성이 있다.
+- 런타임에서는 mock transcript를 사용자에게 반환하지 않는다. 외부 호출 실패는 FAILED 또는 NOT_AVAILABLE 상태와 정제된 실패 사유로 표현한다.
+- 테스트에서는 외부 API key와 YouTube 네트워크에 의존하지 않도록 provider adapter를 mock할 수 있다.
+- raw provider error에는 API key, 내부 URL, stack trace가 섞일 수 있으므로 사용자 응답에는 그대로 노출하지 않는다.
+- transcript 언어 기본값은 `ko,en`, chunk 기본값은 1000자와 overlap 200자로 시작한다.
 
 ---
 

@@ -76,16 +76,25 @@ DATABASE_PASSWORD=arena_dev_password
 DATABASE_NAME=arena
 DATABASE_SSL=false
 
-JWT_SECRET=replace-with-a-local-secret
-JWT_EXPIRES_IN=1h
+JWT_ACCESS_SECRET=replace-with-a-local-access-secret
+JWT_ACCESS_EXPIRES_IN=15m
+REFRESH_TOKEN_EXPIRES_IN=7d
+CSRF_SECRET=replace-with-a-local-csrf-secret
 
 YOUTUBE_API_KEY=
 OPENAI_API_KEY=
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSION=1536
+
+YOUTUBE_TRANSCRIPT_COMMAND=youtube_transcript_api
+TRANSCRIPT_LANGUAGES=ko,en
+TRANSCRIPT_CHUNK_SIZE=1000
+TRANSCRIPT_CHUNK_OVERLAP=200
 ```
 
-`JWT_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 Phase 1 health check에는 필요하지 않고, 영상 처리나 AI 기능을 붙일 때 설정하면 됩니다.
+`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 Phase 1 health check에는 필요하지 않고, 영상 처리나 AI 기능을 붙일 때 설정하면 됩니다.
+
+Phase 6 영상 처리에서는 `youtube-transcript-api` Python CLI를 transcript provider로 사용할 계획입니다. 로컬에서 직접 backend를 실행한다면 Python 환경에 CLI를 설치해야 하고, Docker 실행 환경에서는 backend 이미지에 Python과 `youtube-transcript-api`를 설치해 컨테이너 안에서 `youtube_transcript_api` 명령을 실행할 수 있게 합니다.
 
 ## 초기 설정
 
@@ -168,13 +177,13 @@ pnpm.cmd format:check
 
 ## 다음 구현 순서
 
-`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 다음 단계는 Phase 1, 즉 프로젝트 초기 설정을 실제로 검증하는 것입니다.
+`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 5까지 완료되었고, 다음 단계는 Phase 6 영상 메타데이터 / 자막 / 임베딩 처리입니다.
 
-1. 의존성 설치: `pnpm.cmd install`
-2. PostgreSQL 실행: `pnpm.cmd db:up`
-3. 백엔드 서버 실행: `pnpm.cmd dev:backend`
-4. Health check 확인: `http://localhost:3000/api/v1/health`
-5. 환경 변수 구조와 ConfigModule 정리
-6. TypeORM 연결과 migration 기반 설정 추가
-7. 공통 `BaseModel`, ULID 유틸, enum 정의
-8. User/Auth 구현 시작
+1. Phase 5 브랜치 push 및 Phase 6 작업 브랜치 생성
+2. backend Docker 구성에 Python과 `youtube-transcript-api` CLI 설치 추가
+3. YouTube Data API v3 metadata adapter 구현
+4. `youtube-transcript-api` CLI transcript adapter 구현
+5. TranscriptChunk / pgvector migration 추가
+6. OpenAI embeddings adapter 구현
+7. 게시글 작성 직후 video processing 자동 트리거 연결
+8. 영상 처리 retry API와 실패 상태 문서화

@@ -209,6 +209,10 @@ YOUTUBE_API_KEY
 OPENAI_API_KEY
 EMBEDDING_MODEL
 EMBEDDING_DIMENSION
+YOUTUBE_TRANSCRIPT_COMMAND
+TRANSCRIPT_LANGUAGES
+TRANSCRIPT_CHUNK_SIZE
+TRANSCRIPT_CHUNK_OVERLAP
 ```
 
 ### 주의사항
@@ -351,6 +355,8 @@ PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처�
 - 자막 수집 상태 관리
 - 임베딩 상태 관리
 - TranscriptChunk 저장
+- 영상 처리 provider adapter 조립
+- 영상 처리 retry API 제공
 
 ### 의존성
 
@@ -361,13 +367,16 @@ PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처�
 
 ```http
 GET  /api/v1/videos/:videoId
-POST /api/v1/videos/:videoId/metadata/retry
-POST /api/v1/videos/:videoId/transcript/retry
+POST /api/v1/videos/:videoId/processing/retry
 ```
 
 ### 주의사항
 
 MVP에서는 Redis queue를 쓰지 않으므로, video 처리 작업은 DB 상태값을 먼저 PENDING으로 만들고 서버 내부 비동기 함수로 처리한다. 실패하면 FAILED 상태로 남긴다.
+
+Phase 6 MVP에서는 메타데이터 provider로 YouTube Data API v3를 사용하고, transcript provider로 `youtube-transcript-api` CLI adapter를 사용한다. backend Docker 이미지에는 Python과 `youtube-transcript-api` CLI를 설치해 런타임 환경 차이를 줄인다.
+
+provider 오류는 그대로 사용자에게 전달하지 않는다. 서버 로그에는 raw error를 남길 수 있지만, DB와 API 응답에는 정제된 errorCode/errorMessage만 저장하고 노출한다.
 
 ---
 
@@ -384,15 +393,21 @@ MVP에서는 Redis queue를 쓰지 않으므로, video 처리 작업은 DB 상�
 ### 주요 Service
 
 ```text
-YoutubeToolService
-- parseVideoId(youtubeUrl)
+YoutubeMetadataProvider
 - fetchMetadata(youtubeVideoId)
-- fetchTranscript(youtubeVideoId)
+
+YoutubeTranscriptProvider
+- fetchTranscript(youtubeVideoId, languages)
+
+EmbeddingProvider
+- embedTexts(texts)
 ```
 
 ### 주의사항
 
 McpModule은 외부 API 세부 구현을 감싸는 계층이다. PostsService나 VideosService가 YouTube API client의 세부사항을 직접 알지 않도록 한다.
+
+비공식 transcript provider는 반드시 adapter 뒤에 둔다. `youtube-transcript-api`가 차단되거나 깨지면 `yt-dlp`, hosted transcript API, STT provider로 교체할 수 있어야 한다.
 
 ---
 
