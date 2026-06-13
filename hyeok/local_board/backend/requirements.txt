@@ -16,6 +16,7 @@ kiwipiepy_model==0.23.0
 numpy==2.4.6
 passlib==1.7.4
 psycopg2-binary==2.9.12
+pgvector==0.4.2
 pyasn1==0.6.3
 pycparser==3.0
 pydantic==2.13.4

@@ -11,7 +11,7 @@ from app.database import (
     engine,
     get_db,
 )
-from app.models import comment, post, user, tag
+from app.models import comment, post, post_embedding, user, tag
 from app.routers import ai, auth, comments, posts, users, tags
 
 app = FastAPI(title="Local Board API")

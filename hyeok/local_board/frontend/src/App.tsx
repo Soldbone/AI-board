@@ -1,5 +1,5 @@
 ﻿/* eslint-disable react-hooks/set-state-in-effect */
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { getMe, login, signup, type UserResponse } from './api/authApi'
 import { createComment, getComments, type CommentRead } from './api/commentApi'
 import {
@@ -26,6 +26,8 @@ import { SignupPage } from './pages/SignupPage'
 import { getAccessToken, removeAccessToken, saveAccessToken } from './utils/tokenStorage'
 
 type ViewMode = 'list' | 'login' | 'signup' | 'detail' | 'create' | 'edit' | 'profile'
+type BrowserHistoryState = { boardView: 'list' } | { boardView: 'detail'; postId: number }
+type NavigationOptions = { updateHistory?: boolean }
 
 type AuthFormState = { email: string; password: string; nickname: string }
 type ProfileFormState = { nickname: string; bio: string }
@@ -47,6 +49,34 @@ const emptyPostForm: PostFormState = {
   store_name: '',
   category: '',
   tag_names: '',
+}
+
+function getListUrl() {
+  return `${window.location.pathname}${window.location.search}`
+}
+
+function getPostUrl(postId: number) {
+  return `${getListUrl()}#post-${postId}`
+}
+
+function isListHistoryState(state: unknown): state is { boardView: 'list' } {
+  return (
+    typeof state === 'object'
+    && state !== null
+    && 'boardView' in state
+    && state.boardView === 'list'
+  )
+}
+
+function isDetailHistoryState(state: unknown): state is { boardView: 'detail'; postId: number } {
+  return (
+    typeof state === 'object'
+    && state !== null
+    && 'boardView' in state
+    && state.boardView === 'detail'
+    && 'postId' in state
+    && typeof state.postId === 'number'
+  )
 }
 
 function getErrorMessage(error: unknown) {
@@ -78,6 +108,7 @@ function formatDate(value: string) {
 }
 
 function App() {
+  const isHistoryReady = useRef(false)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm)
   const [accessToken, setAccessToken] = useState<string | null>(() => getAccessToken())
@@ -272,7 +303,15 @@ function App() {
     }
   }
 
-  async function openDetail(postId: number) {
+  const openDetail = useCallback(async (postId: number, options: NavigationOptions = {}) => {
+    if (options.updateHistory !== false) {
+      window.history.pushState(
+        { boardView: 'detail', postId } satisfies BrowserHistoryState,
+        '',
+        getPostUrl(postId),
+      )
+    }
+
     setViewMode('detail')
     setSelectedPost(null)
     setComments([])
@@ -292,7 +331,7 @@ function App() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   function openCreateForm() {
     if (!accessToken) {
@@ -456,12 +495,43 @@ function App() {
     void loadPosts(1, { keyword: '', tag: '', sort: activeSort })
   }
 
-  function goList() {
+  const goList = useCallback((options: NavigationOptions = {}) => {
+    if (options.updateHistory !== false && !isListHistoryState(window.history.state)) {
+      window.history.pushState({ boardView: 'list' } satisfies BrowserHistoryState, '', getListUrl())
+    }
+
     setViewMode('list')
     setSelectedPost(null)
     setComments([])
     setMessage('')
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!isHistoryReady.current) {
+      const state = window.history.state
+
+      if (!isListHistoryState(state) && !isDetailHistoryState(state)) {
+        window.history.replaceState({ boardView: 'list' } satisfies BrowserHistoryState, '', getListUrl())
+      }
+
+      isHistoryReady.current = true
+    }
+
+    function handlePopState(event: PopStateEvent) {
+      if (isDetailHistoryState(event.state)) {
+        void openDetail(event.state.postId, { updateHistory: false })
+        return
+      }
+
+      goList({ updateHistory: false })
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [goList, openDetail])
 
   function renderHeaderActions() {
     if (currentUser) {
@@ -498,7 +568,7 @@ function App() {
         <header className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur-md">
           <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <button className="text-left" onClick={goList} type="button">
+              <button className="text-left" onClick={() => goList()} type="button">
                 <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                   Local Board
                 </span>
