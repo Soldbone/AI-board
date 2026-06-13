@@ -224,14 +224,14 @@ export class Video extends BaseModel {
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 
-  @Column({ name: 'view_count', type: 'int', nullable: true })
-  viewCount?: number | null;
+  @Column({ name: 'youtube_view_count', type: 'int', nullable: true })
+  youtubeViewCount?: number | null;
 
-  @Column({ name: 'like_count', type: 'int', nullable: true })
-  likeCount?: number | null;
+  @Column({ name: 'youtube_like_count', type: 'int', nullable: true })
+  youtubeLikeCount?: number | null;
 
-  @Column({ name: 'comment_count', type: 'int', nullable: true })
-  commentCount?: number | null;
+  @Column({ name: 'youtube_comment_count', type: 'int', nullable: true })
+  youtubeCommentCount?: number | null;
 
   @Column({ name: 'metadata_status', type: 'varchar', length: 20, default: MetadataStatus.PENDING })
   metadataStatus: MetadataStatus;
@@ -271,6 +271,7 @@ import { BaseModel } from '../../common/entities/base.entity';
 import { User } from '../../users/entities/user.entity';
 import { Video } from '../../videos/entities/video.entity';
 import { Comment } from '../../comments/entities/comment.entity';
+import { PostLike } from './post-like.entity';
 import { PostTag } from './post-tag.entity';
 
 @Entity('posts')
@@ -298,17 +299,29 @@ export class Post extends BaseModel {
   @Column({ name: 'youtube_url', type: 'text' })
   youtubeUrl: string;
 
+  @Column({ name: 'comment_count', type: 'int', default: 0 })
+  commentCount: number;
+
+  @Column({ name: 'view_count', type: 'int', default: 0 })
+  viewCount: number;
+
+  @Column({ name: 'like_count', type: 'int', default: 0 })
+  likeCount: number;
+
   @OneToMany(() => Comment, (comment) => comment.post)
   comments: Comment[];
 
   @OneToMany(() => PostTag, (postTag) => postTag.post)
   postTags: PostTag[];
+
+  @OneToMany(() => PostLike, (postLike) => postLike.post)
+  postLikes: PostLike[];
 }
 ```
 
 ---
 
-## 7. Tag / PostTag Entity
+## 7. Tag / PostTag / PostLike Entity
 
 ```ts
 // src/tags/entities/tag.entity.ts
@@ -325,6 +338,35 @@ export class Tag extends BaseModel {
   postTags: PostTag[];
 }
 ```
+
+```ts
+// src/posts/entities/post-like.entity.ts
+import { CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import { User } from '../../users/entities/user.entity';
+import { Post } from './post.entity';
+
+@Entity('post_likes')
+export class PostLike {
+  @PrimaryColumn({ name: 'post_id', type: 'char', length: 26 })
+  postId: string;
+
+  @PrimaryColumn({ name: 'user_id', type: 'char', length: 26 })
+  userId: string;
+
+  @ManyToOne(() => Post, (post) => post.postLikes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'post_id' })
+  post: Post;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+}
+```
+
+`posts.like_count`는 화면 조회 성능을 위한 파생 값이고, 실제 좋아요 여부와 중복 방지의 원본은 `post_likes`다.
 
 ```ts
 // src/posts/entities/post-tag.entity.ts
@@ -659,6 +701,11 @@ export class CreatePgvectorExtension0000000000000 implements MigrationInterface 
 - posts.createdAt
 - posts.authorId
 - posts.videoId
+- posts.comment_count
+- posts.view_count
+- posts.like_count
+- post_likes.postId + userId primary key
+- post_likes.userId
 - comments.postId
 - comments.parentCommentId
 - comments.authorId
@@ -705,12 +752,18 @@ pgvector 검색 인덱스는 데이터가 충분히 쌓인 뒤 HNSW 또는 IVFFl
 - youtubeUrl 변경은 MVP에서 막는 것이 좋다.
 - 목록 조회에서는 content preview만 내려준다.
 - 삭제된 게시글은 목록/상세에서 제외한다.
+- `commentCount`, `viewCount`, `likeCount`는 Arena 내부 게시글 카운터다.
+- 카운터는 원본 데이터 변경과 같은 transaction 안에서 증감한다.
+- 댓글 수는 삭제되지 않은 댓글과 대댓글 수를 의미한다.
+- 좋아요 수는 `post_likes`를 원본으로 한다.
 
 ### Video
 
 - youtubeVideoId는 unique여야 한다.
 - Post마다 Video를 중복 생성하지 않는다.
 - status가 PENDING/FAILED인 경우에도 게시글은 조회 가능해야 한다.
+- `youtubeViewCount`, `youtubeLikeCount`, `youtubeCommentCount`는 YouTube 외부 통계다.
+- Post 내부 `viewCount`, `likeCount`, `commentCount`와 이름과 의미를 섞지 않는다.
 
 ### Comment
 

@@ -171,6 +171,9 @@ POST   /api/v1/posts
 GET    /api/v1/posts/:postId
 PATCH  /api/v1/posts/:postId
 DELETE /api/v1/posts/:postId
+POST   /api/v1/posts/:postId/views
+POST   /api/v1/posts/:postId/like
+DELETE /api/v1/posts/:postId/like
 GET    /api/v1/tags
 GET    /api/v1/videos/:videoId
 ```
@@ -181,6 +184,11 @@ GET    /api/v1/videos/:videoId
 - Video Entity 작성
 - Tag Entity 작성
 - PostTag 관계 작성
+- PostLike 관계 작성
+- 게시글 내부 파생 카운터 작성
+  - commentCount
+  - viewCount
+  - likeCount
 - 게시글 작성 구현
 - 유튜브 URL에서 youtubeVideoId 추출
 - 동일 youtubeVideoId의 Video 재사용
@@ -188,6 +196,8 @@ GET    /api/v1/videos/:videoId
 - 게시글 목록 조회 구현
 - 게시글 상세 조회 구현
 - 게시글 검색/태그 필터 구현
+- 게시글 조회 수 증가 구현
+- 게시글 좋아요 / 좋아요 취소 구현
 - 게시글 수정/삭제 권한 구현
 
 ### 완료 기준
@@ -198,6 +208,9 @@ GET    /api/v1/videos/:videoId
 - 게시글 작성 API는 YouTube API를 기다리지 않는다.
 - 게시글 작성 응답의 video 상태는 PENDING이다.
 - 게시글 작성자만 수정/삭제할 수 있다.
+- 게시글 목록/상세 응답에 commentCount, viewCount, likeCount가 포함된다.
+- 같은 사용자는 같은 게시글을 한 번만 좋아요할 수 있다.
+- 좋아요 취소 시 likeCount가 음수가 되지 않는다.
 
 ### 직접 했다면 접근법
 
@@ -208,6 +221,11 @@ GET    /api/v1/videos/:videoId
 - 게시글 작성 후 youtubeUrl 변경은 MVP에서 막는 것이 좋다.
 - youtubeUrl 변경을 허용하면 Video, TranscriptChunk, RAG 결과를 다시 계산해야 한다.
 - 목록 조회에서 content 전체, 댓글 전체, 자막 전체를 내려주지 않는다.
+- `posts.comment_count`, `posts.view_count`, `posts.like_count`는 Arena 내부 게시글 카운터다.
+- YouTube 영상의 외부 통계는 `videos.youtube_view_count`, `videos.youtube_like_count`, `videos.youtube_comment_count`처럼 별도 이름으로 둔다.
+- 좋아요 수는 `post_likes`를 원본으로 두고, 카운터는 같은 transaction 안에서 증감한다.
+- 조회수는 MVP에서는 별도 이벤트 테이블 없이 `posts.view_count`를 증가시키되, 중복 조회 방지와 봇 필터링은 추후 고도화 대상으로 둔다.
+- 추후 중복 조회수 정책이 필요해지면 로그인 사용자는 `userId`, 비로그인 사용자는 IP/User-Agent hash와 시간 창을 기준으로 제한하고, 필요 시 `post_view_events` 원본 테이블을 도입한다.
 
 ---
 
@@ -237,6 +255,7 @@ DELETE /api/v1/comments/:commentId
 - 댓글 수정 구현
 - 댓글 soft delete 구현
 - 삭제된 댓글 표시 정책 구현
+- 댓글 작성/삭제 시 게시글 commentCount 증감 구현
 
 ### 완료 기준
 
@@ -245,6 +264,7 @@ DELETE /api/v1/comments/:commentId
 - 대댓글의 대댓글은 작성할 수 없다.
 - 댓글 작성자만 수정/삭제할 수 있다.
 - 삭제된 댓글의 대댓글은 유지된다.
+- 삭제되지 않은 댓글과 대댓글 수가 게시글 commentCount에 반영된다.
 
 ### 직접 했다면 접근법
 
@@ -468,17 +488,20 @@ MVP 정책이 실제로 깨지지 않는지 확인한다.
 2. 비회원 게시글 작성 실패
 3. 게시글 작성 시 video status PENDING 반환
 4. 게시글 작성자만 수정/삭제 가능
-5. 댓글 작성 / 대댓글 작성
-6. 대댓글의 대댓글 차단
-7. 댓글 삭제 후 대댓글 유지
-8. 댓글 작성 후 AI 분석 PENDING
-9. AI 분석 실패 시 댓글 유지
-10. FACT_CLAIM 댓글만 RAG 검색
-11. 근거 상세 API 분리 조회
-12. 요약 생성 최소 댓글 수 10개 검증
-13. 비회원 요약 생성 차단
-14. 비회원 기존 요약 조회 허용
-15. 관리자만 AI 분석 재시도 가능
+5. 게시글 조회 수 증가
+6. 게시글 좋아요 중복 방지와 취소
+7. 댓글 작성 / 대댓글 작성
+8. 댓글 작성/삭제에 따른 commentCount 증감
+9. 대댓글의 대댓글 차단
+10. 댓글 삭제 후 대댓글 유지
+11. 댓글 작성 후 AI 분석 PENDING
+12. AI 분석 실패 시 댓글 유지
+13. FACT_CLAIM 댓글만 RAG 검색
+14. 근거 상세 API 분리 조회
+15. 요약 생성 최소 댓글 수 10개 검증
+16. 비회원 요약 생성 차단
+17. 비회원 기존 요약 조회 허용
+18. 관리자만 AI 분석 재시도 가능
 
 ### 직접 했다면 접근법
 

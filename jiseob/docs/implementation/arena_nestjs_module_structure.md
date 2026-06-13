@@ -91,7 +91,8 @@ src/
 │   ├── posts.service.ts
 │   ├── entities/
 │   │   ├── post.entity.ts
-│   │   └── post-tag.entity.ts
+│   │   ├── post-tag.entity.ts
+│   │   └── post-like.entity.ts
 │   └── dto/
 │       ├── create-post.dto.ts
 │       ├── update-post.dto.ts
@@ -293,6 +294,11 @@ DELETE /api/v1/users/me
 - 게시글 삭제
 - 게시글과 Tag 연결
 - 게시글과 Video 연결
+- 게시글 내부 카운터 관리
+  - commentCount
+  - viewCount
+  - likeCount
+- 게시글 좋아요 / 좋아요 취소
 
 ### 의존성
 
@@ -308,6 +314,9 @@ POST   /api/v1/posts
 GET    /api/v1/posts/:postId
 PATCH  /api/v1/posts/:postId
 DELETE /api/v1/posts/:postId
+POST   /api/v1/posts/:postId/views
+POST   /api/v1/posts/:postId/like
+DELETE /api/v1/posts/:postId/like
 ```
 
 ### 게시글 작성 흐름
@@ -327,6 +336,8 @@ DELETE /api/v1/posts/:postId
 ### 주의사항
 
 PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처리는 VideosModule 또는 McpModule로 분리한다.
+
+게시글 카운터는 원본 데이터와 함께 다룬다. 좋아요는 `post_likes`를 원본으로 두고, `posts.like_count`는 같은 transaction 안에서 증감한다. 댓글 수는 CommentsModule에서 댓글 생성/삭제 transaction 안에 `posts.comment_count`를 증감한다.
 
 ---
 
@@ -395,6 +406,7 @@ McpModule은 외부 API 세부 구현을 감싸는 계층이다. PostsService나
 - 댓글 수정
 - 댓글 삭제
 - 댓글 soft delete
+- 게시글 commentCount 증감 요청
 
 ### 의존성
 
@@ -417,9 +429,10 @@ DELETE /api/v1/comments/:commentId
 ```text
 1. postId 확인
 2. 댓글 생성
-3. CommentAnalysis PENDING 생성 요청
-4. AI 분석 비동기 시도
-5. 201 Created 응답
+3. 게시글 commentCount 증가
+4. CommentAnalysis PENDING 생성 요청
+5. AI 분석 비동기 시도
+6. 201 Created 응답
 ```
 
 ### 대댓글 작성 흐름
@@ -429,8 +442,9 @@ DELETE /api/v1/comments/:commentId
 2. parent comment가 최상위 댓글인지 확인
 3. parent comment가 삭제되지 않았는지 확인
 4. parent의 postId를 따라 대댓글 생성
-5. AI 분석 비동기 시도
-6. 201 Created 응답
+5. 게시글 commentCount 증가
+6. AI 분석 비동기 시도
+7. 201 Created 응답
 ```
 
 ### 주의사항
