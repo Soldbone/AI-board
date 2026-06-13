@@ -261,6 +261,8 @@ export class PostsService {
       },
     });
 
+    await this.markAiRecommendationStale(id);
+
     return this.mapPostTagsToTags(updatedPost);
   }
 
@@ -302,6 +304,19 @@ export class PostsService {
     }
 
     return normalizedTagNames;
+  }
+
+  private async markAiRecommendationStale(postId: number) {
+    await this.prismaService.$transaction([
+      this.prismaService.postRagDocument.updateMany({
+        where: { postId },
+        data: { isStale: true },
+      }),
+      this.prismaService.aiRecipeRecommendation.updateMany({
+        where: { postId },
+        data: { status: 'STALE' },
+      }),
+    ]);
   }
 
   private mapPostTagsToTags<

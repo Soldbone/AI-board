@@ -18,12 +18,20 @@ describe('PostsService', () => {
         {
           provide: PrismaService,
           useValue: {
+            $transaction: jest.fn((operations) => Promise.all(operations)),
             post: {
               findMany: jest.fn(),
               findUnique: jest.fn(),
               update: jest.fn(),
               create: jest.fn(),
               delete: jest.fn(),
+              count: jest.fn().mockResolvedValue(0),
+            },
+            postRagDocument: {
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            aiRecipeRecommendation: {
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
             },
           },
         },
@@ -45,6 +53,7 @@ describe('PostsService', () => {
         title: 'Test title',
         createdAt: new Date(),
         author: {
+          id: 1,
           nickname: 'tester',
         },
         postTags: [
@@ -54,20 +63,31 @@ describe('PostsService', () => {
             },
           },
         ],
+        _count: {
+          comments: 2,
+        },
       },
     ];
 
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue(posts);
+    jest.spyOn(prismaService.post, 'count').mockResolvedValue(1);
 
-    await expect(service.findAll(2, 5)).resolves.toEqual([
-      {
-        id: posts[0].id,
-        title: posts[0].title,
-        createdAt: posts[0].createdAt,
-        author: posts[0].author,
-        tags: ['nestjs'],
-      },
-    ]);
+    await expect(service.findAll(2, 5)).resolves.toEqual({
+      items: [
+        {
+          id: posts[0].id,
+          title: posts[0].title,
+          createdAt: posts[0].createdAt,
+          author: posts[0].author,
+          tags: ['nestjs'],
+          commentsCount: 2,
+        },
+      ],
+      total: 1,
+      page: 2,
+      size: 5,
+      totalPages: 1,
+    });
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: undefined,
       skip: 5,
@@ -81,6 +101,7 @@ describe('PostsService', () => {
         createdAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -93,6 +114,11 @@ describe('PostsService', () => {
             },
           },
         },
+        _count: {
+          select: {
+            comments: true,
+          },
+        },
       },
     });
   });
@@ -100,7 +126,13 @@ describe('PostsService', () => {
   it('should use minimum page and size when smaller values are given', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
-    await expect(service.findAll(0, 0)).resolves.toEqual([]);
+    await expect(service.findAll(0, 0)).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      size: 1,
+      totalPages: 0,
+    });
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: undefined,
       skip: 0,
@@ -114,6 +146,7 @@ describe('PostsService', () => {
         createdAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -124,6 +157,11 @@ describe('PostsService', () => {
                 name: true,
               },
             },
+          },
+        },
+        _count: {
+          select: {
+            comments: true,
           },
         },
       },
@@ -133,7 +171,13 @@ describe('PostsService', () => {
   it('should search posts by title', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
-    await expect(service.findAll(1, 10, 'test')).resolves.toEqual([]);
+    await expect(service.findAll(1, 10, 'test')).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      totalPages: 0,
+    });
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: {
         title: {
@@ -152,6 +196,7 @@ describe('PostsService', () => {
         createdAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -162,6 +207,11 @@ describe('PostsService', () => {
                 name: true,
               },
             },
+          },
+        },
+        _count: {
+          select: {
+            comments: true,
           },
         },
       },
@@ -171,9 +221,13 @@ describe('PostsService', () => {
   it('should search posts by tag name', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
-    await expect(service.findAll(1, 10, undefined, 'nestjs')).resolves.toEqual(
-      [],
-    );
+    await expect(service.findAll(1, 10, undefined, 'nestjs')).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      totalPages: 0,
+    });
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: {
         postTags: {
@@ -195,6 +249,7 @@ describe('PostsService', () => {
         createdAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -207,6 +262,11 @@ describe('PostsService', () => {
             },
           },
         },
+        _count: {
+          select: {
+            comments: true,
+          },
+        },
       },
     });
   });
@@ -214,7 +274,13 @@ describe('PostsService', () => {
   it('should search posts by title and tag name together', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
-    await expect(service.findAll(1, 10, 'test', 'nestjs')).resolves.toEqual([]);
+    await expect(service.findAll(1, 10, 'test', 'nestjs')).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      totalPages: 0,
+    });
     expect(prismaService.post.findMany).toHaveBeenCalledWith({
       where: {
         title: {
@@ -240,6 +306,7 @@ describe('PostsService', () => {
         createdAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -250,6 +317,11 @@ describe('PostsService', () => {
                 name: true,
               },
             },
+          },
+        },
+        _count: {
+          select: {
+            comments: true,
           },
         },
       },
@@ -265,6 +337,7 @@ describe('PostsService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       author: {
+        id: 1,
         nickname: 'tester',
       },
       postTags: [
@@ -291,6 +364,7 @@ describe('PostsService', () => {
       updatedAt: post.updatedAt,
       author: post.author,
       tags: ['nestjs'],
+      commentsCount: 0,
     });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -303,6 +377,7 @@ describe('PostsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -333,6 +408,7 @@ describe('PostsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -466,6 +542,7 @@ describe('PostsService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       author: {
+        id: 1,
         nickname: 'tester',
       },
       postTags: [
@@ -492,6 +569,7 @@ describe('PostsService', () => {
       updatedAt: updatedPost.updatedAt,
       author: updatedPost.author,
       tags: ['nestjs'],
+      commentsCount: 0,
     });
     expect(prismaService.post.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -515,6 +593,7 @@ describe('PostsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -545,6 +624,7 @@ describe('PostsService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       author: {
+        id: 1,
         nickname: 'tester',
       },
       postTags: [
@@ -576,6 +656,7 @@ describe('PostsService', () => {
       updatedAt: updatedPost.updatedAt,
       author: updatedPost.author,
       tags: ['prisma', 'postgresql'],
+      commentsCount: 0,
     });
     expect(prismaService.post.update).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -621,6 +702,7 @@ describe('PostsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },

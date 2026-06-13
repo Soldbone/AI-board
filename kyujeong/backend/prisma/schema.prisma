@@ -20,6 +20,7 @@ model User {
 
   posts    Post[]
   comments Comment[]
+  aiRecommendations AiRecipeRecommendation[]
 }
 
 model Post {
@@ -34,6 +35,9 @@ model Post {
   author   User      @relation(fields: [authorId], references: [id])
   comments Comment[]
   postTags PostTag[]
+  ragDocument PostRagDocument?
+  aiRecommendations AiRecipeRecommendation[]
+  aiRecommendationReferences AiRecommendationReference[]
 }
 
 model Comment {
@@ -63,4 +67,57 @@ model PostTag {
   tag  Tag  @relation(fields: [tagId], references: [id])
 
   @@id([postId, tagId])
+}
+
+model PostRagDocument {
+  id             Int      @id @default(autoincrement())
+  postId         Int      @unique
+  documentText   String   @db.Text
+  embedding      Float[]
+  embeddingModel String   @default("local-hash-v1")
+  embeddedAt     DateTime @default(now())
+  isStale        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model AiRecipeRecommendation {
+  id                   Int                    @id @default(autoincrement())
+  postId               Int?
+  requestedById        Int?
+  menuName             String                 @db.VarChar(120)
+  reason               String                 @db.Text
+  availableIngredients String[]
+  missingIngredients   String[]
+  estimatedCookingTime Int?
+  difficulty           String                 @db.VarChar(40)
+  content              String                 @db.Text
+  status               AiRecommendationStatus @default(ACTIVE)
+  createdAt            DateTime               @default(now())
+
+  post       Post?                       @relation(fields: [postId], references: [id], onDelete: SetNull)
+  requestedBy User?                       @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  references AiRecommendationReference[]
+
+  @@index([requestedById, createdAt])
+}
+
+model AiRecommendationReference {
+  id               Int   @id @default(autoincrement())
+  recommendationId Int
+  postId           Int
+  similarity       Float
+  rank             Int
+
+  recommendation AiRecipeRecommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  post           Post                   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([recommendationId, postId])
+}
+
+enum AiRecommendationStatus {
+  ACTIVE
+  STALE
 }

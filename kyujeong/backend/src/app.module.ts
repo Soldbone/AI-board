@@ -6,9 +6,17 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PostsModule } from './posts/posts.module';
 import { CommentsModule } from './comments/comments.module';
+import { AiRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, UsersModule, PostsModule, CommentsModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    UsersModule,
+    PostsModule,
+    CommentsModule,
+    AiRecommendationsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

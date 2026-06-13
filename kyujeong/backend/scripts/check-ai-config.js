@@ -1,0 +1,56 @@
+const { Client } = require('pg');
+require('dotenv').config();
+
+async function main() {
+  const openAiConfigured = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const dailyLimit = Number(process.env.AI_RECOMMENDATION_DAILY_LIMIT ?? 5);
+  const result = {
+    databaseUrlConfigured: Boolean(process.env.DATABASE_URL?.trim()),
+    openAiConfigured,
+    mode: openAiConfigured ? 'OPENAI' : 'FALLBACK',
+    embeddingModel: openAiConfigured
+      ? (process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small')
+      : 'local-hash-v1',
+    chatModel: openAiConfigured
+      ? (process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini')
+      : null,
+    dailyLimit:
+      Number.isFinite(dailyLimit) && dailyLimit > 0 ? dailyLimit : null,
+    pgvectorAvailable: false,
+    pgvectorInstalled: false,
+  };
+
+  if (!result.databaseUrlConfigured) {
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    const available = await client.query(
+      "select name from pg_available_extensions where name = 'vector'",
+    );
+    const installed = await client.query(
+      "select extname from pg_extension where extname = 'vector'",
+    );
+
+    result.pgvectorAvailable = available.rowCount > 0;
+    result.pgvectorInstalled = installed.rowCount > 0;
+  } finally {
+    await client.end();
+  }
+
+  console.log(JSON.stringify(result, null, 2));
+
+  if (!openAiConfigured) {
+    process.exitCode = 2;
+  }
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});

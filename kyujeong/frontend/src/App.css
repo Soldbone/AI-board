@@ -1837,6 +1837,169 @@
   line-height: 1.7;
 }
 
+.ai-status-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-status-panel > div {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe5df;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.ai-status-panel span {
+  color: #66736b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-status-panel strong {
+  color: #17231c;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.direct-ai-panel {
+  display: grid;
+  gap: 18px;
+  border-top: 1px solid #dde7e0;
+  padding-top: 24px;
+}
+
+.direct-ai-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 132px;
+  gap: 12px;
+  align-items: end;
+}
+
+.direct-ai-form label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: #253029;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.direct-ai-form input {
+  width: 100%;
+  height: 46px;
+  box-sizing: border-box;
+  border: 1px solid #d8e0dc;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #fbfcfb;
+  color: #162019;
+  font: inherit;
+}
+
+.direct-ai-form button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 8px;
+  background: #159447;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.direct-ai-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.direct-ai-message {
+  margin: 0;
+  border-radius: 8px;
+  padding: 14px;
+  background: #e3f5e8;
+  color: #107938;
+  font-size: 14px;
+}
+
+.direct-ai-message.error {
+  background: #fff5f5;
+  color: #b42318;
+}
+
+.direct-ai-result {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #dbe5df;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+}
+
+.direct-ai-result > div:first-child {
+  display: grid;
+  gap: 8px;
+}
+
+.direct-ai-result span {
+  color: #13833b;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.direct-ai-result strong {
+  color: #101812;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.direct-ai-result p {
+  margin: 0;
+  color: #526057;
+  line-height: 1.7;
+}
+
+.direct-ai-result dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.direct-ai-result dl div {
+  border: 1px solid #e0e8e3;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fbf9;
+}
+
+.direct-ai-result dt {
+  margin-bottom: 6px;
+  color: #758179;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.direct-ai-result dd {
+  margin: 0;
+  color: #17221c;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.direct-ai-result section {
+  display: grid;
+  gap: 10px;
+}
+
+.direct-ai-result h2 {
+  margin: 0;
+  color: #18231d;
+  font-size: 16px;
+}
+
 .notification-list {
   display: grid;
   gap: 12px;
@@ -2333,6 +2496,63 @@
   line-height: 1.6;
 }
 
+.ai-panel-message {
+  border: 1px solid #f3dfb8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff8ea;
+  color: #8a5a11;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ai-panel-message.error {
+  border-color: #ffd7d7;
+  background: #fff5f5;
+  color: #b42318;
+}
+
+.detail-ai-panel .ai-reference-list,
+.ai-reference-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-reference-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e1e9e5;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdfb;
+}
+
+.ai-reference-list button {
+  overflow: hidden;
+  min-height: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #1f2c24;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-reference-list span {
+  color: #13833b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .detail-ai-panel button {
   min-height: 44px;
   border: 0;
@@ -2342,6 +2562,11 @@
   cursor: pointer;
   font: inherit;
   font-weight: 900;
+}
+
+.detail-ai-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .ai-modal-backdrop {
@@ -2594,6 +2819,17 @@
   color: #17221c;
   font-size: 14px;
   font-weight: 900;
+}
+
+.ai-modal-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-modal-detail h3 {
+  margin: 0;
+  color: #18231d;
+  font-size: 15px;
 }
 
 .recipe-info {
@@ -3464,6 +3700,12 @@
   }
 
   .guide-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-status-panel,
+  .direct-ai-form,
+  .direct-ai-result dl {
     grid-template-columns: 1fr;
   }
 

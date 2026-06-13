@@ -14,6 +14,7 @@ describe('CommentsService', () => {
         {
           provide: PrismaService,
           useValue: {
+            $transaction: jest.fn((operations) => Promise.all(operations)),
             post: {
               findUnique: jest.fn(),
             },
@@ -23,6 +24,12 @@ describe('CommentsService', () => {
               create: jest.fn(),
               update: jest.fn(),
               delete: jest.fn(),
+            },
+            postRagDocument: {
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            aiRecipeRecommendation: {
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
             },
           },
         },
@@ -46,6 +53,7 @@ describe('CommentsService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         author: {
+          id: 2,
           nickname: 'tester',
         },
       },
@@ -74,6 +82,7 @@ describe('CommentsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -100,6 +109,7 @@ describe('CommentsService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       author: {
+        id: 2,
         nickname: 'tester',
       },
     };
@@ -130,6 +140,7 @@ describe('CommentsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -162,6 +173,7 @@ describe('CommentsService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       author: {
+        id: 2,
         nickname: 'tester',
       },
     };
@@ -197,6 +209,7 @@ describe('CommentsService', () => {
         updatedAt: true,
         author: {
           select: {
+            id: true,
             nickname: true,
           },
         },
@@ -259,6 +272,9 @@ describe('CommentsService', () => {
     });
     expect(prismaService.comment.delete).toHaveBeenCalledWith({
       where: { id: 1 },
+      select: {
+        postId: true,
+      },
     });
   });
 

@@ -60,7 +60,7 @@ export class CommentsService {
       throw new NotFoundException('Post not found');
     }
 
-    return this.prismaService.comment.create({
+    const comment = await this.prismaService.comment.create({
       data: {
         content: createCommentDto.content,
         postId,
@@ -80,6 +80,10 @@ export class CommentsService {
         },
       },
     });
+
+    await this.markPostAiRecommendationStale(postId);
+
+    return comment;
   }
 
   async update(
@@ -103,7 +107,7 @@ export class CommentsService {
       throw new ForbiddenException('You can only update your own comment');
     }
 
-    return this.prismaService.comment.update({
+    const updatedComment = await this.prismaService.comment.update({
       where: { id },
       data: {
         content: updateCommentDto.content,
@@ -122,6 +126,10 @@ export class CommentsService {
         },
       },
     });
+
+    await this.markPostAiRecommendationStale(updatedComment.postId);
+
+    return updatedComment;
   }
 
   async remove(id: number, userId: number) {
@@ -141,10 +149,28 @@ export class CommentsService {
       throw new ForbiddenException('You can only delete your own comment');
     }
 
-    await this.prismaService.comment.delete({
+    const deletedComment = await this.prismaService.comment.delete({
       where: { id },
+      select: {
+        postId: true,
+      },
     });
 
+    await this.markPostAiRecommendationStale(deletedComment.postId);
+
     return { id };
+  }
+
+  private async markPostAiRecommendationStale(postId: number) {
+    await this.prismaService.$transaction([
+      this.prismaService.postRagDocument.updateMany({
+        where: { postId },
+        data: { isStale: true },
+      }),
+      this.prismaService.aiRecipeRecommendation.updateMany({
+        where: { postId },
+        data: { status: 'STALE' },
+      }),
+    ]);
   }
 }

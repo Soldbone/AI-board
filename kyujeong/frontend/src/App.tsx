@@ -47,6 +47,39 @@ type CommentItem = {
   }
 }
 
+type AiReferencedPost = {
+  postId: number
+  title: string
+  tags: string[]
+  similarity: number
+  rank: number
+}
+
+type AiRecommendation = {
+  id: number
+  postId: number | null
+  menuName: string
+  reason: string
+  availableIngredients: string[]
+  missingIngredients: string[]
+  estimatedCookingTime: number | null
+  difficulty: string
+  content: string
+  status: 'ACTIVE' | 'STALE'
+  createdAt: string
+  referencedPosts: AiReferencedPost[]
+}
+
+type AiServiceStatus = {
+  mode: 'OPENAI' | 'FALLBACK'
+  openAiConfigured: boolean
+  embeddingModel: string
+  chatModel: string | null
+  dailyLimit: number | null
+  pgvectorAvailable: boolean
+  pgvectorDecision: string
+}
+
 type MyCommentItem = CommentItem & {
   post: {
     id: number
@@ -182,13 +215,46 @@ function updateSavedUser(user: LoginUser) {
   storage.setItem('currentUser', JSON.stringify(user))
 }
 
+async function readJsonResponse<T>(response: Response) {
+  const text = await response.text()
+
+  if (!text.trim()) {
+    return {} as T & { message?: string }
+  }
+
+  try {
+    return JSON.parse(text) as T & { message?: string }
+  } catch {
+    if (!response.ok) {
+      return { message: text } as T & { message?: string }
+    }
+
+    throw new Error('서버 응답을 읽지 못했습니다.')
+  }
+}
+
+function isAiRecommendation(value: unknown): value is AiRecommendation {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const recommendation = value as Partial<AiRecommendation>
+
+  return (
+    typeof recommendation.menuName === 'string' &&
+    typeof recommendation.reason === 'string' &&
+    Array.isArray(recommendation.missingIngredients) &&
+    Array.isArray(recommendation.referencedPosts)
+  )
+}
+
 async function fetchMyPostItems(accessToken: string) {
   const response = await fetch('/api/users/me/posts', {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
   })
-  const data = (await response.json()) as PostListItem[] & { message?: string }
+  const data = await readJsonResponse<PostListItem[]>(response)
 
   if (!response.ok) {
     throw new Error(data.message ?? '내가 작성한 글을 불러오지 못했습니다.')
@@ -203,9 +269,7 @@ async function fetchMyCommentItems(accessToken: string) {
       Authorization: `Bearer ${accessToken}`,
     },
   })
-  const data = (await response.json()) as MyCommentItem[] & {
-    message?: string
-  }
+  const data = await readJsonResponse<MyCommentItem[]>(response)
 
   if (!response.ok) {
     throw new Error(data.message ?? '내가 작성한 댓글을 불러오지 못했습니다.')
@@ -229,6 +293,8 @@ function getFriendlyErrorMessage(message: string, fallback: string) {
     'Tags can be up to 5': '태그는 최대 5개까지 입력할 수 있습니다.',
     'Tag name can be up to 20 characters':
       '태그 이름은 최대 20자까지 입력할 수 있습니다.',
+    'AI recommendation daily limit exceeded':
+      '오늘 사용할 수 있는 AI 추천 횟수를 모두 사용했습니다.',
   }
 
   return messages[message] ?? message ?? fallback
@@ -385,6 +451,21 @@ function App() {
     'closed' | 'running' | 'result'
   >('closed')
   const [aiProgress, setAiProgress] = useState(0)
+  const [aiRecommendation, setAiRecommendation] =
+    useState<AiRecommendation | null>(null)
+  const [aiRecommendationErrorMessage, setAiRecommendationErrorMessage] =
+    useState('')
+  const [isAiRecommendationLoading, setIsAiRecommendationLoading] =
+    useState(false)
+  const [directAiIngredientInput, setDirectAiIngredientInput] = useState('')
+  const [directAiConditionInput, setDirectAiConditionInput] = useState('')
+  const [directAiRecommendation, setDirectAiRecommendation] =
+    useState<AiRecommendation | null>(null)
+  const [directAiErrorMessage, setDirectAiErrorMessage] = useState('')
+  const [isDirectAiSubmitting, setIsDirectAiSubmitting] = useState(false)
+  const [aiServiceStatus, setAiServiceStatus] =
+    useState<AiServiceStatus | null>(null)
+  const [aiStatusErrorMessage, setAiStatusErrorMessage] = useState('')
 
   const popularTagItems = useMemo(() => {
     const tagCounts = new Map<string, number>()
@@ -456,9 +537,7 @@ function App() {
         const response = await fetch(`/api/posts?${params.toString()}`, {
           signal: controller.signal,
         })
-        const data = (await response.json()) as PostListResponse & {
-          message?: string
-        }
+        const data = await readJsonResponse<PostListResponse>(response)
 
         if (!response.ok) {
           throw new Error(data.message ?? '게시글 목록을 불러오지 못했습니다.')
@@ -509,9 +588,7 @@ function App() {
         const response = await fetch('/api/posts?page=1&size=100', {
           signal: controller.signal,
         })
-        const data = (await response.json()) as PostListResponse & {
-          message?: string
-        }
+        const data = await readJsonResponse<PostListResponse>(response)
 
         if (!response.ok) {
           throw new Error(data.message ?? '태그 목록을 불러오지 못했습니다.')
@@ -565,18 +642,54 @@ function App() {
     }
 
     const progressTimer = window.setInterval(() => {
-      setAiProgress((currentProgress) => Math.min(currentProgress + 16, 96))
+      setAiProgress((currentProgress) => Math.min(currentProgress + 8, 92))
     }, 260)
-    const resultTimer = window.setTimeout(() => {
-      setAiProgress(100)
-      setAiModalState('result')
-    }, 1500)
 
     return () => {
       window.clearInterval(progressTimer)
-      window.clearTimeout(resultTimer)
     }
   }, [aiModalState])
+
+  useEffect(() => {
+    if (currentView !== 'aiGuide') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    async function loadAiStatus() {
+      setAiStatusErrorMessage('')
+
+      try {
+        const response = await fetch('/api/agent/status', {
+          signal: controller.signal,
+        })
+        const data = await readJsonResponse<AiServiceStatus>(response)
+
+        if (!response.ok) {
+          throw new Error(data.message ?? 'AI 상태를 불러오지 못했습니다.')
+        }
+
+        setAiServiceStatus(data)
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setAiStatusErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'AI 상태를 불러오지 못했습니다.',
+        )
+      }
+    }
+
+    loadAiStatus()
+
+    return () => {
+      controller.abort()
+    }
+  }, [currentView])
 
   function handleSearchKeywordChange(value: string) {
     setSearchKeyword(value)
@@ -622,14 +735,21 @@ function App() {
     setEditingCommentContent('')
     setPostDeleteErrorMessage('')
     setComments([])
+    setAiRecommendation(null)
+    setAiRecommendationErrorMessage('')
 
     try {
-      const [postResponse, commentsResponse] = await Promise.all([
-        fetch(`/api/posts/${postId}`),
-        fetch(`/api/posts/${postId}/comments`),
-      ])
-      const postData = await postResponse.json()
-      const commentsData = await commentsResponse.json()
+      const [postResponse, commentsResponse, aiRecommendationResponse] =
+        await Promise.all([
+          fetch(`/api/posts/${postId}`),
+          fetch(`/api/posts/${postId}/comments`),
+          fetch(`/api/agent/posts/${postId}/recommendation`),
+        ])
+      const postData = await readJsonResponse<PostDetailItem>(postResponse)
+      const commentsData =
+        await readJsonResponse<CommentItem[]>(commentsResponse)
+      const aiRecommendationData =
+        await readJsonResponse<AiRecommendation>(aiRecommendationResponse)
 
       if (!postResponse.ok) {
         throw new Error(postData.message ?? '게시글을 불러오지 못했습니다.')
@@ -643,6 +763,10 @@ function App() {
         setCommentErrorMessage(
           commentsData.message ?? '댓글을 불러오지 못했습니다.',
         )
+      }
+
+      if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
+        setAiRecommendation(aiRecommendationData)
       }
     } catch (error) {
       setDetailErrorMessage(
@@ -665,6 +789,10 @@ function App() {
     setEditingCommentId(null)
     setEditingCommentContent('')
     setPostDeleteErrorMessage('')
+    setAiRecommendation(null)
+    setAiRecommendationErrorMessage('')
+    setAiModalState('closed')
+    setAiProgress(0)
   }
 
   async function handleCreateComment(event: React.FormEvent<HTMLFormElement>) {
@@ -699,7 +827,7 @@ function App() {
         },
         body: JSON.stringify({ content }),
       })
-      const data = await response.json()
+      const data = await readJsonResponse<CommentItem>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '댓글을 등록하지 못했습니다.')
@@ -748,7 +876,7 @@ function App() {
           Authorization: `Bearer ${accessToken}`,
         },
       })
-      const data = await response.json()
+      const data = await readJsonResponse<{ message?: string }>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '댓글을 삭제하지 못했습니다.')
@@ -819,7 +947,7 @@ function App() {
         },
         body: JSON.stringify({ content }),
       })
-      const data = await response.json()
+      const data = await readJsonResponse<CommentItem>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '댓글을 수정하지 못했습니다.')
@@ -865,7 +993,7 @@ function App() {
           password: loginPassword,
         }),
       })
-      const data = (await response.json()) as LoginResponse & { message?: string }
+      const data = await readJsonResponse<LoginResponse>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '로그인에 실패했습니다.')
@@ -919,7 +1047,7 @@ function App() {
           nickname: signupNickname,
         }),
       })
-      const data = (await response.json()) as { message?: string }
+      const data = await readJsonResponse<{ message?: string }>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '회원가입에 실패했습니다.')
@@ -998,7 +1126,7 @@ function App() {
           Authorization: `Bearer ${accessToken}`,
         },
       })
-      const data = (await response.json()) as LoginUser & { message?: string }
+      const data = await readJsonResponse<LoginUser>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '내 정보를 불러오지 못했습니다.')
@@ -1162,7 +1290,7 @@ function App() {
           Authorization: `Bearer ${accessToken}`,
         },
       })
-      const data = await response.json()
+      const data = await readJsonResponse<{ message?: string }>(response)
 
       if (!response.ok) {
         throw new Error(data.message ?? '게시글을 삭제하지 못했습니다.')
@@ -1203,9 +1331,130 @@ function App() {
     setCurrentView('write')
   }
 
-  function openAiRecommendationModal() {
+  async function openAiRecommendationModal() {
+    if (!selectedPost || isAiRecommendationLoading) {
+      return
+    }
+
+    if (!accessToken) {
+      setAiRecommendationErrorMessage('로그인 후 AI 추천을 실행할 수 있습니다.')
+      setLoginErrorMessage('로그인 후 AI 추천을 실행할 수 있습니다.')
+      setCurrentView('login')
+      return
+    }
+
     setAiProgress(8)
     setAiModalState('running')
+    setIsAiRecommendationLoading(true)
+    setAiRecommendationErrorMessage('')
+
+    try {
+      const response = await fetch(
+        `/api/agent/posts/${selectedPost.id}/recommendation`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      )
+      const data = await readJsonResponse<AiRecommendation>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'AI 추천을 생성하지 못했습니다.')
+      }
+
+      if (!isAiRecommendation(data)) {
+        throw new Error('AI 추천 결과를 읽지 못했습니다.')
+      }
+
+      setAiRecommendation(data)
+      setAiProgress(100)
+      setAiModalState('result')
+      setPostListReloadKey((currentKey) => currentKey + 1)
+    } catch (error) {
+      if (handleExpiredSession(error)) {
+        setAiModalState('closed')
+        return
+      }
+
+      setAiRecommendationErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'AI 추천을 생성하지 못했습니다.',
+          'AI 추천을 생성하지 못했습니다.',
+        ),
+      )
+      setAiModalState('closed')
+    } finally {
+      setIsAiRecommendationLoading(false)
+    }
+  }
+
+  async function handleDirectAiRecommendation(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault()
+
+    if (!accessToken) {
+      setLoginErrorMessage('로그인 후 AI 추천을 실행할 수 있습니다.')
+      setCurrentView('login')
+      return
+    }
+
+    const ingredients = directAiIngredientInput
+      .split(',')
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean)
+
+    if (ingredients.length === 0) {
+      setDirectAiErrorMessage('재료를 하나 이상 입력해주세요.')
+      return
+    }
+
+    setIsDirectAiSubmitting(true)
+    setDirectAiErrorMessage('')
+
+    try {
+      const response = await fetch('/api/agent/recommendation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          ingredients,
+          conditions: directAiConditionInput.trim(),
+        }),
+      })
+      const data = await readJsonResponse<AiRecommendation>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'AI 추천을 생성하지 못했습니다.')
+      }
+
+      if (!isAiRecommendation(data)) {
+        throw new Error('AI 추천 결과를 읽지 못했습니다.')
+      }
+
+      setDirectAiRecommendation(data)
+    } catch (error) {
+      if (handleExpiredSession(error)) {
+        return
+      }
+
+      setDirectAiErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'AI 추천을 생성하지 못했습니다.',
+          'AI 추천을 생성하지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsDirectAiSubmitting(false)
+    }
   }
 
   function closeAiRecommendationModal() {
@@ -1277,7 +1526,7 @@ function App() {
           }),
         },
       )
-      const data = await response.json()
+      const data = await readJsonResponse<PostDetailItem>(response)
 
       if (!response.ok) {
         throw new Error(
@@ -2009,13 +2258,126 @@ function App() {
               </article>
             </div>
 
-            <button
-              className="write-button"
-              type="button"
-              onClick={openAiRecommendationModal}
-            >
-              AI 추천 실행
-            </button>
+            <section className="ai-status-panel" aria-label="AI 추천 상태">
+              {aiStatusErrorMessage ? (
+                <p className="direct-ai-message error">{aiStatusErrorMessage}</p>
+              ) : (
+                <>
+                  <div>
+                    <span>동작 모드</span>
+                    <strong>
+                      {aiServiceStatus?.openAiConfigured
+                        ? 'OpenAI 추천 모드'
+                        : '기본 추천 모드'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>일일 제한</span>
+                    <strong>
+                      {aiServiceStatus?.dailyLimit
+                        ? `하루 ${aiServiceStatus.dailyLimit}회`
+                        : '제한 없음'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>검색 방식</span>
+                    <strong>
+                      {aiServiceStatus?.pgvectorAvailable
+                        ? 'pgvector'
+                        : '게시글 기반 fallback'}
+                    </strong>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="direct-ai-panel" aria-label="직접 재료 입력 AI 추천">
+              <form className="direct-ai-form" onSubmit={handleDirectAiRecommendation}>
+                <label>
+                  재료
+                  <input
+                    type="text"
+                    placeholder="예: 계란, 김치, 양파"
+                    value={directAiIngredientInput}
+                    onChange={(event) =>
+                      setDirectAiIngredientInput(event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  조건
+                  <input
+                    type="text"
+                    placeholder="예: 10분 안에, 저녁으로, 매운맛 적게"
+                    value={directAiConditionInput}
+                    onChange={(event) =>
+                      setDirectAiConditionInput(event.target.value)
+                    }
+                  />
+                </label>
+                <button type="submit" disabled={isDirectAiSubmitting}>
+                  {isDirectAiSubmitting ? '추천 생성 중' : 'AI 추천 실행'}
+                </button>
+              </form>
+
+              {directAiErrorMessage ? (
+                <p className="direct-ai-message error">{directAiErrorMessage}</p>
+              ) : null}
+
+              {directAiRecommendation ? (
+                <div className="direct-ai-result">
+                  <div>
+                    <span>추천 메뉴</span>
+                    <strong>{directAiRecommendation.menuName}</strong>
+                    <p>{directAiRecommendation.reason}</p>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>조리 시간</dt>
+                      <dd>
+                        {directAiRecommendation.estimatedCookingTime
+                          ? `${directAiRecommendation.estimatedCookingTime}분`
+                          : '상황에 따라 조정'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>난이도</dt>
+                      <dd>{directAiRecommendation.difficulty}</dd>
+                    </div>
+                    <div>
+                      <dt>부족 재료</dt>
+                      <dd>
+                        {directAiRecommendation.missingIngredients.length > 0
+                          ? directAiRecommendation.missingIngredients.join(', ')
+                          : '없음'}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p>{directAiRecommendation.content}</p>
+                  {directAiRecommendation.referencedPosts.length > 0 ? (
+                    <section>
+                      <h2>AI가 참고한 게시글</h2>
+                      <ul className="ai-reference-list">
+                        {directAiRecommendation.referencedPosts.map((post) => (
+                          <li key={post.postId}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCurrentView('board')
+                                loadPostDetail(post.postId)
+                              }}
+                            >
+                              {post.title}
+                            </button>
+                            <span>{Math.round(post.similarity * 100)}%</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
           </section>
         ) : currentView === 'notifications' ? (
           <section className="utility-view" aria-label="알림">
@@ -2463,31 +2825,71 @@ function App() {
                     <span aria-hidden="true">AI</span>
                     <strong>AI 추천 결과</strong>
                   </div>
-                  <h2>
-                    {(selectedPost.tags ?? [])[0]
-                      ? `${(selectedPost.tags ?? [])[0]} 활용 레시피`
-                      : '냉장고 재료 활용 레시피'}
-                  </h2>
+                  <h2>{aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}</h2>
                   <div className="detail-ai-visual" aria-hidden="true">
                     <span />
                   </div>
-                  <section>
-                    <h3>추천 이유</h3>
-                    <ul>
-                      <li>게시글의 재료와 상황을 기준으로 어울려요.</li>
-                      <li>짧은 조리 시간 안에 만들기 좋은 구성이에요.</li>
-                      <li>댓글로 추천 결과를 공유하기 쉬워요.</li>
-                    </ul>
-                  </section>
-                  <section>
-                    <h3>부족한 재료</h3>
-                    <p>선택 재료는 추천 실행 단계에서 확인할 예정입니다.</p>
-                  </section>
+                  {aiRecommendation?.status === 'STALE' ? (
+                    <p className="ai-panel-message">
+                      게시글이나 댓글이 바뀌어 다시 추천을 실행할 수 있습니다.
+                    </p>
+                  ) : null}
+                  {aiRecommendation ? (
+                    <>
+                      <section>
+                        <h3>추천 이유</h3>
+                        <p>{aiRecommendation.reason}</p>
+                      </section>
+                      <section>
+                        <h3>부족한 재료</h3>
+                        <p>
+                          {aiRecommendation.missingIngredients.length > 0
+                            ? aiRecommendation.missingIngredients.join(', ')
+                            : '추가로 필요한 재료가 거의 없습니다.'}
+                        </p>
+                      </section>
+                      <section>
+                        <h3>AI가 참고한 게시글</h3>
+                        {aiRecommendation.referencedPosts.length > 0 ? (
+                          <ul className="ai-reference-list">
+                            {aiRecommendation.referencedPosts.map((post) => (
+                              <li key={post.postId}>
+                                <button
+                                  type="button"
+                                  onClick={() => loadPostDetail(post.postId)}
+                                >
+                                  {post.title}
+                                </button>
+                                <span>{Math.round(post.similarity * 100)}%</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>참고한 게시글이 아직 없습니다.</p>
+                        )}
+                      </section>
+                    </>
+                  ) : (
+                    <section>
+                      <h3>추천 없음</h3>
+                      <p>이 글과 비슷한 게시글을 찾아 레시피 추천을 만들 수 있습니다.</p>
+                    </section>
+                  )}
+                  {aiRecommendationErrorMessage ? (
+                    <p className="ai-panel-message error">
+                      {aiRecommendationErrorMessage}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     onClick={openAiRecommendationModal}
+                    disabled={isAiRecommendationLoading}
                   >
-                    AI 추천 실행
+                    {isAiRecommendationLoading
+                      ? 'AI 추천 생성 중'
+                      : aiRecommendation
+                        ? 'AI 추천 다시 실행'
+                        : 'AI 추천 실행'}
                   </button>
                 </aside>
               </div>
@@ -2876,10 +3278,12 @@ function App() {
                     <span />
                   </div>
                   <div>
-                    <strong>계란김치볶음밥</strong>
+                    <strong>
+                      {aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}
+                    </strong>
                     <p>
-                      김치의 매콤함과 계란의 고소함이 잘 어울리고, 짧은
-                      시간에 만들기 좋아요.
+                      {aiRecommendation?.reason ??
+                        '게시글의 재료와 상황을 기준으로 만들기 쉬운 메뉴를 추천합니다.'}
                     </p>
                   </div>
                 </div>
@@ -2887,24 +3291,60 @@ function App() {
                 <dl className="ai-result-facts">
                   <div>
                     <dt>조리 시간</dt>
-                    <dd>10분 이내</dd>
+                    <dd>
+                      {aiRecommendation?.estimatedCookingTime
+                        ? `${aiRecommendation.estimatedCookingTime}분`
+                        : '상황에 따라 조정'}
+                    </dd>
                   </div>
                   <div>
                     <dt>난이도</dt>
-                    <dd>쉬움</dd>
+                    <dd>{aiRecommendation?.difficulty ?? '쉬움'}</dd>
                   </div>
                   <div>
                     <dt>부족 재료</dt>
-                    <dd>없음</dd>
+                    <dd>
+                      {aiRecommendation?.missingIngredients.length
+                        ? aiRecommendation.missingIngredients.join(', ')
+                        : '없음'}
+                    </dd>
                   </div>
                 </dl>
+
+                {aiRecommendation ? (
+                  <section className="ai-modal-detail">
+                    <h3>추천 내용</h3>
+                    <p>{aiRecommendation.content}</p>
+                    <h3>AI가 참고한 게시글</h3>
+                    {aiRecommendation.referencedPosts.length > 0 ? (
+                      <ul className="ai-reference-list">
+                        {aiRecommendation.referencedPosts.map((post) => (
+                          <li key={post.postId}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                closeAiRecommendationModal()
+                                loadPostDetail(post.postId)
+                              }}
+                            >
+                              {post.title}
+                            </button>
+                            <span>{Math.round(post.similarity * 100)}%</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>참고한 게시글이 아직 없습니다.</p>
+                    )}
+                  </section>
+                ) : null}
 
                 <button
                   className="ai-primary-button"
                   type="button"
                   onClick={closeAiRecommendationModal}
                 >
-                  댓글로 추천 결과 보기
+                  상세에서 추천 결과 보기
                 </button>
                 <button
                   className="ai-secondary-button"
