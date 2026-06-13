@@ -14,13 +14,21 @@
   position: sticky;
   z-index: 30;
   top: 0;
-  padding: 14px 0 12px;
-  border-bottom: 1px solid rgba(205, 214, 226, 0.9);
-  background: rgba(246, 247, 249, 0.96);
-  backdrop-filter: blur(14px);
+  padding: 14px 0 0;
+  border-bottom: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.site-header-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
 }
 
 .header-nav,
+.header-actions,
 .protected-actions {
   display: flex;
   flex-wrap: wrap;
@@ -29,7 +37,19 @@
 }
 
 .header-nav {
+  gap: 10px;
+  align-items: flex-end;
   justify-content: flex-start;
+}
+
+.header-actions {
+  justify-content: flex-end;
+}
+
+.header-user {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .nav-link {
@@ -54,8 +74,58 @@
   color: #ffffff;
 }
 
+.nav-link-index {
+  min-width: 104px;
+  min-height: 50px;
+  padding: 0 20px;
+  border: 1px solid #38d2d2;
+  border-radius: 10px 10px 0 0;
+  background: rgba(255, 255, 255, 0.94);
+  color: #16464a;
+  font-size: 16px;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.nav-link-index:hover,
+.nav-link-index:focus-visible,
+.nav-link-index.active {
+  border-color: #25bfc0;
+  background: #38d2d2;
+  color: #083536;
+}
+
+.nav-link-accent,
+.nav-link-accent.active {
+  border-color: #38d2d2;
+  background: #38d2d2;
+  color: #083536;
+}
+
+.nav-link-accent:hover,
+.nav-link-accent:focus-visible {
+  border-color: #25bfc0;
+  background: #25bfc0;
+  color: #062f31;
+}
+
+.nav-link-index.nav-link-accent,
+.nav-link-index.nav-link-accent.active {
+  border-color: #38d2d2;
+  background: #38d2d2;
+  color: #083536;
+}
+
+.nav-link-index.nav-link-accent:hover,
+.nav-link-index.nav-link-accent:focus-visible {
+  border-color: #25bfc0;
+  background: #25bfc0;
+  color: #062f31;
+}
+
 .layout-main {
-  margin-top: 24px;
+  margin-top: 0;
 }
 
 .auth-route {
@@ -219,11 +289,17 @@
     padding: 0 16px 28px;
   }
 
-  .nav-link {
+  .site-header-inner {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-link,
+  .header-actions .ui-button {
     width: 100%;
   }
 
   .header-nav,
+  .header-actions,
   .protected-actions,
   .modal-actions {
     align-items: stretch;

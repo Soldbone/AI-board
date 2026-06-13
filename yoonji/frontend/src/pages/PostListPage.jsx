@@ -97,11 +97,6 @@ function PostListPage({
     };
   }, [tagQuery]);
 
-  function handleBoardChange(event) {
-    setBoardCode(event.target.value);
-    setPage(1);
-  }
-
   function handleSortChange(event) {
     setSort(event.target.value);
     setPage(1);
@@ -269,9 +264,6 @@ function PostListPage({
         )}
         {tagErrorMessage && (
           <p className="form-message error">{tagErrorMessage}</p>
-        )}
-        {appliedSearchQuery && (
-          <p className="empty-text">검색어: {appliedSearchQuery}</p>
         )}
         {tagFilter && <p className="empty-text">선택한 태그: {tagFilter}</p>}
 

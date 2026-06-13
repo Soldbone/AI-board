@@ -27,7 +27,7 @@ import SignupPage from "../pages/SignupPage";
 function AppRouter({ auth }) {
   return (
     <BrowserRouter>
-      <Layout>
+      <Layout auth={auth}>
         <Routes>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/boards" element={<PostListRoute auth={auth} />} />

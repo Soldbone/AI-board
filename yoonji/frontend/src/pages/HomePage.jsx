@@ -44,8 +44,8 @@ function HomePage({ onOpenBoard, onOpenPost }) {
   }, []);
 
   return (
-    <div className="page-stack">
-      <section className="page-section" aria-labelledby="boards-title">
+    <div className="page-stack home-stack">
+      <section className="page-section home-board-section" aria-labelledby="boards-title">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Boards</p>
@@ -75,7 +75,7 @@ function HomePage({ onOpenBoard, onOpenPost }) {
         </div>
       </section>
 
-      <section className="page-section" aria-labelledby="latest-title">
+      <section className="page-section home-latest-section" aria-labelledby="latest-title">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Latest</p>
