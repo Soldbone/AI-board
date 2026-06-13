@@ -2102,3 +2102,405 @@ cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
 ```
 
 빌드가 통과하면 React Router import, JSX 문법, 컴포넌트 export/import 문제가 없다는 뜻이다.
+
+# Phase 11. MVP 테스트와 정리
+
+Phase 11의 목표는 새로운 기능을 크게 추가하는 것이 아니라, 지금까지 만든 AI 없는 게시판 MVP가 실제 사용자 흐름으로 안정적으로 동작하는지 확인하는 것이다.
+
+이번 phase에서는 두 가지를 했다.
+
+```text
+1. 게시판 내부 검색이 실제로 동작하도록 GET /posts에 q 파라미터를 연결했다.
+2. MVP 주요 시나리오를 한 번에 검증하는 API 스모크 테스트 스크립트를 추가했다.
+```
+
+## 1. 수정 파일
+
+백엔드 검색 연결:
+
+```text
+backend/app/api/routes/posts.py
+backend/app/services/post_service.py
+backend/app/repositories/post_repository.py
+```
+
+테스트 스크립트:
+
+```text
+scripts/mvp_phase11_check.py
+```
+
+문서:
+
+```text
+docs/implementation-guide2.md
+```
+
+## 2. 왜 GET /posts에 q를 추가했는가
+
+Phase 10에서 프론트 게시판 화면은 각 게시판 안에 검색창을 두도록 정리했다. 화면에서는 이미 다음처럼 API에 검색어를 넘기고 있었다.
+
+```javascript
+usePostList({
+  boardCode,
+  q: appliedSearchQuery,
+  tag: tagFilter,
+  sort,
+  page,
+  size: PAGE_SIZE,
+});
+```
+
+하지만 백엔드의 `GET /api/v1/posts` 라우터는 `q`를 받지 않고 있었다. FastAPI는 라우터 함수에 선언되지 않은 query parameter를 자동으로 서비스에 넘기지 않는다. 그래서 사용자가 게시판 안에서 검색해도 백엔드에서는 검색어를 모르는 상태였다.
+
+이번에 라우터에 `q`를 추가했다.
+
+```python
+@router.get("", response_model=PostListResponse)
+def list_posts(
+    db: DbSession,
+    board_code: BoardCode | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=100),
+    tag: str | None = Query(default=None, max_length=100),
+    sort: Literal["latest", "relevance", "views", "satisfaction", "comments"] = Query(
+        default="latest"
+    ),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=50),
+) -> PostListResponse:
+    return post_service.list_posts(...)
+```
+
+FastAPI에서 중요한 점은 함수 인자가 곧 API 계약이라는 점이다.
+
+```text
+q: str | None = Query(default=None, max_length=100)
+```
+
+이 한 줄은 다음 의미를 가진다.
+
+```text
+- query string으로 q를 받을 수 있다.
+- q는 없어도 된다.
+- q가 있으면 문자열이어야 한다.
+- 최대 100자까지만 허용한다.
+```
+
+즉 `GET /api/v1/posts?board_code=REVIEW&q=미쿠` 같은 요청이 라우터에서 정상적으로 해석된다.
+
+## 3. service 계층에서 한 일
+
+수정 파일:
+
+```text
+backend/app/services/post_service.py
+```
+
+service에서는 사용자가 보낸 검색어를 바로 repository에 넘기지 않고, 먼저 정리한다.
+
+```python
+cleaned_q = _clean_optional_text(q)
+normalized_q = normalize_tag_name(cleaned_q) if cleaned_q else None
+```
+
+`cleaned_q`는 앞뒤 공백을 제거한 검색어다.
+
+```text
+"  미쿠  " -> "미쿠"
+"   " -> None
+```
+
+`normalized_q`는 태그 검색까지 같이 하기 위한 정규화 값이다. 예를 들어 사용자가 태그 이름 일부를 검색할 때 `Tag.name`뿐 아니라 `Tag.normalized_name`도 함께 볼 수 있다.
+
+service 계층에서 이런 정리를 하는 이유는 라우터와 repository를 단순하게 유지하기 위해서다.
+
+```text
+router: HTTP 요청을 받는다.
+service: 입력값을 업무 규칙에 맞게 정리하고 흐름을 조정한다.
+repository: DB query를 만든다.
+```
+
+이 분리가 잘 되어 있으면, 나중에 검색 규칙이 바뀌어도 라우터 코드를 크게 흔들지 않아도 된다.
+
+## 4. repository 계층에서 한 일
+
+수정 파일:
+
+```text
+backend/app/repositories/post_repository.py
+```
+
+기존 검색 API인 `GET /search/posts`에는 이미 제목, 본문, 피규어명, 제조사, 태그를 검색하는 조건이 있었다. 그래서 새 검색 로직을 또 만들지 않고 기존 `_search_post_filters()`를 재사용했다.
+
+```python
+filters.extend(
+    _search_post_filters(
+        q=q,
+        normalized_q=normalized_q,
+        figure_name=None,
+        manufacturer=None,
+        price_range=None,
+    )
+)
+```
+
+이 코드는 공개 게시글 목록의 기본 조건에 검색 조건을 추가한다.
+
+기본 조건:
+
+```text
+- PUBLISHED 상태
+- deleted_at이 없음
+- 활성 게시판
+- board_code가 있으면 해당 게시판만
+- tag가 있으면 해당 태그가 연결된 글만
+```
+
+검색 조건:
+
+```text
+- 제목에 q 포함
+- 본문에 q 포함
+- 후기 피규어명에 q 포함
+- 제조사명에 q 포함
+- 태그명 또는 정규화 태그명에 q 포함
+```
+
+SQLAlchemy 관점에서 중요한 부분은 `Post.figure_infos.any(...)`와 `Post.tag_links.any(...)`다.
+
+```python
+Post.figure_infos.any(...)
+Post.tag_links.any(...)
+```
+
+이 표현은 관계 테이블을 직접 문자열 SQL로 조립하지 않고, SQLAlchemy relationship을 통해 “연결된 row 중 조건을 만족하는 것이 있는가?”를 표현한다. 학습할 때는 이 지점을 눈여겨보면 좋다. ORM을 쓰는 이유는 테이블 관계를 Python 객체 관계처럼 읽게 만들기 위해서다.
+
+정렬도 검색어가 있을 때 `relevance`를 사용할 수 있게 했다.
+
+```python
+.order_by(*_post_order_by(sort, q=q, normalized_q=normalized_q))
+```
+
+`relevance` 정렬은 AI 의미 검색이 아니다. MVP 범위에서는 PostgreSQL 기본 조건과 SQLAlchemy `case()`를 이용해 제목, 본문, 피규어 정보, 태그가 맞는 글을 조금 더 위로 올리는 정도다.
+
+## 5. Phase 11 스모크 테스트 스크립트
+
+추가 파일:
+
+```text
+scripts/mvp_phase11_check.py
+```
+
+이 스크립트는 `pytest` 같은 테스트 프레임워크를 새로 도입하지 않고, `httpx`로 실제 FastAPI 서버를 호출한다.
+
+실행 전제:
+
+```text
+- PostgreSQL이 실행 중이어야 한다.
+- 기본 게시판 seed가 되어 있어야 한다.
+- FastAPI 백엔드 서버가 실행 중이어야 한다.
+```
+
+실행 명령:
+
+```powershell
+cd C:\Users\yoonj\jungle\AI-board\yoonji
+python scripts\mvp_phase11_check.py
+```
+
+API 주소를 바꾸고 싶을 때:
+
+```powershell
+$env:MVP_API_BASE_URL = "http://127.0.0.1:8000/api/v1"
+python scripts\mvp_phase11_check.py
+```
+
+스크립트는 매번 고유한 회원 아이디와 게시글 제목을 만든다.
+
+```python
+marker = uuid.uuid4().hex[:8]
+login_id = f"phase11_{marker}_{suffix}"
+```
+
+이렇게 하면 같은 스크립트를 여러 번 실행해도 이전 실행에서 만든 회원과 충돌하지 않는다.
+
+## 6. 스크립트가 확인하는 시나리오
+
+`docs/testing/test-scenarios.md`와 AGENTS.md의 Phase 11 우선 검증 항목을 기준으로 확인한다.
+
+```text
+BOARD-01 비회원 게시글 목록/상세 조회
+BOARD-02 회원가입/로그인
+BOARD-04 후기 게시글 작성
+BOARD-05 필수값 검증
+BOARD-09 게시글 수정
+BOARD-11 게시글 삭제
+BOARD-12 댓글 CRUD
+BOARD-14 태그 탐색
+BOARD-15 검색
+BOARD-16 페이징/정렬
+BOARD-18 인증 보호
+```
+
+테스트 흐름은 사용자 행동 순서에 가깝게 만들었다.
+
+```text
+1. health check
+2. 게시판 목록 확인
+3. 비회원 글쓰기 차단 확인
+4. 회원가입/로그인
+5. /users/me 확인
+6. 이미지 업로드
+7. 후기 필수값 검증
+8. 후기 게시글 작성
+9. 게시글 목록/상세 조회
+10. 게시판 내부 검색, 태그 검색, 전체 검색 확인
+11. 페이징/정렬 확인
+12. 댓글 작성/목록/수정/삭제
+13. 다른 사용자의 게시글/댓글 수정 차단
+14. 마이페이지의 내 게시글/내 댓글 확인
+15. 게시글 삭제와 삭제 후 상세 404 확인
+```
+
+여기서 핵심은 테스트가 DB에 직접 insert하지 않는다는 점이다.
+
+```python
+client.post("/auth/signup", json=signup_payload)
+client.post("/posts", json=payload, headers=auth_headers(actor))
+client.get("/posts", params={"board_code": "REVIEW", "q": marker})
+```
+
+이 방식은 조금 느리지만 MVP 검증에는 더 적합하다. 실제 사용자가 호출하는 API와 같은 경로를 지나기 때문이다.
+
+## 7. FastAPI 학습 포인트
+
+FastAPI에서는 라우터 함수의 인자가 API 문서와 검증 규칙이 된다.
+
+```python
+page: int = Query(default=1, ge=1)
+size: int = Query(default=20, ge=1, le=50)
+```
+
+이 코드는 다음 요청을 자동으로 막아 준다.
+
+```text
+GET /posts?page=0
+GET /posts?size=999
+```
+
+인증이 필요한 API는 `CurrentUser` dependency를 함수 인자로 받는다.
+
+```python
+def create_post(
+    payload: PostCreateRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> PostCreateResponse:
+```
+
+그래서 access token이 없으면 service 코드에 도달하기 전에 `AUTHENTICATION_REQUIRED`가 발생한다. 테스트 스크립트가 비회원 글쓰기, 비회원 댓글 작성, 비회원 이미지 업로드를 확인하는 이유가 여기에 있다.
+
+## 8. SQLAlchemy / PostgreSQL 학습 포인트
+
+게시글 목록은 단순히 `select(Post)`만 하지 않는다. 게시판, 작성자, 이미지, 태그, 후기 피규어 정보가 함께 필요하다.
+
+```python
+.options(
+    joinedload(Post.board),
+    joinedload(Post.author),
+    selectinload(Post.figure_infos),
+    selectinload(Post.images),
+    selectinload(Post.tag_links).joinedload(PostTag.tag),
+)
+```
+
+`joinedload`는 보통 1:1 또는 N:1 관계에 어울린다.
+
+```text
+Post -> Board
+Post -> User(author)
+```
+
+`selectinload`는 1:N 관계를 따로 모아서 가져올 때 좋다.
+
+```text
+Post -> Images
+Post -> FigureInfos
+Post -> TagLinks
+```
+
+이 차이를 이해하면 N+1 query 문제를 줄이는 방법을 배울 수 있다.
+
+검색은 MVP 범위이므로 pgvector나 AI 의미 검색을 쓰지 않는다. 대신 PostgreSQL에서 기본적으로 가능한 `LIKE` 계열 검색을 SQLAlchemy의 `ilike()`로 표현한다.
+
+```python
+Post.title.ilike(pattern)
+Post.content.ilike(pattern)
+```
+
+이 정도만으로도 MVP 게시판의 제목/본문/태그/피규어명 검색을 학습하기에는 충분하다.
+
+## 9. React 학습 포인트
+
+프론트에서는 검색창이 있는 화면과 API 호출 함수를 분리해 두었다.
+
+```text
+frontend/src/pages/PostListPage.jsx
+frontend/src/api/postApi.js
+frontend/src/hooks/usePosts.js
+```
+
+페이지 컴포넌트는 화면 상태를 가진다.
+
+```javascript
+const [searchQuery, setSearchQuery] = useState("");
+const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
+```
+
+API 함수는 HTTP 호출만 담당한다.
+
+```javascript
+export async function getPosts(params = {}) {
+  const response = await axiosInstance.get("/posts", { params });
+  return response.data;
+}
+```
+
+hook은 화면 상태와 API 상태 사이를 연결한다.
+
+```javascript
+const posts = usePostList({
+  boardCode,
+  q: appliedSearchQuery,
+  sort,
+  page,
+  size: PAGE_SIZE,
+});
+```
+
+이번 백엔드 수정은 이 React 흐름을 완성한 것이다. 화면에서 `q`를 보내고, FastAPI가 `q`를 받고, service가 값을 정리하고, repository가 SQLAlchemy query에 검색 조건을 추가한다.
+
+## 10. 직접 검증할 명령
+
+문법 확인:
+
+```powershell
+$env:PYTHONPYCACHEPREFIX = "$env:TEMP\yoonji-pycache"
+C:\Users\yoonj\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m compileall backend\app scripts
+```
+
+프론트 빌드 확인:
+
+```powershell
+cd frontend
+cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
+```
+
+백엔드가 실행 중일 때 MVP 스모크 테스트:
+
+```powershell
+cd C:\Users\yoonj\jungle\AI-board\yoonji
+python scripts\mvp_phase11_check.py
+```
+
+이 스크립트가 통과하면 AI 기능 없이도 회원가입, 로그인, 게시글 작성, 이미지 연결, 댓글, 태그, 검색, 페이지네이션, 마이페이지, 권한 보호가 기본 게시판 서비스로 연결되어 있다는 뜻이다.

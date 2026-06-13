@@ -23,13 +23,20 @@ def list_public_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    q: str | None,
+    normalized_q: str | None,
     normalized_tag: str | None,
     sort: PostSort,
     page: int,
     size: int,
 ) -> list[Post]:
     statement = (
-        _public_posts_statement(board_code=board_code, normalized_tag=normalized_tag)
+        _public_posts_statement(
+            board_code=board_code,
+            q=q,
+            normalized_q=normalized_q,
+            normalized_tag=normalized_tag,
+        )
         .options(
             joinedload(Post.board),
             joinedload(Post.author),
@@ -37,7 +44,7 @@ def list_public_posts(
             selectinload(Post.images),
             selectinload(Post.tag_links).joinedload(PostTag.tag),
         )
-        .order_by(*_post_order_by(sort))
+        .order_by(*_post_order_by(sort, q=q, normalized_q=normalized_q))
         .offset((page - 1) * size)
         .limit(size)
     )
@@ -52,12 +59,19 @@ def count_public_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    q: str | None,
+    normalized_q: str | None,
     normalized_tag: str | None,
 ) -> int:
     statement = select(func.count(Post.id.distinct())).select_from(Post).join(Post.board)
 
     statement = statement.where(
-        *_public_post_filters(board_code=board_code, normalized_tag=normalized_tag)
+        *_public_post_filters(
+            board_code=board_code,
+            q=q,
+            normalized_q=normalized_q,
+            normalized_tag=normalized_tag,
+        )
     )
 
     return int(db.scalar(statement) or 0)
@@ -134,7 +148,12 @@ def list_public_posts_by_author(
     size: int,
 ) -> list[Post]:
     statement = (
-        _public_posts_statement(board_code=None, normalized_tag=None)
+        _public_posts_statement(
+            board_code=None,
+            q=None,
+            normalized_q=None,
+            normalized_tag=None,
+        )
         .options(
             joinedload(Post.board),
             joinedload(Post.author),
@@ -156,7 +175,12 @@ def count_public_posts_by_author(db: Session, *, author_id: int) -> int:
         .select_from(Post)
         .join(Post.board)
         .where(
-            *_public_post_filters(board_code=None, normalized_tag=None),
+            *_public_post_filters(
+                board_code=None,
+                q=None,
+                normalized_q=None,
+                normalized_tag=None,
+            ),
             Post.author_id == author_id,
         )
     )
@@ -165,7 +189,12 @@ def count_public_posts_by_author(db: Session, *, author_id: int) -> int:
 
 def get_public_post_by_id(db: Session, post_id: int) -> Post | None:
     statement = (
-        _public_posts_statement(board_code=None, normalized_tag=None)
+        _public_posts_statement(
+            board_code=None,
+            q=None,
+            normalized_q=None,
+            normalized_tag=None,
+        )
         .options(
             joinedload(Post.board),
             joinedload(Post.author),
@@ -272,7 +301,12 @@ def _search_posts_statement(
     price_range: PriceRange | None,
 ) -> Select[tuple[Post]]:
     return select(Post).join(Post.board).where(
-        *_public_post_filters(board_code=board_code, normalized_tag=normalized_tag),
+        *_public_post_filters(
+            board_code=board_code,
+            q=None,
+            normalized_q=None,
+            normalized_tag=normalized_tag,
+        ),
         *_search_post_filters(
             q=q,
             normalized_q=normalized_q,
@@ -286,18 +320,27 @@ def _search_posts_statement(
 def _public_posts_statement(
     *,
     board_code: BoardCode | None,
+    q: str | None,
+    normalized_q: str | None,
     normalized_tag: str | None,
 ) -> Select[tuple[Post]]:
     statement = select(Post).join(Post.board)
 
     return statement.where(
-        *_public_post_filters(board_code=board_code, normalized_tag=normalized_tag),
+        *_public_post_filters(
+            board_code=board_code,
+            q=q,
+            normalized_q=normalized_q,
+            normalized_tag=normalized_tag,
+        ),
     )
 
 
 def _public_post_filters(
     *,
     board_code: BoardCode | None,
+    q: str | None,
+    normalized_q: str | None,
     normalized_tag: str | None,
 ) -> list[object]:
     filters: list[object] = [
@@ -320,6 +363,16 @@ def _public_post_filters(
                 )
             )
         )
+
+    filters.extend(
+        _search_post_filters(
+            q=q,
+            normalized_q=normalized_q,
+            figure_name=None,
+            manufacturer=None,
+            price_range=None,
+        )
+    )
 
     return filters
 

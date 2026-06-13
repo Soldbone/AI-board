@@ -46,11 +46,14 @@ def list_posts(
     db: Session,
     *,
     board_code: BoardCode | None,
+    q: str | None,
     tag: str | None,
     sort: PostSort,
     page: int,
     size: int,
 ) -> PostListResponse:
+    cleaned_q = _clean_optional_text(q)
+    normalized_q = normalize_tag_name(cleaned_q) if cleaned_q else None
     normalized_tag = normalize_tag_name(tag) if tag else None
     if normalized_tag == "":
         normalized_tag = None
@@ -58,11 +61,15 @@ def list_posts(
     total = post_repository.count_public_posts(
         db,
         board_code=board_code,
+        q=cleaned_q,
+        normalized_q=normalized_q,
         normalized_tag=normalized_tag,
     )
     posts = post_repository.list_public_posts(
         db,
         board_code=board_code,
+        q=cleaned_q,
+        normalized_q=normalized_q,
         normalized_tag=normalized_tag,
         sort=sort,
         page=page,
@@ -91,6 +98,14 @@ def build_post_list_response(
         total=total,
         has_next=page * size < total,
     )
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    stripped = value.strip()
+    return stripped or None
 
 
 def get_post(db: Session, *, post_id: int) -> PostDetailResponse:

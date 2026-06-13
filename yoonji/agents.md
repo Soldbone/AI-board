@@ -36,7 +36,6 @@ MVP에 포함하지 않는다.
 - 유사 게시글 AI 추천
 - 입문자 정보글 AI 초안
 - MCP 기반 링크 미리보기
-- 자동 외부 링크 탐색
 - pgvector 기반 의미 검색
 - LangChain / LangGraph 실제 연결
 
@@ -69,7 +68,7 @@ AI 관련 폴더와 파일은 구조상 존재해도 된다. 하지만 MVP 구�
 - 게시글 작성 API의 `link_preview_ids`
 - 사용자가 직접 호출하는 `POST /link-previews`
 
-외부 링크 미리보기는 이후 AI/MCP 단계에서 자동 탐색으로만 연결한다.
+현재 게시글 작성 흐름에는 외부 링크 미리보기 기능을 연결하지 않는다.
 
 ## 2. MVP 구현 Phase
 
@@ -167,7 +166,6 @@ MVP에서 만들지 않는 모델:
 - `content_chunk.py`
 - `ai_output.py`
 - `ai_output_source.py`
-- `external_link_preview.py`
 - `report.py`
 
 위 모델들은 파일은 존재해도 MVP phase에서는 구현하지 않는다. AI 또는 운영자 확장 단계에서 구현한다.
@@ -588,6 +586,353 @@ MVP 검색은 PostgreSQL 기본 검색과 `LIKE` 또는 full-text search 수준�
 MVP 완료 후 아래 순서로 AI 기능을 붙인다.  
 AI 구현은 항상 기존 사용자 작성 콘텐츠와 분리해서 저장한다.
 
+## AI Phase 0. AI 구현에서 모두 필수적으로 지켜야 할 사항
+
+이번 Phase에서는 프로젝트에 **LangChain 기반 RAG(Retrieval-Augmented Generation)** 기능을 구현한다.
+
+단순히 동작하는 코드를 작성하는 것이 아니라, 코드 구조와 개념을 학습할 수 있도록 **가장 정석적이고 유지보수하기 좋은 방식**으로 구현한다. 구현이 끝난 뒤에는 `docs/rag-study.md`에 이번 Phase에서 수정한 파일, 추가한 코드의 의미, RAG 전체 흐름, LangChain 구성 요소의 역할을 자세히 정리한다.
+
+---
+
+### 구현 요구사항
+
+#### 1. RAG 전체 흐름 구현
+
+다음 흐름을 기준으로 RAG 기능을 구현한다.
+
+```
+게시글 데이터
+→ LangChain Document 변환
+→ Text Splitter로 chunk 분리
+→ Embedding 생성
+→ Vector DB 저장
+→ 사용자 질문 입력
+→ Retriever로 관련 문서 검색
+→ 검색된 context를 LLM prompt에 삽입
+→ 답변 생성
+```
+
+이번 Phase에서는 우선 게시글 데이터를 기반으로 한 **AI Q&A 기능**을 구현한다.
+
+사용자는 질문을 입력할 수 있고, 백엔드는 기존 게시글 중 질문과 관련 있는 문서를 검색한 뒤, 검색된 내용을 참고하여 답변을 생성한다.
+
+---
+
+#### 2. LangChain을 사용한 정석 구조 적용
+
+LangChain을 사용할 때 다음 구성 요소를 명확히 분리해서 구현한다.
+
+- `Document`
+  - DB 게시글 데이터를 LangChain이 처리할 수 있는 문서 형태로 변환한다.
+- `TextSplitter`
+  - 긴 게시글을 적절한 chunk 단위로 나눈다.
+  - `RecursiveCharacterTextSplitter`를 우선 사용한다.
+- `Embeddings`
+  - 텍스트를 벡터로 변환한다.
+  - 환경변수 기반으로 OpenAI Embedding 모델을 사용할 수 있게 구성한다.
+- `Vector Store`
+  - 임베딩된 문서를 저장한다.
+  - MVP에서는 로컬 개발이 쉬운 ChromaDB를 우선 사용한다.
+  - 추후 pgvector로 교체 가능하도록 서비스 레이어를 분리한다.
+- `Retriever`
+  - 사용자 질문과 유사한 게시글 chunk를 검색한다.
+- `Prompt`
+  - 검색된 context와 사용자 질문을 함께 LLM에 전달한다.
+- `LLM`
+  - 검색된 게시글 내용을 기반으로 답변을 생성한다.
+
+---
+
+#### 3. FastAPI 구조에 맞게 구현
+
+기존 프로젝트 구조를 유지하면서 다음 역할이 분리되도록 구현한다.
+
+예상 구조는 다음과 같다.
+
+```
+backend/
+  app/
+    api/
+      routes/
+        ai.py
+    services/
+      rag_service.py
+    schemas/
+      rag.py
+    core/
+      config.py
+  docs/
+    rag-study.md
+```
+
+각 파일의 역할은 다음과 같다.
+
+```
+api/routes/ai.py
+- React에서 들어오는 AI Q&A 요청을 받는 API route
+- request schema를 검증하고 service를 호출한다.
+
+services/rag_service.py
+- LangChain RAG 핵심 로직을 담당한다.
+- 문서 변환, 임베딩, Vector DB 저장, 검색, 답변 생성을 처리한다.
+
+schemas/rag.py
+- RAG 관련 request/response schema를 정의한다.
+
+core/config.py
+- OpenAI API key, embedding model, chat model, vector DB 경로 등의 설정을 관리한다.
+
+docs/rag-study.md
+- 이번 Phase에서 구현한 RAG 개념과 코드 설명을 자세히 기록한다.
+```
+
+기존 프로젝트 구조가 다르면, 현재 구조에 맞게 가장 자연스러운 위치에 배치하되, 왜 그렇게 배치했는지 `docs/rag-study.md`에 설명한다.
+
+---
+
+#### 4. API 구현
+
+다음 API를 구현한다.
+
+```
+POST /api/v1/ai/qna
+```
+
+요청 예시:
+
+```
+{
+  "question": "넨도로이드 보관할 때 햇빛 조심해야 해?"
+}
+```
+
+응답 예시:
+
+```
+{
+  "question": "넨도로이드 보관할 때 햇빛 조심해야 해?",
+  "answer": "커뮤니티 게시글을 기준으로 보면, PVC 피규어는 직사광선에 오래 노출될 경우 변색될 수 있으므로 햇빛을 피해서 보관하는 것이 좋습니다.",
+  "sources": [
+    {
+      "post_id": 1,
+      "title": "피규어 변색 방지 방법",
+      "content_preview": "PVC 피규어는 직사광선에 오래 노출되면 변색될 수 있습니다..."
+    }
+  ]
+}
+```
+
+답변에는 반드시 참고한 게시글 정보를 함께 반환한다.
+
+---
+
+#### 5. 게시글 인덱싱 기능 구현
+
+RAG 검색을 위해 게시글 데이터를 Vector DB에 저장하는 기능을 구현한다.
+
+우선 다음 중 현재 프로젝트 상황에 맞는 방식으로 구현한다.
+
+1. 개발용 초기 인덱싱 함수
+  - 기존 DB의 게시글을 읽어서 ChromaDB에 저장한다.
+2. 게시글 생성 시 자동 인덱싱
+  - 게시글 작성 API가 성공하면 해당 게시글을 Vector DB에도 추가한다.
+
+가능하다면 두 방식을 모두 고려하되, 이번 Phase에서는 MVP 기준으로 가장 안정적인 방식을 먼저 구현한다.
+
+구현 시 중복 저장 문제가 생기지 않도록 `post_id`를 metadata에 포함한다.
+
+---
+
+#### 6. 환경변수 처리
+
+OpenAI API Key나 모델명은 코드에 직접 하드코딩하지 않는다.
+
+`.env` 또는 기존 설정 방식을 사용한다.
+
+예상 환경변수:
+
+```
+OPENAI_API_KEY=
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_CHAT_MODEL=gpt-4o-mini
+CHROMA_PERSIST_DIR=./chroma_db
+```
+
+기존 프로젝트에서 이미 설정 관리 방식이 있다면 그 방식을 따른다.
+
+---
+
+#### 7. 예외 처리
+
+다음 상황에 대한 예외 처리를 포함한다.
+
+- 질문이 비어 있는 경우
+- Vector DB에 문서가 없는 경우
+- 관련 게시글을 찾지 못한 경우
+- OpenAI API 호출 실패
+- ChromaDB 초기화 실패
+- 예상하지 못한 LangChain 오류
+
+관련 게시글이 없을 때는 무리하게 답변을 지어내지 말고, 다음과 같은 응답을 반환한다.
+
+```
+{
+  "question": "...",
+  "answer": "관련 게시글을 찾지 못해 답변을 생성할 수 없습니다.",
+  "sources": []
+}
+```
+
+---
+
+#### 8. 코드 스타일
+
+코드는 다음 기준을 따른다.
+
+- 함수와 클래스 이름은 역할이 명확하게 드러나도록 작성한다.
+- RAG 흐름이 처음 보는 사람도 이해할 수 있게 적절한 주석을 작성한다.
+- 너무 긴 함수 하나에 모든 로직을 몰아넣지 않는다.
+- route, service, schema, config의 역할을 분리한다.
+- 테스트하거나 실행해보기 쉬운 작은 함수 단위로 나눈다.
+- 기존 프로젝트의 네이밍 컨벤션과 디렉토리 구조를 최대한 유지한다.
+
+---
+
+### 문서 작성 요구사항
+
+구현 완료 후 `docs/rag-study.md`에 다음 내용을 반드시 작성한다.
+
+#### 1. 이번 Phase에서 구현한 기능 요약
+
+- 어떤 기능을 추가했는지
+- 사용자가 어떤 흐름으로 기능을 사용하는지
+- FastAPI, LangChain, Vector DB, LLM이 각각 어떤 역할을 하는지
+
+#### 2. RAG 개념 설명
+
+초보자가 이해할 수 있도록 다음 개념을 자세히 설명한다.
+
+- RAG가 무엇인지
+- 왜 그냥 LLM에게 질문하는 것과 다른지
+- Retrieval과 Generation이 각각 무엇인지
+- Vector DB가 왜 필요한지
+- Embedding이 무엇인지
+- Retriever가 하는 일이 무엇인지
+- Prompt에 context를 넣는 이유가 무엇인지
+
+#### 3. LangChain 구성 요소 설명
+
+이번 코드에서 사용한 LangChain 구성 요소를 하나씩 설명한다.
+
+- `Document`
+- `RecursiveCharacterTextSplitter`
+- `OpenAIEmbeddings`
+- `Chroma`
+- `Retriever`
+- `ChatPromptTemplate`
+- `ChatOpenAI`
+- chain 구성 방식
+
+각 구성 요소에 대해 다음 형식으로 설명한다.
+
+```
+개념:
+- 이게 무엇인지
+
+우리 코드에서의 역할:
+- 어떤 파일의 어떤 코드에서 사용했는지
+
+왜 필요한지:
+- RAG 흐름에서 이 요소가 없으면 어떤 문제가 생기는지
+```
+
+#### 4. 수정한 파일별 설명
+
+이번 Phase에서 수정하거나 추가한 파일을 모두 나열하고, 각 파일에 대해 자세히 설명한다.
+
+예시:
+
+```
+app/services/rag_service.py
+- RAG 핵심 로직을 담당한다.
+- 게시글을 Document로 변환한다.
+- Vector DB에 저장한다.
+- 사용자 질문과 관련된 게시글을 검색한다.
+- 검색된 context를 기반으로 LLM 답변을 생성한다.
+```
+
+각 파일 설명에는 “왜 이 파일에 이 코드가 들어가는지”도 포함한다.
+
+#### 5. 핵심 코드 설명
+
+중요한 코드 블록을 발췌해서 설명한다.
+
+특히 다음 코드는 반드시 설명한다.
+
+- 게시글을 `Document`로 변환하는 코드
+- `TextSplitter`로 chunk를 나누는 코드
+- embedding 모델을 생성하는 코드
+- ChromaDB에 저장하는 코드
+- retriever로 관련 문서를 검색하는 코드
+- prompt에 context와 question을 넣는 코드
+- LLM이 답변을 생성하는 코드
+- API route에서 service를 호출하는 코드
+
+각 코드 설명은 단순히 “이 코드는 무엇을 한다”가 아니라, “왜 이 단계가 RAG에서 필요한가”까지 설명한다.
+
+#### 6. 실행 방법
+
+개발자가 직접 테스트할 수 있도록 실행 방법을 적는다.
+
+포함할 내용:
+
+- 필요한 패키지 설치 명령어
+- 필요한 환경변수
+- 서버 실행 방법
+- 게시글 인덱싱 방법
+- API 테스트 예시
+- 예상 응답 예시
+
+#### 7. 한계와 다음 개선 방향
+
+이번 구현의 한계와 추후 개선 방향을 작성한다.
+
+예시:
+
+- 운영 환경에서는 pgvector 또는 관리형 Vector DB를 고려할 수 있다.
+- 현재는 게시글 기반 Q&A만 지원한다.
+- 추후 유사 게시글 추천, 중복 질문 방지, URL 기반 외부 문서 RAG로 확장할 수 있다.
+- 현재는 단순 top-k 검색을 사용한다.
+- 추후 reranker, metadata filter, hybrid search 등을 추가할 수 있다.
+
+---
+
+### 구현 완료 조건
+
+- 사용자의 질문에 대해 관련 게시글을 검색할 수 있다.
+- 검색된 게시글 context를 기반으로 LLM 답변을 생성한다.
+- 응답에 참고한 게시글 source 정보가 포함된다.
+- 관련 게시글이 없을 때 적절한 fallback 응답을 반환한다.
+- OpenAI API Key와 모델명은 환경변수로 관리된다.
+- RAG 관련 핵심 로직이 service 계층에 분리되어 있다.
+- `docs/rag-study.md`에 구현 내용과 개념 설명이 자세히 정리되어 있다.
+
+---
+
+### 중요한 작성 방식
+
+이번 Phase의 코드는 단순히 빠르게 동작하게 만드는 것보다, 사용자가 코드를 읽으면서 RAG와 LangChain을 학습할 수 있도록 작성하는 것이 중요하다.
+
+따라서 다음 원칙을 지킨다.
+
+- 구현하면서 너무 축약된 코드를 피한다.
+- 초보자가 읽어도 흐름을 따라갈 수 있도록 변수명을 명확히 쓴다.
+- LangChain의 각 단계가 코드에서 잘 드러나도록 작성한다.
+- 복잡한 추상화보다 이해 가능한 정석 구조를 우선한다.
+- 필요한 곳에는 주석을 달되, 주석이 코드와 중복되지 않도록 “왜 필요한지”를 설명한다.
+- 문서에서는 친절하고 자세하게 설명한다.
+- 구현 후 코드와 문서가 서로 맞는지 확인한다.
+
 ## AI Phase 1. AI용 DB 모델 구현
 
 목표: RAG와 AI 결과 저장을 위한 테이블을 추가한다.
@@ -767,45 +1112,7 @@ AI 구현은 항상 기존 사용자 작성 콘텐츠와 분리해서 저장한�
 - 장점/단점 구조화
 - 구매 판단 보조 정보와 단정적 추천의 차이
 
-## AI Phase 7. 자동 외부 링크 탐색 구현
 
-목표: 사용자가 URL을 입력하지 않아도 AI/MCP가 관련 사이트를 찾아 링크 미리보기를 생성한다.
-
-구현 파일:
-
-- `backend/app/models/external_link_preview.py`
-- `backend/app/schemas/external_link_schema.py`
-- `backend/app/repositories/external_link_repository.py`
-- `backend/app/services/link_preview_service.py`
-- `backend/app/services/external_link_service.py`
-- `backend/app/ai/usecases/auto_link_discovery.py`
-- `backend/app/mcp/mcp_client.py`
-- `backend/app/mcp/tools/fetch_link_preview.py`
-- `backend/app/mcp/tools/fetch_shopping_metadata.py`
-- `backend/app/api/routes/external_links.py`
-- `backend/app/api/routes/internal.py`
-- `frontend/src/api/externalLinkApi.js`
-- `frontend/src/components/external/LinkPreviewCard.jsx`
-
-구현 API:
-
-- `POST /api/v1/internal/posts/{post_id}/link-discovery`
-- `GET /api/v1/posts/{post_id}/link-previews`
-- `GET /api/v1/link-previews/{preview_id}`
-- `POST /api/v1/link-previews/{preview_id}/refresh`
-
-정책:
-
-- 사용자는 URL을 직접 입력하지 않는다.
-- AI/MCP가 신뢰 가능한 사이트를 찾은 경우에만 링크 미리보기를 생성한다.
-- 찾지 못하면 빈 목록을 반환하고 화면에서 링크 영역을 숨긴다.
-- `ExternalLinkPreview.post_id`는 nullable이다.
-
-공부 포인트:
-
-- 내부 작업 API와 사용자 API의 차이
-- MCP 서버와 백엔드의 역할 분리
-- 실패해도 게시글 작성은 성공해야 하는 이유
 
 ## AI Phase 8. MCP 서버 구현
 

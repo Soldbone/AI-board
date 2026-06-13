@@ -89,7 +89,6 @@ TagType = CHARACTER | WORK | MANUFACTURER | TOPIC | PRICE | GENERAL
 TagStatus = ACTIVE | MERGED | BLOCKED | DELETED
 
 ImageStatus = TEMP | ATTACHED | DELETED | FAILED
-LinkFetchStatus = PENDING | SUCCESS | FAILED | UNSUPPORTED | STALE
 
 AiOutputType =
   QNA_ANSWER
@@ -188,27 +187,7 @@ API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬
 }
 ```
 
-### 2.7 ExternalLinkPreview
-
-```json
-{
-  "id": 30,
-  "post_id": null,
-  "url": "https://example.com/item/1",
-  "canonical_url": "https://example.com/item/1",
-  "domain": "example.com",
-  "title": "예약 판매 페이지",
-  "summary": "예약 판매 일정과 가격 정보가 포함된 페이지입니다.",
-  "thumbnail_url": "https://example.com/thumb.jpg",
-  "provider": "example",
-  "fetch_status": "SUCCESS",
-  "fetched_at": "2026-06-09T10:00:00+09:00"
-}
-```
-
-`post_id`는 nullable이다. 게시글 작성 전 자동 링크 탐색 또는 임시 미리보기 단계에서 먼저 생성될 수 있으며, 게시글에 최종 연결되면 해당 게시글 ID가 저장된다.
-
-### 2.8 AiOutputSource
+### 2.7 AiOutputSource
 
 ```json
 {
@@ -222,7 +201,7 @@ API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬
 }
 ```
 
-### 2.9 AiOutput
+### 2.8 AiOutput
 
 ```json
 {
@@ -574,10 +553,6 @@ Response `201 Created`:
     {
       "type": "INDEX_POST",
       "status": "REQUESTED"
-    },
-    {
-      "type": "AUTO_LINK_DISCOVERY",
-      "status": "REQUESTED"
     }
   ],
   "created_at": "2026-06-09T10:00:00+09:00"
@@ -605,7 +580,7 @@ Query:
 
 | 이름 | 타입 | 설명 |
 | --- | --- | --- |
-| `include` | string | `comments,ai_outputs,similar_posts,link_previews` |
+| `include` | string | `comments,ai_outputs,similar_posts` |
 
 Response `200 OK`:
 
@@ -643,7 +618,6 @@ Response `200 OK`:
   },
   "tags": [],
   "images": [],
-  "link_previews": [],
   "ai_outputs": [],
   "similar_posts": [],
   "published_at": "2026-06-09T10:00:00+09:00",
@@ -680,7 +654,7 @@ Request:
 
 Response: 게시글 상세 응답
 
-수정 후에는 기존 RAG 청크를 `STALE` 처리하고 재인덱싱 작업을 큐에 넣는다. 제목, 본문, 후기 글의 피규어 정보가 바뀐 경우 AI/MCP 자동 링크 탐색 작업도 다시 요청할 수 있다.
+수정 후에는 기존 RAG 청크를 `STALE` 처리하고 재인덱싱 작업을 큐에 넣는다.
 
 ### 6.5 게시글 삭제
 
@@ -881,96 +855,11 @@ Response: 게시글 목록 응답
 
 MVP에서는 PostgreSQL 텍스트 검색과 태그 매칭을 우선 사용한다. 이후 `sort=relevance`일 때 pgvector 기반 의미 검색을 확장한다.
 
-## 11. 자동 외부 링크 미리보기 API
-
-사용자는 게시글 작성 화면에서 URL을 별도 입력하지 않는다. 외부 링크 미리보기는 서버가 게시글의 제목, 본문, 태그와 후기 글의 피규어 정보를 기반으로 AI/MCP 자동 탐색을 수행해 찾은 경우에만 게시글에 연결한다.
-
-`ExternalLinkPreview.post_id`는 nullable이다. 자동 탐색 결과가 게시글 작성 전 단계에서 먼저 만들어지는 경우에는 `post_id=null`로 저장하고, 게시글 등록 완료 후 연결한다.
-
-### 11.1 자동 링크 탐색 작업 요청
-
-`POST /api/v1/internal/posts/{post_id}/link-discovery`
-
-권한: 내부 서비스 또는 운영자
-
-```json
-{
-  "force": false
-}
-```
-
-Response `202 Accepted`:
-
-```json
-{
-  "post_id": 10,
-  "status": "REQUESTED"
-}
-```
-
-자동 탐색 작업은 다음 흐름으로 처리한다.
-
-1. 게시글의 `title`, `content`, `tags`와 후기 글의 `figure_info`를 검색 문맥으로 만든다.
-2. AI/MCP가 공식 사이트, 판매처, 제조사 공지, 관련 정보 페이지 후보를 찾는다.
-3. 신뢰 가능한 URL을 찾은 경우에만 `ExternalLinkPreview`를 생성해 `post_id`에 연결한다.
-4. 적절한 링크를 찾지 못하면 아무 링크도 연결하지 않는다.
-
-### 11.2 게시글 링크 미리보기 목록 조회
-
-`GET /api/v1/posts/{post_id}/link-previews`
-
-권한: 비회원
-
-Response `200 OK`:
-
-```json
-{
-  "items": [
-    {
-      "id": 30,
-      "post_id": 10,
-      "url": "https://example.com/item/1",
-      "canonical_url": "https://example.com/item/1",
-      "domain": "example.com",
-      "title": "예약 판매 페이지",
-      "summary": "예약 판매 일정과 가격 정보가 포함된 페이지입니다.",
-      "thumbnail_url": "https://example.com/thumb.jpg",
-      "provider": "example",
-      "fetch_status": "SUCCESS",
-      "fetched_at": "2026-06-09T10:00:00+09:00"
-    }
-  ]
-}
-```
-
-### 11.3 링크 미리보기 조회
-
-`GET /api/v1/link-previews/{preview_id}`
-
-권한: 비회원
-
-Response `200 OK`: ExternalLinkPreview
-
-### 11.4 링크 미리보기 재수집
-
-`POST /api/v1/link-previews/{preview_id}/refresh`
-
-권한: 내부 서비스 또는 운영자
-
-Response `202 Accepted`:
-
-```json
-{
-  "id": 30,
-  "fetch_status": "PENDING"
-}
-```
-
-## 12. AI API
+## 11. AI API
 
 AI API는 실제 결과 생성이 오래 걸릴 수 있으므로 `202 Accepted`로 `AiOutput`을 먼저 만들고, 클라이언트가 `GET /ai/outputs/{id}`로 상태를 폴링하는 방식을 기본으로 한다.
 
-### 12.1 RAG Q&A 요청
+### 11.1 RAG Q&A 요청
 
 `POST /api/v1/ai/qna`
 
@@ -999,7 +888,7 @@ Response `202 Accepted`:
 }
 ```
 
-### 12.2 AI 결과 조회
+### 11.2 AI 결과 조회
 
 `GET /api/v1/ai/outputs/{ai_output_id}`
 
@@ -1037,7 +926,7 @@ Response `200 OK`:
 }
 ```
 
-### 12.3 게시글 기반 유사 게시글 추천
+### 11.3 게시글 기반 유사 게시글 추천
 
 `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
 
@@ -1066,7 +955,7 @@ Response `200 OK`:
 
 MVP에서는 이 결과를 저장하지 않고 실시간 검색 결과로 반환한다.
 
-### 12.4 질문 게시글 참고 답변 생성
+### 11.4 질문 게시글 참고 답변 생성
 
 `POST /api/v1/posts/{post_id}/ai/reference-answer`
 
@@ -1090,7 +979,7 @@ Response `202 Accepted`: AiOutput
 - `target_post_id`: 질문 게시글 ID
 - 화면에서는 일반 댓글이 아니라 AI 참고 답변 영역에 표시한다.
 
-### 12.5 구매 고민 요약 생성
+### 11.5 구매 고민 요약 생성
 
 `POST /api/v1/posts/{post_id}/ai/purchase-summary`
 
@@ -1117,7 +1006,7 @@ Response `202 Accepted`: AiOutput
 - 자주 언급된 장점과 단점
 - 근거 게시글 링크
 
-### 12.6 입문자용 정보글 초안 생성
+### 11.6 입문자용 정보글 초안 생성
 
 `POST /api/v1/ai/beginner-info-drafts`
 
@@ -1141,7 +1030,7 @@ Response `202 Accepted`: AiOutput
 - `status`: `PENDING_REVIEW`
 - 검수 후 정보 게시판 글로 발행할 수 있다.
 
-### 12.7 AI 초안 검수
+### 11.7 AI 초안 검수
 
 `PATCH /api/v1/ai/outputs/{ai_output_id}/review`
 
@@ -1158,7 +1047,7 @@ Request:
 
 Response: AiOutput
 
-### 12.8 AI 초안을 게시글로 발행
+### 11.8 AI 초안을 게시글로 발행
 
 `POST /api/v1/ai/outputs/{ai_output_id}/publish`
 
@@ -1190,11 +1079,11 @@ Response `201 Created`:
 }
 ```
 
-## 13. 신고 및 운영자 API
+## 12. 신고 및 운영자 API
 
 신고 기능은 MVP 선택 기능이지만 운영자 확장을 고려해 API 경계를 미리 둔다.
 
-### 13.1 신고 생성
+### 12.1 신고 생성
 
 `POST /api/v1/reports`
 
@@ -1224,7 +1113,7 @@ Response `201 Created`:
 }
 ```
 
-### 13.2 신고 목록 조회
+### 12.2 신고 목록 조회
 
 `GET /api/v1/admin/reports?status=PENDING&page=1&size=20`
 
@@ -1232,7 +1121,7 @@ Response `201 Created`:
 
 Response: 목록 응답
 
-### 13.3 신고 처리
+### 12.3 신고 처리
 
 `PATCH /api/v1/admin/reports/{report_id}`
 
@@ -1249,11 +1138,11 @@ Request:
 
 Response: Report
 
-## 14. 내부 작업 API
+## 13. 내부 작업 API
 
 아래 API는 일반 클라이언트에 공개하지 않는다. 백그라운드 워커, 운영자 도구, 배치 작업에서만 사용한다.
 
-### 14.1 게시글 RAG 인덱싱 요청
+### 13.1 게시글 RAG 인덱싱 요청
 
 `POST /api/v1/internal/indexing/posts/{post_id}`
 
@@ -1268,7 +1157,7 @@ Response `202 Accepted`:
 }
 ```
 
-### 14.2 댓글 RAG 인덱싱 요청
+### 13.2 댓글 RAG 인덱싱 요청
 
 `POST /api/v1/internal/indexing/comments/{comment_id}`
 
@@ -1276,7 +1165,7 @@ Response `202 Accepted`:
 
 Response `202 Accepted`
 
-### 14.3 실패한 AI 작업 재시도
+### 13.3 실패한 AI 작업 재시도
 
 `POST /api/v1/internal/ai/outputs/{ai_output_id}/retry`
 
@@ -1284,9 +1173,9 @@ Response `202 Accepted`
 
 Response `202 Accepted`
 
-## 15. 주요 화면별 API 사용 흐름
+## 14. 주요 화면별 API 사용 흐름
 
-### 15.1 홈 화면
+### 14.1 홈 화면
 
 1. `GET /api/v1/boards`
 2. `GET /api/v1/posts?board_code=REVIEW&sort=latest&size=5`
@@ -1294,38 +1183,37 @@ Response `202 Accepted`
 4. `GET /api/v1/posts?board_code=QUESTION&sort=latest&size=5`
 5. `GET /api/v1/posts?board_code=PURCHASE_HELP&sort=latest&size=5`
 
-### 15.2 후기 작성
+### 14.2 후기 작성
 
 1. `POST /api/v1/images`
 2. `POST /api/v1/posts`
 3. 서버 내부에서 게시글 인덱싱 작업 등록
-4. 서버 내부에서 AI/MCP 자동 링크 탐색 작업 등록
-5. 상세 화면 진입 후 `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
+4. 상세 화면 진입 후 `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
 
-### 15.3 질문 작성
+### 14.3 질문 작성
 
 1. `POST /api/v1/posts`
 2. `POST /api/v1/posts/{post_id}/ai/reference-answer`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
 4. `GET /api/v1/posts/{post_id}?include=comments,ai_outputs`
 
-### 15.4 구매 고민 작성
+### 14.4 구매 고민 작성
 
 1. `POST /api/v1/posts`
 2. `POST /api/v1/posts/{post_id}/ai/purchase-summary`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
 4. `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
 
-### 15.5 입문자 정보글 생성
+### 14.5 입문자 정보글 생성
 
 1. 운영자가 `POST /api/v1/ai/beginner-info-drafts`
 2. `GET /api/v1/ai/outputs/{ai_output_id}`로 결과 확인
 3. `PATCH /api/v1/ai/outputs/{ai_output_id}/review`
 4. `POST /api/v1/ai/outputs/{ai_output_id}/publish`
 
-## 16. MVP 우선 구현 범위
+## 15. MVP 우선 구현 범위
 
-### 16.1 1순위
+### 15.1 1순위
 
 - `POST /auth/signup`
 - `POST /auth/login`
@@ -1346,7 +1234,7 @@ Response `202 Accepted`
 - `GET /tags`
 - `GET /search/posts`
 
-### 16.2 2순위
+### 15.2 2순위
 
 - `POST /ai/qna`
 - `GET /ai/outputs/{ai_output_id}`
@@ -1355,18 +1243,14 @@ Response `202 Accepted`
 - `POST /posts/{post_id}/ai/purchase-summary`
 - 내부 RAG 인덱싱 작업
 
-### 16.3 3순위
+### 15.3 3순위
 
-- AI/MCP 자동 링크 탐색 작업
-- `GET /posts/{post_id}/link-previews`
-- `GET /link-previews/{preview_id}`
-- `POST /link-previews/{preview_id}/refresh`
 - `POST /ai/beginner-info-drafts`
 - `PATCH /ai/outputs/{ai_output_id}/review`
 - `POST /ai/outputs/{ai_output_id}/publish`
 - 신고 및 운영자 API
 
-## 17. 설계상 보완 제안
+## 16. 설계상 보완 제안
 
 1. `AiOutput.status`에는 비동기 처리를 위해 `REQUESTED`, `PROCESSING`을 추가하는 것이 좋다.
 2. `Post` 목록 응답에는 `summary`, `thumbnail_url`, `figure_info` 일부를 denormalized 형태로 내려주는 것이 프론트 구현에 편하다.
@@ -1374,4 +1258,3 @@ Response `202 Accepted`
 4. 유사 게시글 추천은 MVP에서 저장하지 않고 실시간 계산으로 처리한다.
 5. AI 답변은 항상 `AiOutputSource`를 함께 제공해 사용자 작성 콘텐츠와 AI 생성 콘텐츠를 명확히 구분한다.
 6. 이미지 업로드는 게시글 작성 전 임시 업로드 후 `image_ids`로 연결하는 방식이 React 작성 폼에 적합하다.
-7. 사용자는 URL을 별도 입력하지 않는다. 외부 링크 미리보기는 AI/MCP가 신뢰 가능한 사이트를 자동으로 찾은 경우에만 연결하며, 찾지 못한 경우에는 링크 영역을 노출하지 않는다.
