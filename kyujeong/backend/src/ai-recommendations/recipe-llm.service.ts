@@ -16,13 +16,20 @@ type RecipeContext = {
   title: string;
   content: string;
   tags: string[];
+  availableIngredients?: string[];
 };
 
 type SimilarPostContext = {
   title: string;
   summary: string;
+  questionSummary?: string;
+  commentEvidence?: string[];
   tags: string[];
   similarity: number;
+  semanticSimilarity?: number;
+  ingredients?: string[];
+  matchedIngredients?: string[];
+  missingIngredients?: string[];
 };
 
 @Injectable()
@@ -126,13 +133,21 @@ export class RecipeLlmService {
       similarPosts: isGeneralAi ? [] : similarPosts,
       rules: [
         'Use Korean.',
+        'Treat targetPost.availableIngredients as the user-owned ingredients when present.',
         'Prefer ingredients mentioned by the target post.',
+        'availableIngredients must only include ingredients the user already has.',
+        'missingIngredients should list optional or necessary ingredients for the chosen recipe that the user does not appear to have.',
+        'Do not force missingIngredients. Return an empty array when the recipe works well with the available ingredients.',
+        'If community evidence has missingIngredients, treat them as possible add-ons, not as already owned ingredients.',
         isGeneralAi
           ? 'Do not say that community posts were referenced.'
-          : 'Use the similar community posts as supporting evidence.',
+          : 'Use commentEvidence from the similar community posts as the supporting evidence.',
+        isGeneralAi
+          ? 'Ignore similarPosts because they are intentionally omitted.'
+          : 'Do not treat the question text itself as recipe evidence; it is only context for the commenter advice.',
         isGeneralAi
           ? 'Explain that the recommendation is based on the current request and general cooking knowledge.'
-          : 'Explain the recommendation using the community evidence naturally.',
+          : 'Explain the recommendation using community comment advice naturally.',
         'Do not invent too many missing ingredients.',
       ],
     });
@@ -178,7 +193,11 @@ export class RecipeLlmService {
         ? `비슷한 게시글에서 ${primaryIngredient}를 빠르게 활용하는 흐름이 보여서, 현재 재료로 부담 없이 만들 수 있는 메뉴로 추천합니다.`
         : `아직 참고할 만한 유사 게시글이 적어서, 현재 글에 적힌 재료와 조건을 중심으로 간단한 메뉴를 추천합니다.`,
       availableIngredients: ingredients.slice(0, 6),
-      missingIngredients: this.pickMissingIngredients(targetPost, ingredients),
+      missingIngredients: this.pickMissingIngredients(
+        targetPost,
+        ingredients,
+        similarPosts,
+      ),
       estimatedCookingTime: this.extractMinutes(targetPost.content) ?? 10,
       difficulty: '쉬움',
       content: `${primaryIngredient}를 중심으로 가진 재료를 한입 크기로 준비한 뒤, 팬에 볶거나 데워서 간을 맞춰보세요. 밥이나 면이 있다면 함께 넣어 한 끼 메뉴로 만들기 좋습니다.`,
@@ -186,6 +205,10 @@ export class RecipeLlmService {
   }
 
   private extractIngredients(targetPost: RecipeContext) {
+    if (targetPost.availableIngredients?.length) {
+      return targetPost.availableIngredients;
+    }
+
     const text = `${targetPost.title} ${targetPost.content}`;
     const candidates = [
       ...targetPost.tags,
@@ -233,9 +256,19 @@ export class RecipeLlmService {
     return `${primaryIngredient} 냉파 한 접시`;
   }
 
-  private pickMissingIngredients(targetPost: RecipeContext, ingredients: string[]) {
+  private pickMissingIngredients(
+    targetPost: RecipeContext,
+    ingredients: string[],
+    similarPosts: SimilarPostContext[],
+  ) {
     const text = `${targetPost.title} ${targetPost.content}`;
-    const missingIngredients: string[] = [];
+    const ownedIngredients = new Set(ingredients);
+    const evidenceMissingIngredients = similarPosts.flatMap((post) =>
+      post.missingIngredients ?? [],
+    );
+    const missingIngredients = evidenceMissingIngredients.filter(
+      (ingredient) => !ownedIngredients.has(ingredient),
+    );
 
     if (!text.includes('밥') && !ingredients.includes('밥')) {
       missingIngredients.push('밥 또는 면');
@@ -245,7 +278,7 @@ export class RecipeLlmService {
       missingIngredients.push('기본 양념');
     }
 
-    return missingIngredients.slice(0, 3);
+    return [...new Set(missingIngredients)].slice(0, 3);
   }
 
   private extractMinutes(content: string) {

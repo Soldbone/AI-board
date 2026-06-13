@@ -583,6 +583,34 @@ function App() {
     currentView === 'signup' ||
     currentView === 'forgotPassword'
 
+  function syncPostAiRecommendationStatus(
+    postId: number,
+    status: AiRecommendationStatus | null,
+  ) {
+    const aiStatus = getAiRecommendationStatusLabel(status)
+
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              aiStatus,
+            }
+          : post,
+      ),
+    )
+    setMyPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              aiStatus,
+            }
+          : post,
+      ),
+    )
+  }
+
   useEffect(() => {
     const controller = new AbortController()
 
@@ -838,6 +866,7 @@ function App() {
 
       if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
         setAiRecommendation(aiRecommendationData)
+        syncPostAiRecommendationStatus(postId, aiRecommendationData.status)
       }
     } catch (error) {
       setDetailErrorMessage(
@@ -1499,6 +1528,7 @@ function App() {
       }
 
       setAiRecommendation(data)
+      syncPostAiRecommendationStatus(selectedPost.id, data.status)
       setMyAiRecommendations((currentRecommendations) => [
         {
           ...data,
@@ -1515,7 +1545,6 @@ function App() {
       ])
       setAiProgress(100)
       setAiModalState('result')
-      setPostListReloadKey((currentKey) => currentKey + 1)
     } catch (error) {
       if (handleExpiredSession(error)) {
         setAiModalState('closed')
@@ -2594,7 +2623,7 @@ function App() {
 	                  <p>{directAiRecommendation.content}</p>
 	                  {directAiRecommendation.referencedPosts.length > 0 ? (
                     <section>
-                      <h2>AI가 참고한 게시글</h2>
+                        <h2>AI가 참고한 댓글 답변</h2>
                       <ul className="ai-reference-list">
                         {directAiRecommendation.referencedPosts.map((post) => (
                           <li key={post.postId}>
@@ -3104,7 +3133,7 @@ function App() {
                         </p>
                       </section>
                       <section>
-                        <h3>AI가 참고한 게시글</h3>
+                        <h3>AI가 참고한 댓글 답변</h3>
                         {aiRecommendation.referencedPosts.length > 0 ? (
                           <ul className="ai-reference-list">
                             {aiRecommendation.referencedPosts.map((post) => (
@@ -3597,7 +3626,7 @@ function App() {
 	                      {getAiGroundingMessage(aiRecommendation.grounding)}
 	                    </p>
 	                    <p>{aiRecommendation.content}</p>
-                    <h3>AI가 참고한 게시글</h3>
+                    <h3>AI가 참고한 댓글 답변</h3>
                     {aiRecommendation.referencedPosts.length > 0 ? (
                       <ul className="ai-reference-list">
                         {aiRecommendation.referencedPosts.map((post) => (

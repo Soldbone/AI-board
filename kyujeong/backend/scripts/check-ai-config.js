@@ -1,6 +1,30 @@
 const { Client } = require('pg');
 require('dotenv').config();
 
+function getRagMinSimilarity() {
+  const configuredSimilarity = Number(
+    process.env.AI_RECOMMENDATION_MIN_SIMILARITY,
+  );
+
+  if (Number.isFinite(configuredSimilarity)) {
+    return Math.min(Math.max(configuredSimilarity, 0), 1);
+  }
+
+  return 0.55;
+}
+
+function getRagMinIngredientOverlap() {
+  const configuredOverlap = Number(
+    process.env.AI_RECOMMENDATION_MIN_INGREDIENT_OVERLAP,
+  );
+
+  if (Number.isFinite(configuredOverlap)) {
+    return Math.max(Math.floor(configuredOverlap), 0);
+  }
+
+  return 1;
+}
+
 async function main() {
   const openAiConfigured = Boolean(process.env.OPENAI_API_KEY?.trim());
   const result = {
@@ -14,6 +38,8 @@ async function main() {
       ? (process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini')
       : null,
     dailyLimit: null,
+    ragMinSimilarity: getRagMinSimilarity(),
+    ragMinIngredientOverlap: getRagMinIngredientOverlap(),
     pgvectorAvailable: false,
     pgvectorInstalled: false,
     pgvectorDecision: 'not checked',

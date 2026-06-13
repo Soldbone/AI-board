@@ -100,9 +100,7 @@ describe('PostsService', () => {
       where: undefined,
       skip: 5,
       take: 5,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         title: true,
@@ -155,9 +153,7 @@ describe('PostsService', () => {
       where: undefined,
       skip: 0,
       take: 1,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         title: true,
@@ -215,9 +211,7 @@ describe('PostsService', () => {
       },
       skip: 0,
       take: 10,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         title: true,
@@ -278,9 +272,7 @@ describe('PostsService', () => {
       },
       skip: 0,
       take: 10,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         title: true,
@@ -345,9 +337,7 @@ describe('PostsService', () => {
       },
       skip: 0,
       take: 10,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         title: true,

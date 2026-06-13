@@ -38,6 +38,15 @@ be run after switching images.
   - `GENERAL_AI` means pgvector found no usable community evidence, so the
     recommendation was made from the current request and general cooking
     knowledge.
+- Community posts are only treated as usable evidence when their similarity is
+  at least `AI_RECOMMENDATION_MIN_SIMILARITY` (`0.55` by default) and at least
+  `AI_RECOMMENDATION_MIN_INGREDIENT_OVERLAP` target ingredient is shared
+  (`1` by default).
+- Ingredient overlap is a filter, not a score boost. One shared ingredient does
+  not make a post more similar; it only prevents unrelated ingredient posts from
+  being used as evidence.
+- Community evidence should come from comment advice on the matched post. The
+  original post body is treated as question/context, not as recipe evidence.
 - `GENERAL_AI` is not treated as a pgvector failure. It is the first-post or
   sparse-data path where the service should be honest that no community posts
   were referenced.

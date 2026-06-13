@@ -47,9 +47,7 @@ export class PostsService {
         where,
         skip: (currentPage - 1) * pageSize,
         take: pageSize,
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: {
           id: true,
           title: true,
