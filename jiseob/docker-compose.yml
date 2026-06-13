@@ -1,4 +1,22 @@
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: arena-backend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: postgres
+      YOUTUBE_TRANSCRIPT_COMMAND: ${YOUTUBE_TRANSCRIPT_COMMAND:-youtube_transcript_api}
+      TZ: Asia/Seoul
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: pgvector/pgvector:pg17
     container_name: arena-postgres
