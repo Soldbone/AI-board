@@ -12,6 +12,8 @@ build/
 .next/
 
 # logs
+.codex-logs/
+**/.codex-logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

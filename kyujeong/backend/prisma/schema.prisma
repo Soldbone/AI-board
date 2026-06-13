@@ -73,7 +73,7 @@ model PostRagDocument {
   id             Int      @id @default(autoincrement())
   postId         Int      @unique
   documentText   String   @db.Text
-  embedding      Float[]
+  embedding      Unsupported("vector(1536)")
   embeddingModel String   @default("local-hash-v1")
   embeddedAt     DateTime @default(now())
   isStale        Boolean  @default(false)
@@ -95,6 +95,7 @@ model AiRecipeRecommendation {
   difficulty           String                 @db.VarChar(40)
   content              String                 @db.Text
   status               AiRecommendationStatus @default(ACTIVE)
+  grounding            AiRecommendationGrounding @default(COMMUNITY_RAG)
   createdAt            DateTime               @default(now())
 
   post       Post?                       @relation(fields: [postId], references: [id], onDelete: SetNull)
@@ -120,4 +121,9 @@ model AiRecommendationReference {
 enum AiRecommendationStatus {
   ACTIVE
   STALE
+}
+
+enum AiRecommendationGrounding {
+  COMMUNITY_RAG
+  GENERAL_AI
 }

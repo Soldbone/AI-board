@@ -66,6 +66,12 @@ describe('PostsService', () => {
         _count: {
           comments: 2,
         },
+        aiRecommendations: [
+          {
+            id: 10,
+            status: 'ACTIVE',
+          },
+        ],
       },
     ];
 
@@ -81,6 +87,8 @@ describe('PostsService', () => {
           author: posts[0].author,
           tags: ['nestjs'],
           commentsCount: 2,
+          hasAiRecommendation: true,
+          aiRecommendationStatus: 'ACTIVE',
         },
       ],
       total: 1,
@@ -117,6 +125,16 @@ describe('PostsService', () => {
         _count: {
           select: {
             comments: true,
+          },
+        },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
           },
         },
       },
@@ -162,6 +180,16 @@ describe('PostsService', () => {
         _count: {
           select: {
             comments: true,
+          },
+        },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
           },
         },
       },
@@ -212,6 +240,16 @@ describe('PostsService', () => {
         _count: {
           select: {
             comments: true,
+          },
+        },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
           },
         },
       },
@@ -265,6 +303,16 @@ describe('PostsService', () => {
         _count: {
           select: {
             comments: true,
+          },
+        },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
           },
         },
       },
@@ -322,6 +370,16 @@ describe('PostsService', () => {
         _count: {
           select: {
             comments: true,
+          },
+        },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
           },
         },
       },

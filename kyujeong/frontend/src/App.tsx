@@ -11,6 +11,8 @@ type PostListItem = {
   }
   tags?: string[]
   commentsCount?: number
+  hasAiRecommendation?: boolean
+  aiRecommendationStatus?: AiRecommendationStatus | null
 }
 
 type PostListResponse = {
@@ -55,6 +57,9 @@ type AiReferencedPost = {
   rank: number
 }
 
+type AiRecommendationStatus = 'ACTIVE' | 'STALE'
+type AiRecommendationGrounding = 'COMMUNITY_RAG' | 'GENERAL_AI'
+
 type AiRecommendation = {
   id: number
   postId: number | null
@@ -65,9 +70,17 @@ type AiRecommendation = {
   estimatedCookingTime: number | null
   difficulty: string
   content: string
-  status: 'ACTIVE' | 'STALE'
+  status: AiRecommendationStatus
+  grounding: AiRecommendationGrounding
   createdAt: string
   referencedPosts: AiReferencedPost[]
+}
+
+type MyAiRecommendation = AiRecommendation & {
+  post: {
+    id: number
+    title: string
+  } | null
 }
 
 type AiServiceStatus = {
@@ -77,6 +90,7 @@ type AiServiceStatus = {
   chatModel: string | null
   dailyLimit: number | null
   pgvectorAvailable: boolean
+  pgvectorInstalled: boolean
   pgvectorDecision: string
 }
 
@@ -106,7 +120,7 @@ type BoardPost = {
   authorId: number
   author: string
   comments: number
-  aiStatus: '완료' | '대기중' | '분석중'
+  aiStatus: '완료' | '대기중' | '다시 추천'
   createdAt: string
 }
 
@@ -244,6 +258,7 @@ function isAiRecommendation(value: unknown): value is AiRecommendation {
     typeof recommendation.menuName === 'string' &&
     typeof recommendation.reason === 'string' &&
     Array.isArray(recommendation.missingIngredients) &&
+    typeof recommendation.grounding === 'string' &&
     Array.isArray(recommendation.referencedPosts)
   )
 }
@@ -278,6 +293,21 @@ async function fetchMyCommentItems(accessToken: string) {
   return data
 }
 
+async function fetchMyAiRecommendationItems(accessToken: string) {
+  const response = await fetch('/api/users/me/ai-recommendations', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+  const data = await readJsonResponse<MyAiRecommendation[]>(response)
+
+  if (!response.ok) {
+    throw new Error(data.message ?? 'AI 추천 기록을 불러오지 못했습니다.')
+  }
+
+  return data
+}
+
 function getFriendlyErrorMessage(message: string, fallback: string) {
   const messages: Record<string, string> = {
     'Email already exists': '이미 가입된 이메일입니다.',
@@ -293,8 +323,6 @@ function getFriendlyErrorMessage(message: string, fallback: string) {
     'Tags can be up to 5': '태그는 최대 5개까지 입력할 수 있습니다.',
     'Tag name can be up to 20 characters':
       '태그 이름은 최대 20자까지 입력할 수 있습니다.',
-    'AI recommendation daily limit exceeded':
-      '오늘 사용할 수 있는 AI 추천 횟수를 모두 사용했습니다.',
   }
 
   return messages[message] ?? message ?? fallback
@@ -317,6 +345,42 @@ function formatDate(value: string) {
     .format(new Date(value))
     .replace(/\. /g, '.')
     .replace(/\.$/, '')
+}
+
+function getAiRecommendationStatusLabel(
+  status?: AiRecommendationStatus | null,
+): BoardPost['aiStatus'] {
+  if (status === 'ACTIVE') {
+    return '완료'
+  }
+
+  if (status === 'STALE') {
+    return '다시 추천'
+  }
+
+  return '대기중'
+}
+
+function getAiRecommendationStatusClass(status: BoardPost['aiStatus']) {
+  if (status === '완료') {
+    return 'done'
+  }
+
+  if (status === '다시 추천') {
+    return 'stale'
+  }
+
+  return 'pending'
+}
+
+function getAiGroundingLabel(grounding?: AiRecommendationGrounding) {
+  return grounding === 'GENERAL_AI' ? '일반 AI 지식' : '커뮤니티 참고'
+}
+
+function getAiGroundingMessage(grounding?: AiRecommendationGrounding) {
+  return grounding === 'GENERAL_AI'
+    ? '아직 참고할 게시글이 부족해 현재 내용과 일반 요리 지식을 기준으로 추천했어요.'
+    : '비슷한 커뮤니티 게시글을 참고해 추천했어요.'
 }
 
 function getTagGroup(tagName: string) {
@@ -365,7 +429,7 @@ function mapPostListItem(post: PostListItem): BoardPost {
     authorId: post.author.id,
     author: post.author.nickname,
     comments: post.commentsCount ?? 0,
-    aiStatus: '대기중',
+    aiStatus: getAiRecommendationStatusLabel(post.aiRecommendationStatus),
     createdAt: formatDate(post.createdAt),
   }
 }
@@ -443,6 +507,13 @@ function App() {
   const [myComments, setMyComments] = useState<MyCommentItem[]>([])
   const [isMyCommentsLoading, setIsMyCommentsLoading] = useState(false)
   const [myCommentsErrorMessage, setMyCommentsErrorMessage] = useState('')
+  const [myAiRecommendations, setMyAiRecommendations] = useState<
+    MyAiRecommendation[]
+  >([])
+  const [isMyAiRecommendationsLoading, setIsMyAiRecommendationsLoading] =
+    useState(false)
+  const [myAiRecommendationsErrorMessage, setMyAiRecommendationsErrorMessage] =
+    useState('')
   const [tagItems, setTagItems] = useState<Array<[string, number]>>([])
   const [activeTagGroup, setActiveTagGroup] = useState('전체')
   const [isTagsLoading, setIsTagsLoading] = useState(false)
@@ -1080,6 +1151,7 @@ function App() {
     setMe(null)
     setMyPosts([])
     setMyComments([])
+    setMyAiRecommendations([])
     setCurrentView('board')
     setCommentErrorMessage('')
     setCommentSubmitMessage('')
@@ -1098,6 +1170,7 @@ function App() {
     setMe(null)
     setMyPosts([])
     setMyComments([])
+    setMyAiRecommendations([])
     setLoginErrorMessage(
       getFriendlyErrorMessage(message, '로그인이 만료되었습니다.'),
     )
@@ -1119,6 +1192,7 @@ function App() {
     setMeErrorMessage('')
     setMyPostsErrorMessage('')
     setMyCommentsErrorMessage('')
+    setMyAiRecommendationsErrorMessage('')
 
     try {
       const response = await fetch('/api/users/me', {
@@ -1136,9 +1210,11 @@ function App() {
       setCurrentUser(data)
       setMe(data)
 
-      const [postsResult, commentsResult] = await Promise.allSettled([
+      const [postsResult, commentsResult, aiRecommendationsResult] =
+        await Promise.allSettled([
         fetchMyPostItems(accessToken),
         fetchMyCommentItems(accessToken),
+        fetchMyAiRecommendationItems(accessToken),
       ])
 
       if (postsResult.status === 'fulfilled') {
@@ -1175,6 +1251,25 @@ function App() {
           getFriendlyErrorMessage(
             message,
             '내가 작성한 댓글을 불러오지 못했습니다.',
+          ),
+        )
+      }
+
+      if (aiRecommendationsResult.status === 'fulfilled') {
+        setMyAiRecommendations(aiRecommendationsResult.value)
+      } else if (handleExpiredSession(aiRecommendationsResult.reason)) {
+        return
+      } else {
+        setMyAiRecommendations([])
+        const message = getErrorMessage(
+          aiRecommendationsResult.reason,
+          'AI 추천 기록을 불러오지 못했습니다.',
+        )
+
+        setMyAiRecommendationsErrorMessage(
+          getFriendlyErrorMessage(
+            message,
+            'AI 추천 기록을 불러오지 못했습니다.',
           ),
         )
       }
@@ -1260,6 +1355,41 @@ function App() {
       )
     } finally {
       setIsMyCommentsLoading(false)
+    }
+  }
+
+  async function loadMyAiRecommendations() {
+    if (!accessToken) {
+      setLoginErrorMessage('로그인 후 AI 추천 기록을 볼 수 있습니다.')
+      setCurrentView('login')
+      return
+    }
+
+    setMyPageSection('aiHistory')
+    setIsMyAiRecommendationsLoading(true)
+    setMyAiRecommendationsErrorMessage('')
+
+    try {
+      setMyAiRecommendations(await fetchMyAiRecommendationItems(accessToken))
+    } catch (error) {
+      if (handleExpiredSession(error)) {
+        return
+      }
+
+      setMyAiRecommendations([])
+      const message = getErrorMessage(
+        error,
+        'AI 추천 기록을 불러오지 못했습니다.',
+      )
+
+      setMyAiRecommendationsErrorMessage(
+        getFriendlyErrorMessage(
+          message,
+          'AI 추천 기록을 불러오지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsMyAiRecommendationsLoading(false)
     }
   }
 
@@ -1369,6 +1499,20 @@ function App() {
       }
 
       setAiRecommendation(data)
+      setMyAiRecommendations((currentRecommendations) => [
+        {
+          ...data,
+          post: selectedPost
+            ? {
+                id: selectedPost.id,
+                title: selectedPost.title,
+              }
+            : null,
+        },
+        ...currentRecommendations.filter(
+          (recommendation) => recommendation.id !== data.id,
+        ),
+      ])
       setAiProgress(100)
       setAiModalState('result')
       setPostListReloadKey((currentKey) => currentKey + 1)
@@ -1390,6 +1534,16 @@ function App() {
     } finally {
       setIsAiRecommendationLoading(false)
     }
+  }
+
+  function openAiRecommendationResultModal() {
+    if (!aiRecommendation) {
+      return
+    }
+
+    setAiRecommendationErrorMessage('')
+    setAiProgress(100)
+    setAiModalState('result')
   }
 
   async function handleDirectAiRecommendation(
@@ -1439,6 +1593,15 @@ function App() {
       }
 
       setDirectAiRecommendation(data)
+      setMyAiRecommendations((currentRecommendations) => [
+        {
+          ...data,
+          post: null,
+        },
+        ...currentRecommendations.filter(
+          (recommendation) => recommendation.id !== data.id,
+        ),
+      ])
     } catch (error) {
       if (handleExpiredSession(error)) {
         return
@@ -1850,7 +2013,7 @@ function App() {
               <button
                 className={myPageSection === 'aiHistory' ? 'active' : ''}
                 type="button"
-                onClick={() => setMyPageSection('aiHistory')}
+                onClick={loadMyAiRecommendations}
               >
                 <span aria-hidden="true">✧</span>
                 AI 추천 기록
@@ -1930,7 +2093,7 @@ function App() {
                       </div>
                       <div>
                         <span>AI 추천 기록</span>
-                        <strong>준비 중</strong>
+                        <strong>{myAiRecommendations.length}</strong>
                       </div>
                       <div>
                         <span>저장한 글</span>
@@ -2026,6 +2189,11 @@ function App() {
                           <div className="mypage-post-meta">
                             <span>{post.createdAt}</span>
                             <span>{post.author}</span>
+                            <span
+                              className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+                            >
+                              {post.aiStatus}
+                            </span>
                           </div>
                           <div className="tag-stack">
                             {post.tags.slice(0, 3).map((tag) => (
@@ -2080,16 +2248,81 @@ function App() {
                 <div className="mypage-posts">
                   <div className="mypage-section-heading">
                     <h1>AI 추천 기록</h1>
-                    <p>추천 API가 연결되면 내가 받은 추천 결과를 모아봅니다.</p>
+                    <p>내가 실행한 추천 결과와 참고 게시글을 모아봅니다.</p>
                   </div>
 
-                  <div className="coming-soon-panel">
-                    <strong>아직 연결 전입니다.</strong>
-                    <p>
-                      지금은 프론트 mock 추천 화면만 있고, 실제 추천 기록 저장은
-                      준비 중입니다.
-                    </p>
-                  </div>
+                  {isMyAiRecommendationsLoading ? (
+                    <div className="mypage-state">
+                      AI 추천 기록을 불러오는 중입니다.
+                    </div>
+                  ) : myAiRecommendationsErrorMessage ? (
+                    <div className="mypage-state error">
+                      {myAiRecommendationsErrorMessage}
+                    </div>
+                  ) : myAiRecommendations.length === 0 ? (
+                    <div className="mypage-state">아직 AI 추천 기록이 없습니다.</div>
+                  ) : (
+                    <ul className="mypage-ai-list">
+                      {myAiRecommendations.map((recommendation) => (
+                        <li key={recommendation.id}>
+                          <div className="mypage-ai-item-header">
+                            <strong>{recommendation.menuName}</strong>
+                            <span
+                              className={`status-badge ${getAiRecommendationStatusClass(
+                                getAiRecommendationStatusLabel(
+                                  recommendation.status,
+                                ),
+                              )}`}
+                            >
+                              {getAiRecommendationStatusLabel(recommendation.status)}
+                            </span>
+                          </div>
+	                          <div className="mypage-post-meta">
+	                            <time dateTime={recommendation.createdAt}>
+	                              {formatDate(recommendation.createdAt)}
+	                            </time>
+	                            <span>
+	                              {recommendation.post
+	                                ? recommendation.post.title
+	                                : '직접 입력 추천'}
+	                            </span>
+	                            <span>{recommendation.difficulty}</span>
+	                            <span>{getAiGroundingLabel(recommendation.grounding)}</span>
+	                          </div>
+	                          <p className="ai-grounding-note">
+	                            {getAiGroundingMessage(recommendation.grounding)}
+	                          </p>
+	                          <p>{recommendation.reason}</p>
+                          {recommendation.referencedPosts.length > 0 ? (
+                            <ul className="ai-reference-list">
+                              {recommendation.referencedPosts
+                                .slice(0, 3)
+                                .map((post) => (
+                                  <li key={post.postId}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCurrentView('board')
+                                        loadPostDetail(post.postId)
+                                      }}
+                                    >
+                                      {post.title}
+                                    </button>
+                                    <span>{Math.round(post.similarity * 100)}%</span>
+                                  </li>
+                                ))}
+                            </ul>
+	                          ) : (
+	                            <span className="mypage-ai-empty-reference">
+	                              {recommendation.grounding === 'GENERAL_AI'
+	                                ? '현재 내용과 일반 요리 지식으로 추천했습니다.'
+	                                : '참고한 게시글이 없습니다.'}
+	                            </span>
+	                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : myPageSection === 'likes' ? (
                 <div className="mypage-posts">
@@ -2272,21 +2505,19 @@ function App() {
                     </strong>
                   </div>
                   <div>
-                    <span>일일 제한</span>
-                    <strong>
-                      {aiServiceStatus?.dailyLimit
-                        ? `하루 ${aiServiceStatus.dailyLimit}회`
-                        : '제한 없음'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>검색 방식</span>
-                    <strong>
-                      {aiServiceStatus?.pgvectorAvailable
-                        ? 'pgvector'
-                        : '게시글 기반 fallback'}
-                    </strong>
-                  </div>
+	                    <span>실행 제한</span>
+	                    <strong>제한 없음</strong>
+	                  </div>
+	                  <div>
+	                    <span>검색 방식</span>
+	                    <strong>
+	                      {aiServiceStatus?.pgvectorInstalled
+	                        ? 'pgvector'
+	                        : aiServiceStatus?.pgvectorAvailable
+	                          ? 'pgvector 마이그레이션 필요'
+	                          : 'pgvector 환경 필요'}
+	                    </strong>
+	                  </div>
                 </>
               )}
             </section>
@@ -2340,21 +2571,28 @@ function App() {
                           : '상황에 따라 조정'}
                       </dd>
                     </div>
-                    <div>
-                      <dt>난이도</dt>
-                      <dd>{directAiRecommendation.difficulty}</dd>
-                    </div>
-                    <div>
-                      <dt>부족 재료</dt>
+	                    <div>
+	                      <dt>난이도</dt>
+	                      <dd>{directAiRecommendation.difficulty}</dd>
+	                    </div>
+	                    <div>
+	                      <dt>추천 근거</dt>
+	                      <dd>{getAiGroundingLabel(directAiRecommendation.grounding)}</dd>
+	                    </div>
+	                    <div>
+	                      <dt>부족 재료</dt>
                       <dd>
                         {directAiRecommendation.missingIngredients.length > 0
                           ? directAiRecommendation.missingIngredients.join(', ')
                           : '없음'}
                       </dd>
-                    </div>
-                  </dl>
-                  <p>{directAiRecommendation.content}</p>
-                  {directAiRecommendation.referencedPosts.length > 0 ? (
+	                    </div>
+	                  </dl>
+	                  <p className="ai-grounding-note">
+	                    {getAiGroundingMessage(directAiRecommendation.grounding)}
+	                  </p>
+	                  <p>{directAiRecommendation.content}</p>
+	                  {directAiRecommendation.referencedPosts.length > 0 ? (
                     <section>
                       <h2>AI가 참고한 게시글</h2>
                       <ul className="ai-reference-list">
@@ -2374,8 +2612,12 @@ function App() {
                         ))}
                       </ul>
                     </section>
-                  ) : null}
-                </div>
+	                  ) : directAiRecommendation.grounding === 'GENERAL_AI' ? (
+	                    <p className="ai-grounding-empty">
+	                      참고한 게시글 없이 현재 입력과 일반 요리 지식으로 만들었어요.
+	                    </p>
+	                  ) : null}
+	                </div>
               ) : null}
             </section>
           </section>
@@ -2825,17 +3067,30 @@ function App() {
                     <span aria-hidden="true">AI</span>
                     <strong>AI 추천 결과</strong>
                   </div>
+                  <span
+                    className={`status-badge ${getAiRecommendationStatusClass(
+                      getAiRecommendationStatusLabel(aiRecommendation?.status),
+                    )}`}
+                  >
+                    {getAiRecommendationStatusLabel(aiRecommendation?.status)}
+                  </span>
                   <h2>{aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}</h2>
                   <div className="detail-ai-visual" aria-hidden="true">
                     <span />
                   </div>
-                  {aiRecommendation?.status === 'STALE' ? (
-                    <p className="ai-panel-message">
-                      게시글이나 댓글이 바뀌어 다시 추천을 실행할 수 있습니다.
-                    </p>
-                  ) : null}
-                  {aiRecommendation ? (
-                    <>
+	                  {aiRecommendation?.status === 'STALE' ? (
+	                    <p className="ai-panel-message">
+	                      게시글이나 댓글이 바뀌어 다시 추천을 실행할 수 있습니다.
+	                    </p>
+	                  ) : null}
+	                  {aiRecommendation ? (
+	                    <p className="ai-grounding-note">
+	                      {getAiGroundingLabel(aiRecommendation.grounding)} ·{' '}
+	                      {getAiGroundingMessage(aiRecommendation.grounding)}
+	                    </p>
+	                  ) : null}
+	                  {aiRecommendation ? (
+	                    <>
                       <section>
                         <h3>추천 이유</h3>
                         <p>{aiRecommendation.reason}</p>
@@ -2864,9 +3119,13 @@ function App() {
                               </li>
                             ))}
                           </ul>
-                        ) : (
-                          <p>참고한 게시글이 아직 없습니다.</p>
-                        )}
+	                        ) : (
+	                          <p>
+	                            {aiRecommendation.grounding === 'GENERAL_AI'
+	                              ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
+	                              : '참고한 게시글이 아직 없습니다.'}
+	                          </p>
+	                        )}
                       </section>
                     </>
                   ) : (
@@ -2880,17 +3139,28 @@ function App() {
                       {aiRecommendationErrorMessage}
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={openAiRecommendationModal}
-                    disabled={isAiRecommendationLoading}
-                  >
-                    {isAiRecommendationLoading
-                      ? 'AI 추천 생성 중'
-                      : aiRecommendation
-                        ? 'AI 추천 다시 실행'
-                        : 'AI 추천 실행'}
-                  </button>
+                  <div className="detail-ai-actions">
+                    {aiRecommendation ? (
+                      <button
+                        className="ai-secondary-action"
+                        type="button"
+                        onClick={openAiRecommendationResultModal}
+                      >
+                        AI 추천 결과 보기
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={openAiRecommendationModal}
+                      disabled={isAiRecommendationLoading}
+                    >
+                      {isAiRecommendationLoading
+                        ? 'AI 추천 생성 중'
+                        : aiRecommendation
+                          ? 'AI 추천 다시 실행'
+                          : 'AI 추천 실행'}
+                    </button>
+                  </div>
                 </aside>
               </div>
             ) : null}
@@ -2969,6 +3239,11 @@ function App() {
                         <span>{post.author}</span>
                         <time>{post.createdAt}</time>
                         <span>댓글 {post.comments}</span>
+                        <span
+                          className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+                        >
+                          {post.aiStatus}
+                        </span>
                       </div>
                     </article>
                   ))}
@@ -3153,7 +3428,7 @@ function App() {
                   </span>
                   <span role="cell">{post.comments}</span>
                   <span
-                    className={`status-badge ${post.aiStatus === '완료' ? 'done' : post.aiStatus === '대기중' ? 'pending' : 'working'}`}
+                    className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
                     role="cell"
                   >
                     {post.aiStatus}
@@ -3297,12 +3572,16 @@ function App() {
                         : '상황에 따라 조정'}
                     </dd>
                   </div>
-                  <div>
-                    <dt>난이도</dt>
-                    <dd>{aiRecommendation?.difficulty ?? '쉬움'}</dd>
-                  </div>
-                  <div>
-                    <dt>부족 재료</dt>
+	                  <div>
+	                    <dt>난이도</dt>
+	                    <dd>{aiRecommendation?.difficulty ?? '쉬움'}</dd>
+	                  </div>
+	                  <div>
+	                    <dt>추천 근거</dt>
+	                    <dd>{getAiGroundingLabel(aiRecommendation?.grounding)}</dd>
+	                  </div>
+	                  <div>
+	                    <dt>부족 재료</dt>
                     <dd>
                       {aiRecommendation?.missingIngredients.length
                         ? aiRecommendation.missingIngredients.join(', ')
@@ -3312,9 +3591,12 @@ function App() {
                 </dl>
 
                 {aiRecommendation ? (
-                  <section className="ai-modal-detail">
-                    <h3>추천 내용</h3>
-                    <p>{aiRecommendation.content}</p>
+	                  <section className="ai-modal-detail">
+	                    <h3>추천 내용</h3>
+	                    <p className="ai-grounding-note">
+	                      {getAiGroundingMessage(aiRecommendation.grounding)}
+	                    </p>
+	                    <p>{aiRecommendation.content}</p>
                     <h3>AI가 참고한 게시글</h3>
                     {aiRecommendation.referencedPosts.length > 0 ? (
                       <ul className="ai-reference-list">
@@ -3333,9 +3615,13 @@ function App() {
                           </li>
                         ))}
                       </ul>
-                    ) : (
-                      <p>참고한 게시글이 아직 없습니다.</p>
-                    )}
+	                    ) : (
+	                      <p>
+	                        {aiRecommendation.grounding === 'GENERAL_AI'
+	                          ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
+	                          : '참고한 게시글이 아직 없습니다.'}
+	                      </p>
+	                    )}
                   </section>
                 ) : null}
 

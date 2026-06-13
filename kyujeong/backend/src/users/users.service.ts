@@ -55,13 +55,25 @@ export class UsersService {
             comments: true,
           },
         },
+        aiRecommendations: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+          },
+        },
       },
     });
 
-    return posts.map(({ postTags, _count, ...post }) => ({
+    return posts.map(({ postTags, _count, aiRecommendations, ...post }) => ({
       ...post,
       tags: postTags.map((postTag) => postTag.tag.name),
       commentsCount: _count.comments,
+      hasAiRecommendation: aiRecommendations.length > 0,
+      aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
     }));
   }
 
@@ -93,5 +105,71 @@ export class UsersService {
         },
       },
     });
+  }
+
+  async findMyAiRecommendations(userId: number) {
+    const recommendations =
+      await this.prismaService.aiRecipeRecommendation.findMany({
+        where: {
+          requestedById: userId,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 50,
+        include: {
+          post: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+          references: {
+            orderBy: {
+              rank: 'asc',
+            },
+            include: {
+              post: {
+                select: {
+                  id: true,
+                  title: true,
+                  postTags: {
+                    select: {
+                      tag: {
+                        select: {
+                          name: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    return recommendations.map((recommendation) => ({
+      id: recommendation.id,
+      postId: recommendation.postId,
+      menuName: recommendation.menuName,
+      reason: recommendation.reason,
+      availableIngredients: recommendation.availableIngredients,
+      missingIngredients: recommendation.missingIngredients,
+      estimatedCookingTime: recommendation.estimatedCookingTime,
+      difficulty: recommendation.difficulty,
+      content: recommendation.content,
+      status: recommendation.status,
+      grounding: recommendation.grounding,
+      createdAt: recommendation.createdAt,
+      post: recommendation.post,
+      referencedPosts: recommendation.references.map((reference) => ({
+        postId: reference.postId,
+        title: reference.post.title,
+        tags: reference.post.postTags.map((postTag) => postTag.tag.name),
+        similarity: Number(reference.similarity.toFixed(4)),
+        rank: reference.rank,
+      })),
+    }));
   }
 }

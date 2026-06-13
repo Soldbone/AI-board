@@ -74,6 +74,16 @@ export class PostsService {
               comments: true,
             },
           },
+          aiRecommendations: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+            },
+          },
         },
       }),
       this.prismaService.post.count({ where }),
@@ -329,14 +339,25 @@ export class PostsService {
       _count?: {
         comments: number;
       };
+      aiRecommendations?: {
+        id: number;
+        status: 'ACTIVE' | 'STALE';
+      }[];
     },
   >(post: T) {
-    const { postTags, _count, ...postWithoutPostTags } = post;
+    const { postTags, _count, aiRecommendations, ...postWithoutPostTags } =
+      post;
 
     return {
       ...postWithoutPostTags,
       tags: postTags.map((postTag) => postTag.tag.name),
       commentsCount: _count?.comments ?? 0,
+      ...(aiRecommendations
+        ? {
+            hasAiRecommendation: aiRecommendations.length > 0,
+            aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
+          }
+        : {}),
     };
   }
 }

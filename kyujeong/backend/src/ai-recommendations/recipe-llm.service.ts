@@ -10,6 +10,8 @@ export type RecipeRecommendationDraft = {
   content: string;
 };
 
+export type RecommendationGrounding = 'COMMUNITY_RAG' | 'GENERAL_AI';
+
 type RecipeContext = {
   title: string;
   content: string;
@@ -28,6 +30,7 @@ export class RecipeLlmService {
   async createRecommendation(
     targetPost: RecipeContext,
     similarPosts: SimilarPostContext[],
+    grounding: RecommendationGrounding = 'COMMUNITY_RAG',
   ): Promise<RecipeRecommendationDraft> {
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
@@ -35,6 +38,7 @@ export class RecipeLlmService {
       const generatedRecommendation = await this.createOpenAiRecommendation(
         targetPost,
         similarPosts,
+        grounding,
         openAiApiKey,
       );
 
@@ -43,12 +47,13 @@ export class RecipeLlmService {
       }
     }
 
-    return this.createFallbackRecommendation(targetPost, similarPosts);
+    return this.createFallbackRecommendation(targetPost, similarPosts, grounding);
   }
 
   private async createOpenAiRecommendation(
     targetPost: RecipeContext,
     similarPosts: SimilarPostContext[],
+    grounding: RecommendationGrounding,
     openAiApiKey: string,
   ) {
     try {
@@ -69,7 +74,7 @@ export class RecipeLlmService {
             },
             {
               role: 'user',
-              content: this.buildPrompt(targetPost, similarPosts),
+              content: this.buildPrompt(targetPost, similarPosts, grounding),
             },
           ],
           response_format: { type: 'json_object' },
@@ -99,9 +104,15 @@ export class RecipeLlmService {
   private buildPrompt(
     targetPost: RecipeContext,
     similarPosts: SimilarPostContext[],
+    grounding: RecommendationGrounding,
   ) {
+    const isGeneralAi = grounding === 'GENERAL_AI';
+
     return JSON.stringify({
-      task: 'Recommend one recipe using the target post and similar community posts as evidence.',
+      task: isGeneralAi
+        ? 'Recommend one recipe using the target post and general cooking knowledge because no similar community posts were found.'
+        : 'Recommend one recipe using the target post and similar community posts as evidence.',
+      grounding,
       outputSchema: {
         menuName: 'string',
         reason: 'string',
@@ -112,11 +123,16 @@ export class RecipeLlmService {
         content: 'string',
       },
       targetPost,
-      similarPosts,
+      similarPosts: isGeneralAi ? [] : similarPosts,
       rules: [
         'Use Korean.',
         'Prefer ingredients mentioned by the target post.',
-        'Mention if there are no similar posts.',
+        isGeneralAi
+          ? 'Do not say that community posts were referenced.'
+          : 'Use the similar community posts as supporting evidence.',
+        isGeneralAi
+          ? 'Explain that the recommendation is based on the current request and general cooking knowledge.'
+          : 'Explain the recommendation using the community evidence naturally.',
         'Do not invent too many missing ingredients.',
       ],
     });
@@ -148,11 +164,13 @@ export class RecipeLlmService {
   private createFallbackRecommendation(
     targetPost: RecipeContext,
     similarPosts: SimilarPostContext[],
+    grounding: RecommendationGrounding,
   ): RecipeRecommendationDraft {
     const ingredients = this.extractIngredients(targetPost);
     const primaryIngredient = ingredients[0] ?? targetPost.tags[0] ?? '남은 재료';
     const menuName = this.pickFallbackMenuName(primaryIngredient, targetPost);
-    const hasSimilarPosts = similarPosts.length > 0;
+    const hasSimilarPosts =
+      grounding === 'COMMUNITY_RAG' && similarPosts.length > 0;
 
     return {
       menuName,

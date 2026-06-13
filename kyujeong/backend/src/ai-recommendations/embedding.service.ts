@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-const LOCAL_EMBEDDING_DIMENSION = 96;
+export const RAG_EMBEDDING_DIMENSION = 1536;
 
 @Injectable()
 export class EmbeddingService {
@@ -76,7 +76,7 @@ export class EmbeddingService {
   }
 
   private createLocalEmbedding(text: string) {
-    const vector = Array.from({ length: LOCAL_EMBEDDING_DIMENSION }, () => 0);
+    const vector = Array.from({ length: RAG_EMBEDDING_DIMENSION }, () => 0);
     const normalizedTokens = text
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s,#]/gu, ' ')
@@ -86,7 +86,7 @@ export class EmbeddingService {
 
     normalizedTokens.forEach((token) => {
       const hash = this.hashToken(token);
-      const index = Math.abs(hash) % LOCAL_EMBEDDING_DIMENSION;
+      const index = Math.abs(hash) % RAG_EMBEDDING_DIMENSION;
 
       vector[index] += 1;
     });

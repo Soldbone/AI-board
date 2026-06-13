@@ -1,14 +1,15 @@
-import {
-  HttpException,
-  HttpStatus,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { EmbeddingService } from './embedding.service';
+import {
+  EmbeddingService,
+  RAG_EMBEDDING_DIMENSION,
+} from './embedding.service';
 import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
-import { RecipeLlmService } from './recipe-llm.service';
+import {
+  RecipeLlmService,
+  type RecommendationGrounding,
+} from './recipe-llm.service';
 
 const ragPostSelect = {
   id: true,
@@ -46,6 +47,14 @@ type RagPost = Prisma.PostGetPayload<{
   select: typeof ragPostSelect;
 }>;
 
+type SimilarPost = {
+  postId: number;
+  title: string;
+  summary: string;
+  tags: string[];
+  similarity: number;
+};
+
 @Injectable()
 export class AiRecommendationsService {
   constructor(
@@ -54,9 +63,9 @@ export class AiRecommendationsService {
     private readonly recipeLlmService: RecipeLlmService,
   ) {}
 
-  getStatus() {
+  async getStatus() {
     const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY?.trim());
-    const dailyLimit = Number(process.env.AI_RECOMMENDATION_DAILY_LIMIT ?? 5);
+    const pgvectorStatus = await this.getPgvectorStatus();
 
     return {
       mode: hasOpenAiKey ? 'OPENAI' : 'FALLBACK',
@@ -67,11 +76,14 @@ export class AiRecommendationsService {
       chatModel: hasOpenAiKey
         ? (process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini')
         : null,
-      dailyLimit:
-        Number.isFinite(dailyLimit) && dailyLimit > 0 ? dailyLimit : null,
-      pgvectorAvailable: false,
-      pgvectorDecision:
-        'Current database does not expose the vector extension; use fallback retrieval until DB support is available.',
+      dailyLimit: null,
+      pgvectorAvailable: pgvectorStatus.available,
+      pgvectorInstalled: pgvectorStatus.installed,
+      pgvectorDecision: pgvectorStatus.installed
+        ? 'pgvector is installed; vector search is the primary retrieval path.'
+        : pgvectorStatus.available
+          ? 'pgvector is available; run the Prisma migration to install the vector extension for this database.'
+          : 'Current database image does not expose the vector extension; switch to a pgvector-enabled PostgreSQL image.',
     };
   }
 
@@ -114,8 +126,6 @@ export class AiRecommendationsService {
   }
 
   async create(postId: number, requesterId: number) {
-    await this.assertWithinDailyLimit(requesterId);
-
     const targetPost = await this.findRagPost(postId);
     const targetDocument = this.buildRagDocument(targetPost);
     const targetEmbeddingResult = await this.embeddingService.embed(targetDocument);
@@ -143,6 +153,7 @@ export class AiRecommendationsService {
       targetEmbeddingResult.embedding,
       candidatePosts,
     );
+    const grounding = this.getRecommendationGrounding(similarPosts);
     const recommendationDraft =
       await this.recipeLlmService.createRecommendation(
         this.toRecipeContext(targetPost),
@@ -152,6 +163,7 @@ export class AiRecommendationsService {
           tags: similarPost.tags,
           similarity: similarPost.similarity,
         })),
+        grounding,
       );
 
     const recommendation =
@@ -166,6 +178,7 @@ export class AiRecommendationsService {
           estimatedCookingTime: recommendationDraft.estimatedCookingTime,
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
+          grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
               postId: similarPost.postId,
@@ -207,8 +220,6 @@ export class AiRecommendationsService {
     createDirectRecommendationDto: CreateDirectRecommendationDto,
     requesterId: number,
   ) {
-    await this.assertWithinDailyLimit(requesterId);
-
     const ingredients = this.normalizeIngredients(
       createDirectRecommendationDto.ingredients,
     );
@@ -226,6 +237,7 @@ export class AiRecommendationsService {
       targetEmbeddingResult.embedding,
       candidatePosts,
     );
+    const grounding = this.getRecommendationGrounding(similarPosts);
     const recommendationDraft =
       await this.recipeLlmService.createRecommendation(
         {
@@ -244,6 +256,7 @@ export class AiRecommendationsService {
           tags: similarPost.tags,
           similarity: similarPost.similarity,
         })),
+        grounding,
       );
 
     const recommendation =
@@ -258,6 +271,7 @@ export class AiRecommendationsService {
           estimatedCookingTime: recommendationDraft.estimatedCookingTime,
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
+          grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
               postId: similarPost.postId,
@@ -306,33 +320,6 @@ export class AiRecommendationsService {
     }
   }
 
-  private async assertWithinDailyLimit(requesterId: number) {
-    const dailyLimit = Number(process.env.AI_RECOMMENDATION_DAILY_LIMIT ?? 5);
-
-    if (!Number.isFinite(dailyLimit) || dailyLimit <= 0) {
-      return;
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const count = await this.prismaService.aiRecipeRecommendation.count({
-      where: {
-        requestedById: requesterId,
-        createdAt: {
-          gte: today,
-        },
-      },
-    });
-
-    if (count >= dailyLimit) {
-      throw new HttpException(
-        'AI recommendation daily limit exceeded',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-  }
-
   private async findRagPost(postId: number) {
     const post = await this.prismaService.post.findUnique({
       where: { id: postId },
@@ -349,18 +336,118 @@ export class AiRecommendationsService {
   private async findSimilarPosts(
     targetEmbedding: number[],
     candidatePosts: RagPost[],
+  ): Promise<SimilarPost[]> {
+    if (candidatePosts.length === 0) {
+      return [];
+    }
+
+    try {
+      await Promise.all(
+        candidatePosts.map(async (post) => {
+          const documentText = this.buildRagDocument(post);
+          const embeddingResult = await this.embeddingService.embed(documentText);
+
+          await this.upsertRagDocument(
+            post.id,
+            documentText,
+            embeddingResult.embedding,
+            embeddingResult.model,
+          );
+        }),
+      );
+
+      return await this.findSimilarPostsWithPgvector(
+        targetEmbedding,
+        candidatePosts,
+      );
+    } catch {
+      return this.findSimilarPostsInMemory(targetEmbedding, candidatePosts);
+    }
+  }
+
+  private getRecommendationGrounding(
+    similarPosts: SimilarPost[],
+  ): RecommendationGrounding {
+    return similarPosts.length > 0 ? 'COMMUNITY_RAG' : 'GENERAL_AI';
+  }
+
+  private async upsertRagDocument(
+    postId: number,
+    documentText: string,
+    embedding: number[],
+    embeddingModel: string,
+  ) {
+    const vectorLiteral = this.toVectorLiteral(embedding);
+
+    try {
+      await this.prismaService.$executeRaw`
+        INSERT INTO "PostRagDocument"
+          ("postId", "documentText", "embedding", "embeddingModel", "embeddedAt", "isStale", "createdAt", "updatedAt")
+        VALUES
+          (${postId}, ${documentText}, ${vectorLiteral}::vector, ${embeddingModel}, NOW(), false, NOW(), NOW())
+        ON CONFLICT ("postId") DO UPDATE SET
+          "documentText" = EXCLUDED."documentText",
+          "embedding" = EXCLUDED."embedding",
+          "embeddingModel" = EXCLUDED."embeddingModel",
+          "embeddedAt" = NOW(),
+          "isStale" = false,
+          "updatedAt" = NOW()
+      `;
+    } catch {
+      return false;
+    }
+
+    return true;
+  }
+
+  private async findSimilarPostsWithPgvector(
+    targetEmbedding: number[],
+    candidatePosts: RagPost[],
+  ) {
+    const candidatePostIds = candidatePosts.map((post) => post.id);
+    const targetVector = this.toVectorLiteral(targetEmbedding);
+    const rows = await this.prismaService.$queryRaw<
+      Array<{ postId: number; similarity: number }>
+    >`
+      SELECT
+        "postId",
+        1 - ("embedding" <=> ${targetVector}::vector) AS "similarity"
+      FROM "PostRagDocument"
+      WHERE "postId" IN (${Prisma.join(candidatePostIds)})
+        AND "isStale" = false
+      ORDER BY "embedding" <=> ${targetVector}::vector
+      LIMIT 5
+    `;
+    const postsById = new Map(candidatePosts.map((post) => [post.id, post]));
+
+    return rows
+      .map((row) => {
+        const post = postsById.get(row.postId);
+
+        if (!post) {
+          return null;
+        }
+
+        return {
+          postId: post.id,
+          title: post.title,
+          summary: this.summarizePost(post),
+          tags: this.getTags(post),
+          similarity: Number(row.similarity),
+        };
+      })
+      .filter((post): post is SimilarPost => Boolean(post))
+      .filter((post) => post.similarity > 0);
+  }
+
+  private async findSimilarPostsInMemory(
+    targetEmbedding: number[],
+    candidatePosts: RagPost[],
   ) {
     const scoredPosts = await Promise.all(
       candidatePosts.map(async (post) => {
         const documentText = this.buildRagDocument(post);
         const embeddingResult = await this.embeddingService.embed(documentText);
-
-        await this.upsertRagDocument(
-          post.id,
-          documentText,
-          embeddingResult.embedding,
-          embeddingResult.model,
-        );
 
         return {
           postId: post.id,
@@ -381,30 +468,56 @@ export class AiRecommendationsService {
       .slice(0, 5);
   }
 
-  private async upsertRagDocument(
-    postId: number,
-    documentText: string,
-    embedding: number[],
-    embeddingModel: string,
-  ) {
-    await this.prismaService.postRagDocument.upsert({
-      where: { postId },
-      create: {
-        postId,
-        documentText,
-        embedding,
-        embeddingModel,
-        embeddedAt: new Date(),
-        isStale: false,
-      },
-      update: {
-        documentText,
-        embedding,
-        embeddingModel,
-        embeddedAt: new Date(),
-        isStale: false,
-      },
-    });
+  private async getPgvectorStatus() {
+    try {
+      const [status] = await this.prismaService.$queryRaw<
+        Array<{ available: boolean; installed: boolean }>
+      >`
+        SELECT
+          EXISTS (
+            SELECT 1 FROM pg_available_extensions WHERE name = 'vector'
+          ) AS "available",
+          EXISTS (
+            SELECT 1 FROM pg_extension WHERE extname = 'vector'
+          ) AS "installed"
+      `;
+
+      return {
+        available: Boolean(status?.available),
+        installed: Boolean(status?.installed),
+      };
+    } catch {
+      return {
+        available: false,
+        installed: false,
+      };
+    }
+  }
+
+  private toVectorLiteral(embedding: number[]) {
+    const normalizedEmbedding = this.normalizeEmbeddingDimension(embedding);
+
+    return `[${normalizedEmbedding
+      .map((value) => (Number.isFinite(value) ? value.toFixed(8) : '0'))
+      .join(',')}]`;
+  }
+
+  private normalizeEmbeddingDimension(embedding: number[]) {
+    if (embedding.length === RAG_EMBEDDING_DIMENSION) {
+      return embedding;
+    }
+
+    if (embedding.length > RAG_EMBEDDING_DIMENSION) {
+      return embedding.slice(0, RAG_EMBEDDING_DIMENSION);
+    }
+
+    return [
+      ...embedding,
+      ...Array.from(
+        { length: RAG_EMBEDDING_DIMENSION - embedding.length },
+        () => 0,
+      ),
+    ];
   }
 
   private buildRagDocument(post: RagPost) {
@@ -509,6 +622,7 @@ export class AiRecommendationsService {
       difficulty: recommendation.difficulty,
       content: recommendation.content,
       status: recommendation.status,
+      grounding: recommendation.grounding,
       createdAt: recommendation.createdAt,
       referencedPosts: recommendation.references.map((reference) => ({
         postId: reference.postId,

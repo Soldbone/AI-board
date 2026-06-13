@@ -3,7 +3,6 @@ require('dotenv').config();
 
 async function main() {
   const openAiConfigured = Boolean(process.env.OPENAI_API_KEY?.trim());
-  const dailyLimit = Number(process.env.AI_RECOMMENDATION_DAILY_LIMIT ?? 5);
   const result = {
     databaseUrlConfigured: Boolean(process.env.DATABASE_URL?.trim()),
     openAiConfigured,
@@ -14,10 +13,10 @@ async function main() {
     chatModel: openAiConfigured
       ? (process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini')
       : null,
-    dailyLimit:
-      Number.isFinite(dailyLimit) && dailyLimit > 0 ? dailyLimit : null,
+    dailyLimit: null,
     pgvectorAvailable: false,
     pgvectorInstalled: false,
+    pgvectorDecision: 'not checked',
   };
 
   if (!result.databaseUrlConfigured) {
@@ -39,6 +38,11 @@ async function main() {
 
     result.pgvectorAvailable = available.rowCount > 0;
     result.pgvectorInstalled = installed.rowCount > 0;
+    result.pgvectorDecision = result.pgvectorInstalled
+      ? 'pgvector is installed; vector search can run.'
+      : result.pgvectorAvailable
+        ? 'pgvector is available; run migrations to install the vector extension.'
+        : 'pgvector is not available from this database image.';
   } finally {
     await client.end();
   }

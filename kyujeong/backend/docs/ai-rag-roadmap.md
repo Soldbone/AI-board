@@ -2,15 +2,17 @@
 
 ## Current decision
 
-The first AI MVP keeps the retrieval boundary inside the NestJS backend and does
-not introduce LlamaIndex yet.
+The AI MVP keeps the retrieval boundary inside the NestJS backend and does not
+introduce LlamaIndex yet.
 
-The next retrieval upgrade should be pgvector first, then LlamaIndex after the
-data path is stable.
+The retrieval path should now move directly to pgvector. Fallback retrieval is
+kept only as a safety net when a database has not been migrated yet; it is not
+the quality-improvement path.
 
-The current local PostgreSQL database does not expose the `vector` extension in
-`pg_available_extensions`, so pgvector should not be enabled in this worktree
-until the database image or managed database plan supports it.
+The local Docker database should use the `pgvector/pgvector:pg16` image so the
+`vector` extension is available. Existing `postgres:16` volumes can usually keep
+their data because the PostgreSQL major version stays 16, but the migration must
+be run after switching images.
 
 ## Why pgvector first
 
@@ -23,14 +25,22 @@ until the database image or managed database plan supports it.
 ## Current operating policy
 
 - AI recommendation lookup is public because it only reads saved results.
-- AI recommendation generation requires login to reduce accidental or anonymous
-  OpenAI cost.
-- AI recommendation generation is limited per user per day with
-  `AI_RECOMMENDATION_DAILY_LIMIT` so repeated button clicks do not create
-  unbounded paid calls.
+- AI recommendation generation requires login so anonymous users cannot trigger
+  OpenAI calls.
+- AI recommendation generation no longer has a daily count limit. When
+  `OPENAI_API_KEY` is set, each authenticated recommendation request can create
+  paid OpenAI calls.
 - If `OPENAI_API_KEY` is empty, the service uses the local fallback recommender.
 - If `OPENAI_API_KEY` is set, the backend can call OpenAI for embeddings and
   recipe generation.
+- Recommendations now store a grounding type:
+  - `COMMUNITY_RAG` means one or more community posts were used as evidence.
+  - `GENERAL_AI` means pgvector found no usable community evidence, so the
+    recommendation was made from the current request and general cooking
+    knowledge.
+- `GENERAL_AI` is not treated as a pgvector failure. It is the first-post or
+  sparse-data path where the service should be honest that no community posts
+  were referenced.
 
 ## Configuration check
 
@@ -45,17 +55,18 @@ Expected mode:
 - `mode: "FALLBACK"` means `OPENAI_API_KEY` is empty and no OpenAI cost is used.
 - `mode: "OPENAI"` means `OPENAI_API_KEY` is set and paid OpenAI calls can be
   used by authenticated recommendation requests.
-- `pgvectorAvailable: false` means this database should keep using the current
-  fallback retrieval until the database exposes the `vector` extension.
+- `pgvectorAvailable: true` means the database image exposes the `vector`
+  extension.
+- `pgvectorInstalled: true` means the current database has the extension enabled
+  and vector search is the intended retrieval path.
 
 ## Recommended next steps
 
-1. Use a PostgreSQL build or managed database plan that exposes pgvector.
-2. Add pgvector support after confirming the local and production databases have
-   the `vector` extension available.
-3. Move post embeddings from `Float[]` to a vector column or a raw SQL-managed
-   vector table.
-4. Add an ad-hoc ingredient input flow so users can request a recommendation
-   without writing a post first.
+1. Switch local Docker PostgreSQL to `pgvector/pgvector:pg16`.
+2. Run Prisma migration so `CREATE EXTENSION vector` and the vector column are
+   applied.
+3. Recreate or refresh post RAG documents so old array embeddings are replaced
+   with pgvector embeddings.
+4. Keep the ad-hoc ingredient input flow connected to the same vector search.
 5. Introduce LlamaIndex only after pgvector search quality and saved evidence
    tracking are verified.

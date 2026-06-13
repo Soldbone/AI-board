@@ -31,4 +31,10 @@ export class UsersController {
   findMyComments(@Req() request: AuthenticatedRequest) {
     return this.usersService.findMyComments(request.user.sub);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/ai-recommendations')
+  findMyAiRecommendations(@Req() request: AuthenticatedRequest) {
+    return this.usersService.findMyAiRecommendations(request.user.sub);
+  }
 }

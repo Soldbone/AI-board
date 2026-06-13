@@ -1374,6 +1374,50 @@
   font-size: 14px;
 }
 
+.mypage-ai-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mypage-ai-list > li {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dbe5df;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.mypage-ai-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.mypage-ai-item-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #101812;
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mypage-ai-list p {
+  margin: 0;
+  color: #253029;
+  line-height: 1.6;
+}
+
+.mypage-ai-empty-reference {
+  color: #66736b;
+  font-size: 14px;
+}
+
 .coming-soon-panel,
 .settings-list div {
   border: 1px solid #dbe5df;
@@ -1963,7 +2007,7 @@
 
 .direct-ai-result dl {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin: 0;
 }
@@ -2512,6 +2556,21 @@
   color: #b42318;
 }
 
+.ai-grounding-note,
+.ai-grounding-empty {
+  border: 1px solid #dbe5df;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fbf9;
+  color: #526057;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-grounding-empty {
+  color: #66736b;
+}
+
 .detail-ai-panel .ai-reference-list,
 .ai-reference-list {
   display: grid;
@@ -2553,6 +2612,11 @@
   font-weight: 900;
 }
 
+.detail-ai-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .detail-ai-panel button {
   min-height: 44px;
   border: 0;
@@ -2562,6 +2626,12 @@
   cursor: pointer;
   font: inherit;
   font-weight: 900;
+}
+
+.detail-ai-panel .ai-secondary-action {
+  border: 1px solid #cfe0d6;
+  background: #ffffff;
+  color: #1f6f3b;
 }
 
 .detail-ai-panel button:disabled {
@@ -3264,10 +3334,15 @@
   color: #168541;
 }
 
+.status-badge.stale {
+  background: #fff1dc;
+  color: #b66312;
+}
+
 .status-badge.pending,
 .status-badge.working {
-  background: #fff1dc;
-  color: #c66a16;
+  background: #eef1f4;
+  color: #66736b;
 }
 
 .pagination {
