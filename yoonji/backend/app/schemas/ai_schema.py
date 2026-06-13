@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -163,3 +164,23 @@ class SimilarPostItemResponse(BaseModel):
 
 class SimilarPostListResponse(BaseModel):
     items: list[SimilarPostItemResponse]
+
+
+IndexingRequestStatus = Literal["REQUESTED", "INDEXED", "SKIPPED", "FAILED", "DELETED"]
+
+
+class ContentIndexingResponse(BaseModel):
+    source_type: ContentSourceType
+    post_id: int | None = None
+    comment_id: int | None = None
+    status: IndexingRequestStatus
+    chunk_count: int = 0
+    stale_count: int = 0
+    message: str | None = None
+
+
+class ReindexContentResponse(BaseModel):
+    post_count: int = 0
+    comment_count: int = 0
+    chunk_count: int = 0
+    failed_items: list[str] = Field(default_factory=list)

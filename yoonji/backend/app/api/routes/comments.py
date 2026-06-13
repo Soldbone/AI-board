@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.ai.rag import indexing_service
 from app.schemas.comment_schema import (
     CommentCreateRequest,
     CommentListResponse,
@@ -40,13 +41,19 @@ def create_comment(
     payload: CommentCreateRequest,
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> CommentResponse:
-    return comment_service.create_comment(
+    response = comment_service.create_comment(
         db,
         post_id=post_id,
         payload=payload,
         current_user=current_user,
     )
+    indexing_service.schedule_comment_indexing(
+        background_tasks,
+        comment_id=response.id,
+    )
+    return response
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentResponse)
@@ -55,13 +62,19 @@ def update_comment(
     payload: CommentUpdateRequest,
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> CommentResponse:
-    return comment_service.update_comment(
+    response = comment_service.update_comment(
         db,
         comment_id=comment_id,
         payload=payload,
         current_user=current_user,
     )
+    indexing_service.schedule_comment_indexing(
+        background_tasks,
+        comment_id=comment_id,
+    )
+    return response
 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -69,9 +82,14 @@ def delete_comment(
     comment_id: Annotated[int, Path(gt=0)],
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> None:
     comment_service.delete_comment(
         db,
         comment_id=comment_id,
         current_user=current_user,
+    )
+    indexing_service.schedule_comment_index_deletion(
+        background_tasks,
+        comment_id=comment_id,
     )

@@ -97,7 +97,7 @@ def list_indexed_chunks(
     *,
     board_code: BoardCode | None = None,
     source_types: list[ContentSourceType] | None = None,
-    limit: int = 20,
+    limit: int | None = 20,
 ) -> list[ContentChunk]:
     filters: list[object] = [ContentChunk.index_status == ContentChunkStatus.INDEXED]
 
@@ -111,8 +111,11 @@ def list_indexed_chunks(
         select(ContentChunk)
         .where(*filters)
         .order_by(ContentChunk.indexed_at.desc().nullslast(), ContentChunk.id.desc())
-        .limit(limit)
     )
+
+    if limit is not None:
+        statement = statement.limit(limit)
+
     return list(db.scalars(statement).all())
 
 
@@ -122,6 +125,14 @@ def mark_post_chunks_stale(db: Session, *, post_id: int) -> int:
 
 def mark_comment_chunks_stale(db: Session, *, comment_id: int) -> int:
     return _mark_chunks_stale(db, ContentChunk.comment_id == comment_id)
+
+
+def mark_post_chunks_deleted(db: Session, *, post_id: int) -> int:
+    return _mark_chunks_deleted(db, ContentChunk.post_id == post_id)
+
+
+def mark_comment_chunks_deleted(db: Session, *, comment_id: int) -> int:
+    return _mark_chunks_deleted(db, ContentChunk.comment_id == comment_id)
 
 
 def mark_chunk_indexed(
@@ -178,6 +189,23 @@ def _mark_chunks_stale(db: Session, source_filter: object) -> int:
         )
         .values(
             index_status=ContentChunkStatus.STALE,
+            updated_at=utc_now(),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    result = db.execute(statement)
+    return int(result.rowcount or 0)
+
+
+def _mark_chunks_deleted(db: Session, source_filter: object) -> int:
+    statement = (
+        update(ContentChunk)
+        .where(
+            source_filter,
+            ContentChunk.index_status != ContentChunkStatus.DELETED,
+        )
+        .values(
+            index_status=ContentChunkStatus.DELETED,
             updated_at=utc_now(),
         )
         .execution_options(synchronize_session=False)

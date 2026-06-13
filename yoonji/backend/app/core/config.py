@@ -35,6 +35,23 @@ class Settings:
         self.backend_cors_origins = self._parse_origins(
             os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:5173")
         )
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_embedding_model = os.getenv(
+            "OPENAI_EMBEDDING_MODEL",
+            "text-embedding-3-small",
+        )
+        self.openai_chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+        self.vector_store_provider = os.getenv("VECTOR_STORE_PROVIDER", "pgvector")
+        self.chroma_persist_dir = os.getenv(
+            "CHROMA_PERSIST_DIR",
+            str(PROJECT_ROOT / "chroma_db"),
+        )
+        self.rag_chunk_size = self._parse_int(os.getenv("RAG_CHUNK_SIZE"), 900)
+        self.rag_chunk_overlap = self._parse_int(os.getenv("RAG_CHUNK_OVERLAP"), 120)
+        self.auto_index_after_write = self._parse_bool(
+            os.getenv("AUTO_INDEX_AFTER_WRITE"),
+            False,
+        )
 
     @staticmethod
     def _parse_origins(value: str) -> list[str]:
@@ -49,6 +66,13 @@ class Settings:
             return int(value)
         except ValueError:
             return default
+
+    @staticmethod
+    def _parse_bool(value: str | None, default: bool) -> bool:
+        if value is None:
+            return default
+
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 @lru_cache

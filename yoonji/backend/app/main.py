@@ -8,6 +8,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.boards import router as boards_router
 from app.api.routes.comments import router as comments_router
 from app.api.routes.images import router as images_router
+from app.api.routes.internal import router as internal_router
 from app.api.routes.posts import router as posts_router
 from app.api.routes.search import router as search_router
 from app.api.routes.tags import router as tags_router
@@ -33,6 +34,7 @@ app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(boards_router, prefix=settings.api_prefix)
 app.include_router(comments_router, prefix=settings.api_prefix)
 app.include_router(images_router, prefix=settings.api_prefix)
+app.include_router(internal_router, prefix=settings.api_prefix)
 app.include_router(posts_router, prefix=settings.api_prefix)
 app.include_router(search_router, prefix=settings.api_prefix)
 app.include_router(tags_router, prefix=settings.api_prefix)

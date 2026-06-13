@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.board import Board
 from app.models.comment import Comment
-from app.models.enums import CommentStatus, PostStatus
+from app.models.enums import BoardCode, CommentStatus, PostStatus
 from app.models.post import Post
 
 
@@ -117,6 +117,58 @@ def get_comment_for_write_action(db: Session, comment_id: int) -> Comment | None
         )
     )
     return db.scalar(statement)
+
+
+def get_comment_for_indexing(db: Session, comment_id: int) -> Comment | None:
+    statement = (
+        select(Comment)
+        .join(Comment.post)
+        .join(Post.board)
+        .options(
+            joinedload(Comment.author),
+            joinedload(Comment.post).joinedload(Post.board),
+        )
+        .where(
+            Comment.id == comment_id,
+            Comment.status == CommentStatus.PUBLISHED,
+            Comment.deleted_at.is_(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.deleted_at.is_(None),
+            Board.is_active.is_(True),
+            Board.code == BoardCode.QUESTION,
+        )
+    )
+    return db.scalar(statement)
+
+
+def list_comments_for_indexing(
+    db: Session,
+    *,
+    limit: int | None = None,
+) -> list[Comment]:
+    statement = (
+        select(Comment)
+        .join(Comment.post)
+        .join(Post.board)
+        .options(
+            joinedload(Comment.author),
+            joinedload(Comment.post).joinedload(Post.board),
+        )
+        .where(
+            Comment.status == CommentStatus.PUBLISHED,
+            Comment.deleted_at.is_(None),
+            Post.status == PostStatus.PUBLISHED,
+            Post.deleted_at.is_(None),
+            Board.is_active.is_(True),
+            Board.code == BoardCode.QUESTION,
+        )
+        .order_by(Comment.id.asc())
+    )
+
+    if limit is not None:
+        statement = statement.limit(limit)
+
+    return list(db.scalars(statement).all())
 
 
 def update_comment_content(comment: Comment, *, content: str) -> Comment:

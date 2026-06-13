@@ -1,8 +1,9 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.ai.rag import indexing_service
 from app.models.enums import BoardCode
 from app.schemas.post_schema import (
     PostCreateRequest,
@@ -49,12 +50,18 @@ def create_post(
     payload: PostCreateRequest,
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> PostCreateResponse:
-    return post_service.create_post(
+    response = post_service.create_post(
         db,
         payload=payload,
         current_user=current_user,
     )
+    indexing_service.schedule_post_indexing(
+        background_tasks,
+        post_id=response.id,
+    )
+    return response
 
 
 @router.get("/{post_id}", response_model=PostDetailResponse)
@@ -71,13 +78,19 @@ def update_post(
     payload: PostUpdateRequest,
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> PostDetailResponse:
-    return post_service.update_post(
+    response = post_service.update_post(
         db,
         post_id=post_id,
         payload=payload,
         current_user=current_user,
     )
+    indexing_service.schedule_post_indexing(
+        background_tasks,
+        post_id=post_id,
+    )
+    return response
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -85,9 +98,14 @@ def delete_post(
     post_id: Annotated[int, Path(gt=0)],
     db: DbSession,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> None:
     post_service.delete_post(
         db,
         post_id=post_id,
         current_user=current_user,
+    )
+    indexing_service.schedule_post_index_deletion(
+        background_tasks,
+        post_id=post_id,
     )

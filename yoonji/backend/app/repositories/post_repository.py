@@ -257,6 +257,68 @@ def get_post_for_write_action(db: Session, post_id: int) -> Post | None:
     return db.scalar(statement)
 
 
+def get_post_for_indexing(db: Session, post_id: int) -> Post | None:
+    statement = (
+        select(Post)
+        .join(Post.board)
+        .options(
+            joinedload(Post.board),
+            joinedload(Post.author),
+            selectinload(Post.figure_infos),
+            selectinload(Post.tag_links).joinedload(PostTag.tag),
+        )
+        .where(
+            Post.id == post_id,
+            Post.status == PostStatus.PUBLISHED,
+            Post.deleted_at.is_(None),
+            Board.is_active.is_(True),
+            Board.code.in_(
+                [
+                    BoardCode.REVIEW,
+                    BoardCode.QUESTION,
+                    BoardCode.PURCHASE_HELP,
+                ]
+            ),
+        )
+    )
+    return db.scalar(statement)
+
+
+def list_posts_for_indexing(
+    db: Session,
+    *,
+    limit: int | None = None,
+) -> list[Post]:
+    statement = (
+        select(Post)
+        .join(Post.board)
+        .options(
+            joinedload(Post.board),
+            joinedload(Post.author),
+            selectinload(Post.figure_infos),
+            selectinload(Post.tag_links).joinedload(PostTag.tag),
+        )
+        .where(
+            Post.status == PostStatus.PUBLISHED,
+            Post.deleted_at.is_(None),
+            Board.is_active.is_(True),
+            Board.code.in_(
+                [
+                    BoardCode.REVIEW,
+                    BoardCode.QUESTION,
+                    BoardCode.PURCHASE_HELP,
+                ]
+            ),
+        )
+        .order_by(Post.id.asc())
+    )
+
+    if limit is not None:
+        statement = statement.limit(limit)
+
+    return list(db.scalars(statement).all())
+
+
 def create_figure_info(
     db: Session,
     *,
