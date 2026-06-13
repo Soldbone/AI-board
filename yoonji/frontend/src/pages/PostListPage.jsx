@@ -19,6 +19,8 @@ function PostListPage({
   const [boards, setBoards] = useState([]);
   const [boardCode, setBoardCode] = useState(initialBoardCode);
   const [sort, setSort] = useState("latest");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
   const [tagQuery, setTagQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [tagSuggestions, setTagSuggestions] = useState([]);
@@ -28,6 +30,7 @@ function PostListPage({
   const posts = usePostList({
     boardCode,
     page,
+    q: appliedSearchQuery,
     size: PAGE_SIZE,
     sort,
     tag: tagFilter,
@@ -104,6 +107,18 @@ function PostListPage({
     setPage(1);
   }
 
+  function handleSearchSubmit(event) {
+    event.preventDefault();
+    setAppliedSearchQuery(searchQuery.trim());
+    setPage(1);
+  }
+
+  function clearSearchQuery() {
+    setSearchQuery("");
+    setAppliedSearchQuery("");
+    setPage(1);
+  }
+
   function applyTagFilter(tagName = tagQuery) {
     const trimmed = tagName.trim();
     setTagFilter(trimmed);
@@ -143,7 +158,7 @@ function PostListPage({
           </div>
         </div>
 
-        <div className="list-toolbar">
+        <form className="list-toolbar" onSubmit={handleSearchSubmit}>
           <label>
             게시판
             <select value={boardCode} onChange={handleBoardChange}>
@@ -155,6 +170,35 @@ function PostListPage({
               ))}
             </select>
           </label>
+
+          <label>
+            검색어
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="제목, 본문, 피규어명"
+            />
+          </label>
+
+          <div className="list-toolbar-actions">
+            <button
+              type="submit"
+              className="secondary-button"
+              disabled={!searchQuery.trim()}
+            >
+              검색
+            </button>
+            {appliedSearchQuery && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={clearSearchQuery}
+              >
+                검색 초기화
+              </button>
+            )}
+          </div>
 
           <div className="tag-filter-field">
             <label>
@@ -218,13 +262,16 @@ function PostListPage({
               <option value="comments">댓글순</option>
             </select>
           </label>
-        </div>
+        </form>
 
         {boardErrorMessage && (
           <p className="form-message error">{boardErrorMessage}</p>
         )}
         {tagErrorMessage && (
           <p className="form-message error">{tagErrorMessage}</p>
+        )}
+        {appliedSearchQuery && (
+          <p className="empty-text">검색어: {appliedSearchQuery}</p>
         )}
         {tagFilter && <p className="empty-text">선택한 태그: {tagFilter}</p>}
 

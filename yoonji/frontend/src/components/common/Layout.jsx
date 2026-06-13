@@ -1,10 +1,10 @@
 import Header from "./Header";
 
 
-function Layout({ auth, children }) {
+function Layout({ children }) {
   return (
     <div className="app-shell">
-      <Header auth={auth} />
+      <Header />
 
       <main className="layout-main" aria-label="page content">
         {children}

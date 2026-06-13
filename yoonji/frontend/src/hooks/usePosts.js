@@ -16,6 +16,7 @@ export function getApiErrorMessage(error) {
 export function usePostList({
   boardCode = "",
   page = 1,
+  q = "",
   size = 20,
   sort = "latest",
   tag = "",
@@ -40,6 +41,10 @@ export function usePostList({
 
         if (boardCode) {
           params.board_code = boardCode;
+        }
+
+        if (q) {
+          params.q = q;
         }
 
         if (tag) {
@@ -68,7 +73,7 @@ export function usePostList({
     return () => {
       ignore = true;
     };
-  }, [boardCode, page, size, sort, tag]);
+  }, [boardCode, page, q, size, sort, tag]);
 
   return {
     data,
