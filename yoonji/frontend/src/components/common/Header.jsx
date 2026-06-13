@@ -42,10 +42,6 @@ function Header({ auth }) {
   return (
     <header className="site-header">
       <div className="site-header-inner">
-        <NavLink className="brand-link" to="/">
-          Figure Community
-        </NavLink>
-
         <nav className="header-nav" aria-label="main navigation">
           <NavLink className="nav-link" to="/">
             홈

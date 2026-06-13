@@ -24,20 +24,10 @@ import SearchResultPage from "../pages/SearchResultPage";
 import SignupPage from "../pages/SignupPage";
 
 
-function AppRouter({
-  auth,
-  connectionErrorMessage,
-  connectionStatus,
-  healthResponse,
-}) {
+function AppRouter({ auth }) {
   return (
     <BrowserRouter>
-      <Layout
-        auth={auth}
-        connectionErrorMessage={connectionErrorMessage}
-        connectionStatus={connectionStatus}
-        healthResponse={healthResponse}
-      >
+      <Layout auth={auth}>
         <Routes>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/boards" element={<PostListRoute auth={auth} />} />

@@ -5,8 +5,6 @@
 }
 
 .site-header,
-.app-hero,
-.status-strip,
 .layout-main {
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -24,17 +22,9 @@
 
 .site-header-inner {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
   align-items: center;
-}
-
-.brand-link {
-  color: #101828;
-  font-size: 20px;
-  font-weight: 900;
-  text-decoration: none;
-  white-space: nowrap;
 }
 
 .header-nav,
@@ -48,7 +38,7 @@
 }
 
 .header-nav {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .header-actions {
@@ -93,17 +83,6 @@
   min-height: 34px;
   padding: 0 11px;
   font-size: 13px;
-}
-
-.app-hero {
-  padding: 34px 0 24px;
-}
-
-.app-hero h1 {
-  margin: 14px 0 8px;
-  color: #101828;
-  font-size: 40px;
-  line-height: 1.1;
 }
 
 .layout-main {
@@ -280,10 +259,6 @@
 @media (max-width: 640px) {
   .app-shell {
     padding: 0 16px 28px;
-  }
-
-  .app-hero h1 {
-    font-size: 32px;
   }
 
   .nav-link,
