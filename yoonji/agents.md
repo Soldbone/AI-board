@@ -30,10 +30,9 @@ MVP에 포함한다.
 
 MVP에 포함하지 않는다.
 
-- RAG Q&A
-- AI 참고 답변
-- 구매 고민 AI 요약
-- 유사 게시글 AI 추천
+- 질문 게시판 AI 참고 답변
+- 구매 고민 AI 요약/추천
+- 후기 유사 피규어 게시글 AI 추천
 - 입문자 정보글 AI 초안
 - MCP 기반 링크 미리보기
 - pgvector 기반 의미 검색
@@ -601,20 +600,24 @@ AI 구현은 항상 기존 사용자 작성 콘텐츠와 분리해서 저장한�
 다음 흐름을 기준으로 RAG 기능을 구현한다.
 
 ```
-게시글 데이터
+게시글/댓글 데이터
 → LangChain Document 변환
 → Text Splitter로 chunk 분리
 → Embedding 생성
 → Vector DB 저장
-→ 사용자 질문 입력
+→ 사용자 기능 요청
 → Retriever로 관련 문서 검색
-→ 검색된 context를 LLM prompt에 삽입
-→ 답변 생성
+→ 기능별 ranking 또는 LLM prompt 구성
+→ 추천/답변/요약 생성
 ```
 
-이번 Phase에서는 우선 게시글 데이터를 기반으로 한 **AI Q&A 기능**을 구현한다.
+AI 구현 범위는 아래 세 가지 RAG 기능으로 한정한다.
 
-사용자는 질문을 입력할 수 있고, 백엔드는 기존 게시글 중 질문과 관련 있는 문서를 검색한 뒤, 검색된 내용을 참고하여 답변을 생성한다.
+1. 후기 게시판에서 현재 피규어와 유사한 피규어 후기 게시글을 추천한다.
+2. 질문 게시판에 새 질문 글이 올라오면 과거 질문/답변 데이터를 근거로 AI 참고 답변을 생성한다.
+3. 구매 고민 게시판에서 동일 피규어 후기 요약과 비슷한 가격대의 만족도 높은 피규어 추천을 제공한다.
+
+독립적인 자유 질문형 `POST /api/v1/ai/qna`는 만들지 않는다. AI는 게시글 맥락 안에서만 동작한다.
 
 ---
 
@@ -623,7 +626,7 @@ AI 구현은 항상 기존 사용자 작성 콘텐츠와 분리해서 저장한�
 LangChain을 사용할 때 다음 구성 요소를 명확히 분리해서 구현한다.
 
 - `Document`
-  - DB 게시글 데이터를 LangChain이 처리할 수 있는 문서 형태로 변환한다.
+  - DB 게시글/댓글 데이터를 LangChain이 처리할 수 있는 문서 형태로 변환한다.
 - `TextSplitter`
   - 긴 게시글을 적절한 chunk 단위로 나눈다.
   - `RecursiveCharacterTextSplitter`를 우선 사용한다.
@@ -632,14 +635,14 @@ LangChain을 사용할 때 다음 구성 요소를 명확히 분리해서 구현
   - 환경변수 기반으로 OpenAI Embedding 모델을 사용할 수 있게 구성한다.
 - `Vector Store`
   - 임베딩된 문서를 저장한다.
-  - MVP에서는 로컬 개발이 쉬운 ChromaDB를 우선 사용한다.
-  - 추후 pgvector로 교체 가능하도록 서비스 레이어를 분리한다.
+  - 개발에서는 ChromaDB를 사용할 수 있고, 프로젝트 DB 설계와 운영 확장은 pgvector를 고려한다.
+  - vector store 교체가 가능하도록 `vector_store.py` 뒤에 구현을 숨긴다.
 - `Retriever`
-  - 사용자 질문과 유사한 게시글 chunk를 검색한다.
+  - 질문, 후기 게시글, 구매 고민 글의 문맥과 유사한 chunk를 검색한다.
 - `Prompt`
-  - 검색된 context와 사용자 질문을 함께 LLM에 전달한다.
+  - 검색된 context와 질문/구매 고민 문맥을 함께 LLM에 전달한다.
 - `LLM`
-  - 검색된 게시글 내용을 기반으로 답변을 생성한다.
+  - 검색된 게시글/댓글 내용을 기반으로 답변 또는 요약을 생성한다.
 
 ---
 
@@ -652,13 +655,32 @@ LangChain을 사용할 때 다음 구성 요소를 명확히 분리해서 구현
 ```
 backend/
   app/
+    ai/
+      rag/
+        document_loader.py
+        text_splitter.py
+        embedding_client.py
+        vector_store.py
+        retriever.py
+        rag_chain.py
+        indexing_service.py
+      llm/
+        llm_client.py
+        prompts.py
+      usecases/
+        similar_posts.py
+        question_reference_answer.py
+        purchase_summary.py
     api/
       routes/
         ai.py
+        posts.py
+        internal.py
     services/
-      rag_service.py
+      ai_service.py
+      post_service.py
     schemas/
-      rag.py
+      ai_schema.py
     core/
       config.py
   docs/
@@ -668,22 +690,37 @@ backend/
 각 파일의 역할은 다음과 같다.
 
 ```
+ai/rag/*
+- 게시글/댓글을 Document로 변환하고, chunk 분리, embedding 생성, vector 저장, 검색을 담당한다.
+
+ai/llm/*
+- LLM client와 기능별 prompt를 관리한다.
+
+ai/usecases/*
+- 세 가지 사용자 기능을 각각 독립된 usecase로 구현한다.
+- 후기 유사 게시글 추천, 질문 참고 답변, 구매 고민 요약/추천을 서로 섞지 않는다.
+
+api/routes/posts.py
+- 게시글 상세 맥락에서 호출되는 유사 게시글 추천 API를 담당한다.
+
 api/routes/ai.py
-- React에서 들어오는 AI Q&A 요청을 받는 API route
-- request schema를 검증하고 service를 호출한다.
+- 질문 참고 답변과 구매 고민 요약처럼 AI 결과를 생성하거나 조회하는 API를 담당한다.
 
-services/rag_service.py
-- LangChain RAG 핵심 로직을 담당한다.
-- 문서 변환, 임베딩, Vector DB 저장, 검색, 답변 생성을 처리한다.
+api/routes/internal.py
+- 게시글/댓글 RAG 인덱싱처럼 일반 사용자가 직접 호출하지 않는 내부 작업 API를 담당한다.
 
-schemas/rag.py
-- RAG 관련 request/response schema를 정의한다.
+services/ai_service.py
+- route와 usecase 사이의 서비스 계층이다.
+- 권한, 대상 게시판 검증, AiOutput 저장 흐름을 조율한다.
+
+schemas/ai_schema.py
+- AI 요청/응답, source, 추천 결과, AiOutput 응답 schema를 정의한다.
 
 core/config.py
-- OpenAI API key, embedding model, chat model, vector DB 경로 등의 설정을 관리한다.
+- OpenAI API key, embedding model, chat model, vector DB 설정을 관리한다.
 
 docs/rag-study.md
-- 이번 Phase에서 구현한 RAG 개념과 코드 설명을 자세히 기록한다.
+- 이번 AI 구현의 RAG 개념, 수정 파일, 기능별 흐름, 테스트 방법을 자세히 기록한다.
 ```
 
 기존 프로젝트 구조가 다르면, 현재 구조에 맞게 가장 자연스러운 위치에 배치하되, 왜 그렇게 배치했는지 `docs/rag-study.md`에 설명한다.
@@ -692,54 +729,74 @@ docs/rag-study.md
 
 #### 4. API 구현
 
-다음 API를 구현한다.
+세 가지 기능을 위해 아래 API를 구현한다.
 
 ```
-POST /api/v1/ai/qna
+GET /api/v1/posts/{post_id}/similar-posts?limit=3
+POST /api/v1/posts/{post_id}/ai/reference-answer
+POST /api/v1/posts/{post_id}/ai/purchase-summary
+GET /api/v1/ai/outputs/{ai_output_id}
 ```
 
-요청 예시:
+각 API의 역할은 다음과 같다.
 
 ```
-{
-  "question": "넨도로이드 보관할 때 햇빛 조심해야 해?"
-}
+GET /posts/{post_id}/similar-posts
+- 후기 게시글 상세에서 호출한다.
+- 현재 후기 게시글의 피규어명, 제조사, 태그, 본문, 가격대와 유사한 후기 게시글을 찾는다.
+- 현재 게시글은 결과에서 제외한다.
+- 추천 결과는 저장하지 않고 실시간으로 계산한다.
+
+POST /posts/{post_id}/ai/reference-answer
+- 질문 게시판 글에서 호출한다.
+- 과거 QUESTION 게시글과 댓글 데이터를 검색해 AI 참고 답변을 생성한다.
+- AI 답변은 댓글로 저장하지 않고 AiOutput으로 저장한다.
+
+POST /posts/{post_id}/ai/purchase-summary
+- 구매 고민 게시판 글에서 호출한다.
+- 동일 피규어 후기 요약과 비슷한 가격대의 만족도 높은 후기 글 추천을 함께 제공한다.
+- AI 답변은 AiOutput으로 저장한다.
+
+GET /ai/outputs/{ai_output_id}
+- 질문 참고 답변, 구매 고민 요약처럼 저장된 AI 결과를 조회한다.
 ```
 
-응답 예시:
+답변형 기능에는 반드시 참고한 게시글/댓글 source 정보를 함께 반환한다.
 
-```
-{
-  "question": "넨도로이드 보관할 때 햇빛 조심해야 해?",
-  "answer": "커뮤니티 게시글을 기준으로 보면, PVC 피규어는 직사광선에 오래 노출될 경우 변색될 수 있으므로 햇빛을 피해서 보관하는 것이 좋습니다.",
-  "sources": [
-    {
-      "post_id": 1,
-      "title": "피규어 변색 방지 방법",
-      "content_preview": "PVC 피규어는 직사광선에 오래 노출되면 변색될 수 있습니다..."
-    }
-  ]
-}
-```
-
-답변에는 반드시 참고한 게시글 정보를 함께 반환한다.
+관련 근거가 부족하면 무리하게 지어내지 않고 “근거가 부족하다”고 응답한다.
 
 ---
 
-#### 5. 게시글 인덱싱 기능 구현
+#### 5. 게시글/댓글 인덱싱 기능 구현
 
-RAG 검색을 위해 게시글 데이터를 Vector DB에 저장하는 기능을 구현한다.
+RAG 검색을 위해 게시글과 댓글 데이터를 Vector DB에 저장하는 기능을 구현한다.
 
-우선 다음 중 현재 프로젝트 상황에 맞는 방식으로 구현한다.
+인덱싱 대상:
 
-1. 개발용 초기 인덱싱 함수
-  - 기존 DB의 게시글을 읽어서 ChromaDB에 저장한다.
-2. 게시글 생성 시 자동 인덱싱
-  - 게시글 작성 API가 성공하면 해당 게시글을 Vector DB에도 추가한다.
+- 후기 게시글(`REVIEW`)
+  - 유사 피규어 추천
+  - 구매 고민 요약/추천의 근거
+- 질문 게시글(`QUESTION`)
+  - 새 질문과 유사한 과거 질문 검색
+- 질문 게시글의 댓글
+  - 과거 답변 데이터로 사용
+- 구매 고민 게시글(`PURCHASE_HELP`)
+  - 구매 고민 문맥 분석과 추후 유사 고민 검색 확장에 사용
 
-가능하다면 두 방식을 모두 고려하되, 이번 Phase에서는 MVP 기준으로 가장 안정적인 방식을 먼저 구현한다.
+구현 방식:
 
-구현 시 중복 저장 문제가 생기지 않도록 `post_id`를 metadata에 포함한다.
+1. 개발용 전체 재인덱싱 스크립트
+  - 기존 DB의 게시글/댓글을 읽어 Vector DB에 저장한다.
+2. 게시글/댓글 생성 및 수정 시 인덱싱
+  - 생성 또는 수정이 성공한 뒤 내부 인덱싱 API나 service를 통해 chunk를 갱신한다.
+3. 중복 저장 방지
+  - `post_id`, `comment_id`, `board_code`, `chunk_index`, `source_type`을 metadata에 포함한다.
+4. 수정 처리
+  - 수정된 글/댓글은 기존 chunk를 `STALE` 처리하고 다시 인덱싱한다.
+
+Vector Store는 `backend/app/ai/rag/vector_store.py` 뒤에 감춘다.
+
+개발 편의상 ChromaDB를 사용할 수 있지만, 프로젝트의 DB 설계와 운영 확장을 고려해 pgvector로 교체 가능해야 한다.
 
 ---
 
@@ -756,6 +813,7 @@ OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_CHAT_MODEL=gpt-4o-mini
 CHROMA_PERSIST_DIR=./chroma_db
+VECTOR_STORE_PROVIDER=pgvector
 ```
 
 기존 프로젝트에서 이미 설정 관리 방식이 있다면 그 방식을 따른다.
@@ -766,19 +824,20 @@ CHROMA_PERSIST_DIR=./chroma_db
 
 다음 상황에 대한 예외 처리를 포함한다.
 
-- 질문이 비어 있는 경우
+- 대상 게시글이 존재하지 않는 경우
+- 대상 게시글의 게시판이 기능과 맞지 않는 경우
+- 질문 글 또는 구매 고민 글의 본문이 비어 있는 경우
 - Vector DB에 문서가 없는 경우
-- 관련 게시글을 찾지 못한 경우
+- 관련 게시글/댓글을 찾지 못한 경우
 - OpenAI API 호출 실패
-- ChromaDB 초기화 실패
+- Vector DB 초기화 실패
 - 예상하지 못한 LangChain 오류
 
-관련 게시글이 없을 때는 무리하게 답변을 지어내지 말고, 다음과 같은 응답을 반환한다.
+관련 근거가 없을 때는 무리하게 답변을 지어내지 말고, 기능별 fallback을 반환한다.
 
 ```
 {
-  "question": "...",
-  "answer": "관련 게시글을 찾지 못해 답변을 생성할 수 없습니다.",
+  "answer": "관련 게시글이나 댓글 근거가 부족해 답변을 생성할 수 없습니다.",
   "sources": []
 }
 ```
@@ -827,7 +886,7 @@ CHROMA_PERSIST_DIR=./chroma_db
 - `Document`
 - `RecursiveCharacterTextSplitter`
 - `OpenAIEmbeddings`
-- `Chroma`
+- `Chroma` 또는 `pgvector` 기반 Vector Store
 - `Retriever`
 - `ChatPromptTemplate`
 - `ChatOpenAI`
@@ -853,12 +912,11 @@ CHROMA_PERSIST_DIR=./chroma_db
 예시:
 
 ```
-app/services/rag_service.py
-- RAG 핵심 로직을 담당한다.
-- 게시글을 Document로 변환한다.
-- Vector DB에 저장한다.
-- 사용자 질문과 관련된 게시글을 검색한다.
-- 검색된 context를 기반으로 LLM 답변을 생성한다.
+app/ai/rag/retriever.py
+- 기능별 검색 조건에 맞는 Retriever를 만든다.
+- 후기 추천은 REVIEW 게시글을 검색한다.
+- 질문 참고 답변은 QUESTION 게시글과 댓글을 검색한다.
+- 구매 고민 요약은 REVIEW 게시글의 피규어 정보와 가격대 metadata를 활용한다.
 ```
 
 각 파일 설명에는 “왜 이 파일에 이 코드가 들어가는지”도 포함한다.
@@ -872,9 +930,9 @@ app/services/rag_service.py
 - 게시글을 `Document`로 변환하는 코드
 - `TextSplitter`로 chunk를 나누는 코드
 - embedding 모델을 생성하는 코드
-- ChromaDB에 저장하는 코드
+- Vector DB에 저장하는 코드
 - retriever로 관련 문서를 검색하는 코드
-- prompt에 context와 question을 넣는 코드
+- prompt에 context와 질문/게시글 문맥을 넣는 코드
 - LLM이 답변을 생성하는 코드
 - API route에서 service를 호출하는 코드
 
@@ -900,8 +958,8 @@ app/services/rag_service.py
 예시:
 
 - 운영 환경에서는 pgvector 또는 관리형 Vector DB를 고려할 수 있다.
-- 현재는 게시글 기반 Q&A만 지원한다.
-- 추후 유사 게시글 추천, 중복 질문 방지, URL 기반 외부 문서 RAG로 확장할 수 있다.
+- 현재는 후기 추천, 질문 참고 답변, 구매 고민 요약/추천만 지원한다.
+- 추후 중복 질문 방지, 개인화 추천, 더 정교한 reranking으로 확장할 수 있다.
 - 현재는 단순 top-k 검색을 사용한다.
 - 추후 reranker, metadata filter, hybrid search 등을 추가할 수 있다.
 
@@ -909,9 +967,10 @@ app/services/rag_service.py
 
 ### 구현 완료 조건
 
-- 사용자의 질문에 대해 관련 게시글을 검색할 수 있다.
-- 검색된 게시글 context를 기반으로 LLM 답변을 생성한다.
-- 응답에 참고한 게시글 source 정보가 포함된다.
+- 후기 게시글 상세에서 유사 후기 게시글을 검색할 수 있다.
+- 질문 게시글에서 과거 질문/댓글 context를 기반으로 AI 참고 답변을 생성한다.
+- 구매 고민 게시글에서 동일 피규어 후기 요약과 유사 가격대 추천을 생성한다.
+- 답변형 응답에 참고한 게시글/댓글 source 정보가 포함된다.
 - 관련 게시글이 없을 때 적절한 fallback 응답을 반환한다.
 - OpenAI API Key와 모델명은 환경변수로 관리된다.
 - RAG 관련 핵심 로직이 service 계층에 분리되어 있다.
@@ -933,9 +992,9 @@ app/services/rag_service.py
 - 문서에서는 친절하고 자세하게 설명한다.
 - 구현 후 코드와 문서가 서로 맞는지 확인한다.
 
-## AI Phase 1. AI용 DB 모델 구현
+## AI Phase 1. AI 공통 DB 모델과 schema 구현
 
-목표: RAG와 AI 결과 저장을 위한 테이블을 추가한다.
+목표: 세 가지 RAG 기능에서 공통으로 사용할 검색 청크, AI 결과, AI 근거 저장 기반을 만든다.
 
 구현 파일:
 
@@ -952,17 +1011,32 @@ app/services/rag_service.py
 - AI 결과 저장
 - AI 근거 저장
 - `AiOutput.status`에 `REQUESTED`, `PROCESSING`, `GENERATED`, `FAILED` 포함
-- `grounding_status` 저장
+- `grounding_status`에 `GROUNDED`, `PARTIALLY_GROUNDED`, `NO_EVIDENCE` 포함
+- `output_type`은 우선 `QUESTION_REFERENCE_ANSWER`, `PURCHASE_SUMMARY`를 사용한다.
+- 유사 게시글 추천 결과는 저장하지 않고 실시간 계산한다.
+
+주의:
+
+- AI 답변은 댓글로 저장하지 않는다.
+- 사용자 작성 글/댓글과 AI 생성 결과를 DB에서도 분리한다.
+- `AiOutputSource`는 참고한 게시글/댓글/청크를 사용자에게 보여주기 위한 근거 테이블이다.
 
 공부 포인트:
 
 - AI 결과를 댓글과 분리해서 저장하는 이유
 - 근거 링크를 별도 테이블로 두는 이유
 - 비동기 상태 관리
+- 추천 결과를 저장하지 않는 이유
+
+완료 기준:
+
+- 청크, AI 결과, AI 근거 모델을 만들 수 있다.
+- 질문 참고 답변과 구매 고민 요약 결과를 `AiOutput`으로 저장할 수 있다.
+- AI 결과 조회 응답에 sources를 포함할 수 있다.
 
 ## AI Phase 2. RAG 인덱싱 구현
 
-목표: 게시글과 댓글을 검색 가능한 청크로 만든다.
+목표: 후기, 질문, 댓글, 구매 고민 글을 검색 가능한 chunk로 만든다.
 
 구현 파일:
 
@@ -983,64 +1057,65 @@ app/services/rag_service.py
 구현 내용:
 
 - 게시글/댓글 텍스트 수집
-- 청크 분리
-- 임베딩 생성
-- pgvector 저장
-- 수정된 글은 기존 청크 `STALE` 처리 후 재인덱싱
+- 후기 글의 피규어명, 제조사, 가격대, 만족도, 태그를 metadata에 포함
+- 질문 글과 댓글을 함께 검색할 수 있도록 질문/답변 관계 metadata 구성
+- 구매 고민 글의 제목과 본문을 검색 문맥으로 저장
+- `RecursiveCharacterTextSplitter`로 chunk 분리
+- embedding 생성
+- vector store 저장
+- 수정된 글/댓글은 기존 chunk `STALE` 처리 후 재인덱싱
+
+인덱싱 문맥 예시:
+
+```
+REVIEW:
+- title
+- content
+- figure_name
+- manufacturer
+- price_range
+- satisfaction_score
+- tags
+
+QUESTION:
+- title
+- content
+- comments
+- tags
+
+PURCHASE_HELP:
+- title
+- content
+- tags
+```
 
 공부 포인트:
 
 - RAG에서 chunk가 필요한 이유
 - embedding vector가 무엇인지
 - 검색용 데이터와 원본 데이터를 분리하는 이유
+- metadata filter가 필요한 이유
 
-## AI Phase 3. RAG Q&A 구현
+완료 기준:
 
-목표: 사용자가 질문하면 게시판 데이터를 근거로 답변한다.
+- 기존 게시글/댓글을 재인덱싱할 수 있다.
+- 게시글/댓글 생성 또는 수정 후 재인덱싱할 수 있다.
+- board별로 검색 대상을 필터링할 수 있다.
 
-구현 파일:
+## AI Phase 3. 후기 게시판 유사 피규어 추천 구현
 
-- `backend/app/ai/llm/llm_client.py`
-- `backend/app/ai/llm/prompts.py`
-- `backend/app/ai/rag/retriever.py`
-- `backend/app/ai/rag/rag_chain.py`
-- `backend/app/ai/usecases/qna_answer.py`
-- `backend/app/services/ai_service.py`
-- `backend/app/api/routes/ai.py`
-- `frontend/src/api/aiApi.js`
-- `frontend/src/hooks/useAiAnswer.js`
-- `frontend/src/pages/AiQnaPage.jsx`
-- `frontend/src/components/ai/AiAnswerBox.jsx`
-- `frontend/src/components/ai/AiSourceList.jsx`
-
-구현 API:
-
-- `POST /api/v1/ai/qna`
-- `GET /api/v1/ai/outputs/{ai_output_id}`
-
-정책:
-
-- 근거가 있으면 근거 기반 답변을 생성한다.
-- 근거가 부족하면 부족하다고 말한다.
-- 추측성 답변을 최소화한다.
-- 근거 게시글/댓글 링크를 함께 제공한다.
-
-공부 포인트:
-
-- retrieve → generate 흐름
-- AI 답변을 비동기로 처리하는 이유
-- sources를 사용자에게 보여주는 이유
-
-## AI Phase 4. 유사 게시글 추천 구현
-
-목표: 게시글 상세에서 유사 게시글 3개를 추천한다.
+목표: 후기 게시글 상세에서 현재 피규어와 유사한 피규어 후기 게시글을 추천한다.
 
 구현 파일:
 
 - `backend/app/ai/usecases/similar_posts.py`
 - `backend/app/ai/rag/retriever.py`
+- `backend/app/repositories/post_repository.py`
+- `backend/app/services/post_service.py`
 - `backend/app/api/routes/posts.py`
+- `frontend/src/api/postApi.js`
 - `frontend/src/components/post/SimilarPostList.jsx`
+- `frontend/src/pages/PostDetailPage.jsx`
 
 구현 API:
 
@@ -1048,159 +1123,202 @@ app/services/rag_service.py
 
 구현 내용:
 
-- 현재 게시글의 제목, 본문, 태그와 후기 글의 피규어 정보를 검색 문맥으로 만든다.
-- vector search로 유사 글을 찾는다.
-- 현재 게시글은 제외한다.
-- MVP 이후에도 추천 결과는 저장하지 않고 실시간 계산한다.
+- 대상 게시글은 `REVIEW` 게시판이어야 한다.
+- 현재 게시글의 제목, 본문, 태그, 피규어명, 제조사, 가격대를 검색 문맥으로 만든다.
+- vector search로 유사한 `REVIEW` 게시글을 찾는다.
+- 현재 게시글은 추천 결과에서 제외한다.
+- 같은 피규어명/제조사/태그/가격대가 겹치는 글에 가중치를 줄 수 있다.
+- 추천 결과에는 추천 게시글 요약과 추천 이유를 포함한다.
+- 추천 결과는 `AiOutput`으로 저장하지 않고 실시간 계산한다.
+
+응답 예시:
+
+```json
+{
+  "items": [
+    {
+      "post": {
+        "id": 11,
+        "title": "같은 캐릭터 다른 버전 후기",
+        "thumbnail_url": "/uploads/posts/11/thumb.jpg",
+        "satisfaction_score": 5,
+        "price_range": "50000_100000"
+      },
+      "score": 0.91,
+      "reason": "같은 캐릭터 태그와 유사한 가격대의 후기입니다."
+    }
+  ]
+}
+```
 
 공부 포인트:
 
 - 키워드 검색과 의미 검색의 차이
+- metadata filter와 vector similarity를 함께 쓰는 이유
 - 추천 결과를 저장하지 않는 이유
 - 추천 이유를 만드는 방법
 
-## AI Phase 5. 질문 게시글 참고 답변 구현
+완료 기준:
 
-목표: 질문 게시판 글에 AI 참고 답변을 붙인다.
+- 후기 상세에서 유사 후기 3개를 볼 수 있다.
+- 현재 게시글은 결과에서 제외된다.
+- 유사 후보가 없으면 빈 목록을 반환하고 화면은 추천 영역을 숨기거나 빈 상태를 보여준다.
+
+## AI Phase 4. 질문 게시판 과거 답변 기반 AI 참고 답변 구현
+
+목표: 새로운 질문 글이 올라왔을 때 과거 질문/댓글 데이터를 기반으로 AI 참고 답변을 생성한다.
 
 구현 파일:
 
+- `backend/app/ai/llm/llm_client.py`
+- `backend/app/ai/llm/prompts.py`
+- `backend/app/ai/rag/retriever.py`
+- `backend/app/ai/rag/rag_chain.py`
 - `backend/app/ai/usecases/question_reference_answer.py`
 - `backend/app/services/ai_service.py`
 - `backend/app/api/routes/ai.py`
+- `frontend/src/api/aiApi.js`
+- `frontend/src/hooks/useAiAnswer.js`
 - `frontend/src/components/ai/AiAnswerBox.jsx`
 - `frontend/src/components/ai/AiSourceList.jsx`
+- `frontend/src/pages/PostDetailPage.jsx`
 
 구현 API:
 
 - `POST /api/v1/posts/{post_id}/ai/reference-answer`
+- `GET /api/v1/ai/outputs/{ai_output_id}`
 
 정책:
 
 - 대상 게시글은 `QUESTION` 게시판이어야 한다.
+- 검색 대상은 과거 `QUESTION` 게시글과 해당 댓글을 우선한다.
+- 필요하면 `INFO` 게시글도 보조 근거로 사용할 수 있지만, 과거 답변 데이터가 우선이다.
+- 근거가 있으면 근거 기반 답변을 생성한다.
+- 근거가 부족하면 부족하다고 말한다.
+- 추측성 답변을 최소화한다.
 - AI 답변은 댓글로 저장하지 않는다.
 - `AiOutput`으로 저장하고 상세 화면의 AI 영역에 표시한다.
+- 근거 게시글/댓글 링크를 함께 제공한다.
 
 공부 포인트:
 
-- 같은 AI 답변이라도 사용 목적에 따라 output_type이 달라지는 이유
+- retrieve → generate 흐름
+- 과거 질문/댓글을 하나의 답변 근거로 구성하는 방법
+- AI 답변을 비동기로 처리하는 이유
+- sources를 사용자에게 보여주는 이유
 - 사용자 댓글과 AI 참고 답변을 분리하는 이유
 
-## AI Phase 6. 구매 고민 요약 구현
+완료 기준:
 
-목표: 구매 고민 게시글에 동일/유사 피규어 후기 요약을 제공한다.
+- 질문 글에서 AI 참고 답변 생성을 요청할 수 있다.
+- 생성 결과는 `AiOutput`으로 저장된다.
+- 답변에는 근거 게시글/댓글 source가 포함된다.
+- 근거가 부족하면 `NO_EVIDENCE` 또는 `PARTIALLY_GROUNDED` 상태로 제한된 답변을 반환한다.
+
+## AI Phase 5. 구매 고민 게시판 요약과 추천 구현
+
+목표: 구매 고민 게시글에서 동일 피규어 후기 요약과 비슷한 가격대의 만족도 높은 피규어 추천을 제공한다.
 
 구현 파일:
 
+- `backend/app/ai/llm/prompts.py`
+- `backend/app/ai/rag/retriever.py`
+- `backend/app/ai/rag/rag_chain.py`
 - `backend/app/ai/usecases/purchase_summary.py`
 - `backend/app/services/ai_service.py`
+- `backend/app/api/routes/ai.py`
+- `frontend/src/api/aiApi.js`
+- `frontend/src/hooks/useAiAnswer.js`
 - `frontend/src/components/ai/PurchaseSummaryBox.jsx`
+- `frontend/src/components/ai/AiSourceList.jsx`
+- `frontend/src/pages/PostDetailPage.jsx`
 
 구현 API:
 
 - `POST /api/v1/posts/{post_id}/ai/purchase-summary`
+- `GET /api/v1/ai/outputs/{ai_output_id}`
 
 정책:
 
 - 대상 게시글은 `PURCHASE_HELP` 게시판이어야 한다.
-- 동일 피규어 후기 요약, 유사 가격대 추천, 장점/단점을 제공한다.
-- 근거가 부족하면 부족하다고 표시한다.
+- 구매 고민 글의 제목과 본문에서 피규어명, 제조사, 가격대, 고민 포인트를 검색 문맥으로 만든다.
+- 동일 피규어 또는 같은 제조사/캐릭터 후기 글을 우선 검색한다.
+- 동일 피규어 후기가 있으면 장점, 단점, 자주 언급된 만족/불만 포인트를 요약한다.
+- 동일 피규어 근거가 부족하면 비슷한 가격대에서 만족도가 높은 후기 게시글을 추천한다.
+- 단정적으로 구매를 강요하지 않고 판단 보조 정보로 작성한다.
+- 근거 게시글 source를 함께 제공한다.
+
+응답에 포함할 정보:
+
+- 동일 피규어 후기 요약
+- 장점
+- 단점 또는 주의점
+- 비슷한 가격대의 추천 후기 글
+- 근거 부족 여부
+- sources
 
 공부 포인트:
 
 - 여러 검색 결과를 요약하는 방식
 - 장점/단점 구조화
+- 가격대와 만족도를 metadata로 활용하는 방법
 - 구매 판단 보조 정보와 단정적 추천의 차이
 
+완료 기준:
 
+- 구매 고민 글에서 AI 구매 요약을 생성할 수 있다.
+- 동일 피규어 후기가 있으면 그 후기를 우선 요약한다.
+- 동일 피규어 근거가 부족하면 유사 가격대와 높은 만족도 후기를 추천한다.
+- 근거가 없으면 부족하다고 표시한다.
 
-## AI Phase 8. MCP 서버 구현
+## AI Phase 6. 세 RAG 기능 통합 테스트와 문서 정리
 
-목표: 외부 URL 메타데이터 수집 도구를 별도 MCP 서버로 분리한다.
-
-구현 파일:
-
-- `mcp-server/main.py`
-- `mcp-server/server.py`
-- `mcp-server/tools/link_preview_tool.py`
-- `mcp-server/tools/shopping_metadata_tool.py`
-- `mcp-server/tools/youtube_metadata_tool.py`
-- `mcp-server/clients/http_client.py`
-- `mcp-server/clients/naver_shopping_client.py`
-- `mcp-server/schemas/tool_schema.py`
-- `mcp-server/schemas/preview_schema.py`
-- `mcp-server/utils/url_parser.py`
-- `mcp-server/utils/metadata_parser.py`
-
-구현 내용:
-
-- 외부 페이지 요청
-- HTML metadata 파싱
-- 쇼핑몰/유튜브/뉴스 페이지 요약 정보 수집
-- 실패 시 명확한 실패 상태 반환
-
-공부 포인트:
-
-- 백엔드에 모든 외부 수집 로직을 넣지 않는 이유
-- tool input/output schema
-- 외부 사이트 실패를 서비스 장애로 만들지 않는 방법
-
-## AI Phase 9. 입문자 정보글 초안 / 운영자 검수 구현
-
-목표: 반복 질문을 바탕으로 정보글 초안을 생성하고 운영자가 검수 후 발행한다.
+목표: 세 가지 RAG 기능이 설계 의도대로 동작하는지 확인하고 학습 문서를 완성한다.
 
 구현 파일:
 
-- `backend/app/ai/usecases/beginner_info_draft.py`
-- `backend/app/services/ai_service.py`
-- `backend/app/api/routes/ai.py`
-- `frontend/src/components/ai/AiDraftCard.jsx`
+- `docs/rag-study.md`
+- `docs/testing/test-scenarios.md`
+- `docs/architecture/api-design.md`
+- `docs/database/schema-design.md`
+- 필요 시 기능별 테스트 파일
 
-구현 API:
+검증할 시나리오:
 
-- `POST /api/v1/ai/beginner-info-drafts`
-- `PATCH /api/v1/ai/outputs/{ai_output_id}/review`
-- `POST /api/v1/ai/outputs/{ai_output_id}/publish`
+- 후기 게시글 상세에서 유사 후기 추천
+- 유사 후보가 없을 때 빈 목록 처리
+- 질문 게시글에서 과거 답변 기반 AI 참고 답변 생성
+- 질문 근거가 부족할 때 제한된 답변 처리
+- 구매 고민 게시글에서 동일 피규어 후기 요약
+- 동일 피규어 후기가 부족할 때 유사 가격대 고만족 후기 추천
+- AI 답변과 사용자 댓글 분리 표시
+- AI sources 표시
+- 재인덱싱 후 최신 내용 반영
 
-정책:
+문서 작성 내용:
 
-- 운영자만 초안 생성, 검수, 발행할 수 있다.
-- 발행된 게시글은 `source_type=AI_PUBLISHED`다.
-- 사용자 작성 글과 명확히 구분한다.
+- 세 기능의 전체 RAG 흐름
+- 수정한 파일별 역할
+- `Document`, `TextSplitter`, `Embedding`, `Vector Store`, `Retriever`, `Prompt`, `LLM` 설명
+- 후기 추천, 질문 답변, 구매 고민 요약이 같은 RAG 기반을 어떻게 다르게 사용하는지
+- 실행 방법
+- 테스트 방법
+- 한계와 다음 개선 방향
 
-공부 포인트:
+이번 AI 구현에서 제외하는 것:
 
-- 운영자 권한
-- AI 초안 상태 전이
-- AI 결과를 게시글로 발행하는 매핑
+- 독립 자유 질문형 `POST /api/v1/ai/qna`
+- 입문자 정보글 AI 초안
+- MCP 기반 외부 링크 미리보기
+- 자동 외부 링크 탐색
+- LangGraph Agent 흐름
 
-## AI Phase 10. LangGraph Agent 흐름 정리
+완료 기준:
 
-목표: 여러 AI 작업의 흐름을 LangGraph로 정리한다.
-
-구현 파일:
-
-- `backend/app/ai/agent/state.py`
-- `backend/app/ai/agent/graph.py`
-- `backend/app/ai/agent/nodes.py`
-- `backend/app/ai/agent/edges.py`
-- `backend/app/ai/agent/tools.py`
-
-구현 내용:
-
-- intent 분류
-- RAG 검색
-- MCP 도구 호출
-- 답변 생성
-- fallback 처리
-- 최대 반복 횟수 제한
-- 실패 상태 저장
-
-공부 포인트:
-
-- 단순 chain과 agent graph의 차이
-- 상태 기반 AI 흐름
-- 도구 호출 순서 제어
+- 세 가지 RAG 기능이 모두 동작한다.
+- 관련 근거가 없을 때 fallback 응답을 반환한다.
+- AI 결과는 사용자 작성 댓글과 분리되어 표시된다.
+- `docs/rag-study.md`에 구현 내용과 개념 설명이 자세히 정리되어 있다.
 
 ## 4. 구현 중 항상 확인할 문서
 
