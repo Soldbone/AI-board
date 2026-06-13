@@ -155,6 +155,18 @@ PostgreSQL을 실행합니다.
 pnpm.cmd db:up
 ```
 
+PostgreSQL과 backend 컨테이너를 함께 실행할 수도 있습니다. backend 이미지에는 Phase 6 영상 자막 처리를 위한 Python과 `youtube-transcript-api` CLI가 포함됩니다.
+
+```powershell
+docker compose up -d backend
+```
+
+backend 컨테이너 안에서 transcript CLI가 설치됐는지 확인합니다.
+
+```powershell
+docker compose exec backend youtube_transcript_api --help
+```
+
 PostgreSQL을 중지합니다.
 
 ```powershell
