@@ -38,3 +38,8 @@ class Comment(Base):
 
     post: Mapped["Post"] = relationship("Post", back_populates="comments")
     author: Mapped["User"] = relationship("User", back_populates="comments")
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(
+        "ContentChunk",
+        back_populates="comment",
+        cascade="all, delete-orphan",
+    )

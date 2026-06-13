@@ -91,6 +91,39 @@ class ImageStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class ContentSourceType(str, Enum):
+    POST = "POST"
+    COMMENT = "COMMENT"
+    NOTICE = "NOTICE"
+    FAQ = "FAQ"
+
+
+class ContentChunkStatus(str, Enum):
+    PENDING = "PENDING"
+    INDEXED = "INDEXED"
+    FAILED = "FAILED"
+    STALE = "STALE"
+    DELETED = "DELETED"
+
+
+class AiOutputType(str, Enum):
+    QUESTION_REFERENCE_ANSWER = "QUESTION_REFERENCE_ANSWER"
+    PURCHASE_SUMMARY = "PURCHASE_SUMMARY"
+
+
+class AiOutputStatus(str, Enum):
+    REQUESTED = "REQUESTED"
+    PROCESSING = "PROCESSING"
+    GENERATED = "GENERATED"
+    FAILED = "FAILED"
+
+
+class GroundingStatus(str, Enum):
+    GROUNDED = "GROUNDED"
+    PARTIALLY_GROUNDED = "PARTIALLY_GROUNDED"
+    NO_EVIDENCE = "NO_EVIDENCE"
+
+
 def enum_column_type(enum_class: type[Enum], name: str) -> SQLAlchemyEnum:
     return SQLAlchemyEnum(
         enum_class,

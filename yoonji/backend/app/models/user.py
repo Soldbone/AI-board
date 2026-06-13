@@ -49,3 +49,7 @@ class User(Base):
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="author")
     comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="author")
     images: Mapped[list["PostImage"]] = relationship("PostImage", back_populates="uploader")
+    ai_outputs: Mapped[list["AiOutput"]] = relationship(
+        "AiOutput",
+        back_populates="requester",
+    )
