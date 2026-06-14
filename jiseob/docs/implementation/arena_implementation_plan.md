@@ -369,7 +369,7 @@ DELETE /api/v1/comments/:commentId
 
 ### 직접 했다면 접근법
 
-처음에는 실제 LLM을 호출하지 않고 rule-based fake analyzer로 상태 흐름을 만든다. 그 다음 LLM API를 연결한다.
+LLM API 호출은 provider adapter 뒤에 두고, API key 누락이나 외부 API 실패 시 rule-based analyzer로 fallback한다. 이렇게 하면 실제 API를 사용하면서도 댓글 작성 성공 여부와 AI 분석 성공 여부를 분리할 수 있다.
 
 ### 유의사항
 
