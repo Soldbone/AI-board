@@ -157,6 +157,38 @@ type IngredientSetAnalysis = {
   notes: string[]
 }
 
+type PostDraftAgentStatus = 'needs_input' | 'completed' | 'fallback'
+
+type PostDraftAgentStep = {
+  index: number
+  node: string
+  toolName?: string
+  status: 'started' | 'completed' | 'skipped' | 'failed'
+  message: string
+}
+
+type PostDraftToolCall = {
+  toolName: string
+  status: 'completed' | 'failed' | 'skipped'
+  inputSummary: string
+  outputSummary: string
+}
+
+type PostDraftAgentResponse = {
+  status: PostDraftAgentStatus
+  message: string
+  questions: string[]
+  suggestedTitle: string | null
+  suggestedBody: string | null
+  suggestedTags: string[]
+  ingredients: string[]
+  nutritionSummary: string | null
+  nutritionAnalysis: IngredientSetAnalysis | null
+  steps: PostDraftAgentStep[]
+  toolCalls: PostDraftToolCall[]
+  errors: string[]
+}
+
 type MyCommentItem = CommentItem & {
   post: {
     id: number
@@ -582,6 +614,16 @@ function getIngredientMatchLabel(status: MatchStatus) {
   return labels[status]
 }
 
+function getPostDraftAgentStatusLabel(status: PostDraftAgentStatus) {
+  const labels: Record<PostDraftAgentStatus, string> = {
+    needs_input: '추가 정보 필요',
+    completed: 'AI 초안 완료',
+    fallback: '기본 초안 완료',
+  }
+
+  return labels[status]
+}
+
 function getTagGroup(tagName: string) {
   const firstLetter = tagName.trim().charAt(0)
   const code = firstLetter.charCodeAt(0)
@@ -684,6 +726,13 @@ function App() {
   const [postTitle, setPostTitle] = useState('')
   const [postContent, setPostContent] = useState('')
   const [postTagInput, setPostTagInput] = useState('')
+  const [postDraftAdditionalRequest, setPostDraftAdditionalRequest] =
+    useState('')
+  const [postDraftAgentResult, setPostDraftAgentResult] =
+    useState<PostDraftAgentResponse | null>(null)
+  const [postDraftAgentErrorMessage, setPostDraftAgentErrorMessage] =
+    useState('')
+  const [isPostDraftAgentLoading, setIsPostDraftAgentLoading] = useState(false)
   const [editingPostId, setEditingPostId] = useState<number | null>(null)
   const [postCreateErrorMessage, setPostCreateErrorMessage] = useState('')
   const [isPostCreating, setIsPostCreating] = useState(false)
@@ -1785,6 +1834,9 @@ function App() {
     setPostTitle('')
     setPostContent('')
     setPostTagInput('')
+    setPostDraftAdditionalRequest('')
+    setPostDraftAgentResult(null)
+    setPostDraftAgentErrorMessage('')
     setPostCreateErrorMessage('')
     setCurrentView('write')
   }
@@ -2057,6 +2109,9 @@ function App() {
     setPostTitle(selectedPost.title)
     setPostContent(selectedPost.content)
     setPostTagInput((selectedPost.tags ?? []).join(', '))
+    setPostDraftAdditionalRequest('')
+    setPostDraftAgentResult(null)
+    setPostDraftAgentErrorMessage('')
     setPostCreateErrorMessage('')
     setPostDeleteErrorMessage('')
     setCurrentView('write')
@@ -2064,7 +2119,86 @@ function App() {
 
   function closeWriteView() {
     setPostCreateErrorMessage('')
+    setPostDraftAgentErrorMessage('')
     setCurrentView('board')
+  }
+
+  async function handlePostDraftAgentAssist() {
+    if (!accessToken) {
+      setPostDraftAgentErrorMessage('로그인 후 AI 작성 보조를 실행할 수 있습니다.')
+      setLoginErrorMessage('로그인 후 AI 작성 보조를 실행할 수 있습니다.')
+      setCurrentView('login')
+      return
+    }
+
+    if (
+      !postTitle.trim() &&
+      !postContent.trim() &&
+      !postDraftAdditionalRequest.trim()
+    ) {
+      setPostDraftAgentErrorMessage('제목, 내용, 추가 요청 중 하나는 입력해주세요.')
+      setPostDraftAgentResult(null)
+      return
+    }
+
+    setIsPostDraftAgentLoading(true)
+    setPostDraftAgentErrorMessage('')
+
+    try {
+      const response = await fetch('/api/agent/post-draft/assist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          title: postTitle,
+          content: postContent,
+          additionalRequest: postDraftAdditionalRequest,
+        }),
+      })
+      const data = await readJsonResponse<PostDraftAgentResponse>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'AI 작성 보조를 실행하지 못했습니다.')
+      }
+
+      setPostDraftAgentResult(data)
+    } catch (error) {
+      if (handleExpiredSession(error)) {
+        return
+      }
+
+      setPostDraftAgentResult(null)
+      setPostDraftAgentErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'AI 작성 보조를 실행하지 못했습니다.',
+          'AI 작성 보조를 실행하지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsPostDraftAgentLoading(false)
+    }
+  }
+
+  function applyPostDraftAgentSuggestion() {
+    if (!postDraftAgentResult) {
+      return
+    }
+
+    if (postDraftAgentResult.suggestedTitle) {
+      setPostTitle(postDraftAgentResult.suggestedTitle.slice(0, 200))
+    }
+
+    if (postDraftAgentResult.suggestedBody) {
+      setPostContent(postDraftAgentResult.suggestedBody.slice(0, 5000))
+    }
+
+    if (postDraftAgentResult.suggestedTags.length > 0) {
+      setPostTagInput(postDraftAgentResult.suggestedTags.slice(0, 5).join(', '))
+    }
   }
 
   async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
@@ -2120,6 +2254,9 @@ function App() {
       setPostTitle('')
       setPostContent('')
       setPostTagInput('')
+      setPostDraftAdditionalRequest('')
+      setPostDraftAgentResult(null)
+      setPostDraftAgentErrorMessage('')
       setEditingPostId(null)
       setActiveCategory('전체')
       setSearchKeyword('')
@@ -3548,6 +3685,123 @@ function App() {
               </form>
 
               <aside className="write-guide-card" aria-label="작성 팁">
+                <section className="post-draft-agent" aria-label="AI 작성 보조">
+                  <div className="post-draft-agent-heading">
+                    <h2>AI 작성 보조</h2>
+                    <span>Agent</span>
+                  </div>
+                  <label>
+                    추가 요청
+                    <textarea
+                      maxLength={500}
+                      placeholder="예: 초보자도 답하기 쉽게, 저염 메뉴 중심으로 정리해줘"
+                      value={postDraftAdditionalRequest}
+                      onChange={(event) =>
+                        setPostDraftAdditionalRequest(event.target.value)
+                      }
+                    />
+                    <span>{postDraftAdditionalRequest.length} / 500</span>
+                  </label>
+                  <button
+                    className="post-draft-agent-button"
+                    type="button"
+                    onClick={handlePostDraftAgentAssist}
+                    disabled={isPostDraftAgentLoading}
+                  >
+                    {isPostDraftAgentLoading ? '분석 중' : 'AI 작성 보조'}
+                  </button>
+
+                  {postDraftAgentErrorMessage ? (
+                    <p className="post-draft-agent-message error">
+                      {postDraftAgentErrorMessage}
+                    </p>
+                  ) : null}
+
+                  {postDraftAgentResult ? (
+                    <div className="post-draft-agent-result">
+                      <div className="post-draft-agent-status">
+                        <strong>
+                          {getPostDraftAgentStatusLabel(postDraftAgentResult.status)}
+                        </strong>
+                        <span>{postDraftAgentResult.message}</span>
+                      </div>
+
+                      {postDraftAgentResult.questions.length > 0 ? (
+                        <div className="post-draft-agent-section">
+                          <h3>더 필요한 정보</h3>
+                          <ul>
+                            {postDraftAgentResult.questions.map((question) => (
+                              <li key={question}>{question}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {postDraftAgentResult.ingredients.length > 0 ? (
+                        <div className="post-draft-agent-section">
+                          <h3>추출한 재료</h3>
+                          <div className="post-draft-agent-tags">
+                            {postDraftAgentResult.ingredients.map((ingredient) => (
+                              <span key={ingredient}>{ingredient}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {postDraftAgentResult.nutritionSummary ? (
+                        <p className="post-draft-agent-nutrition">
+                          {postDraftAgentResult.nutritionSummary}
+                        </p>
+                      ) : null}
+
+                      {postDraftAgentResult.suggestedTitle ||
+                      postDraftAgentResult.suggestedBody ? (
+                        <div className="post-draft-agent-section">
+                          <h3>제안 초안</h3>
+                          {postDraftAgentResult.suggestedTitle ? (
+                            <strong className="post-draft-agent-title">
+                              {postDraftAgentResult.suggestedTitle}
+                            </strong>
+                          ) : null}
+                          {postDraftAgentResult.suggestedBody ? (
+                            <p className="post-draft-agent-body">
+                              {postDraftAgentResult.suggestedBody}
+                            </p>
+                          ) : null}
+                          {postDraftAgentResult.suggestedTags.length > 0 ? (
+                            <div className="post-draft-agent-tags">
+                              {postDraftAgentResult.suggestedTags.map((tag) => (
+                                <span key={tag}>{tag}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <button
+                            className="post-draft-agent-apply"
+                            type="button"
+                            onClick={applyPostDraftAgentSuggestion}
+                          >
+                            초안 적용
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {postDraftAgentResult.steps.length > 0 ? (
+                        <details className="post-draft-agent-steps">
+                          <summary>추론 로그</summary>
+                          <ol>
+                            {postDraftAgentResult.steps.map((step) => (
+                              <li key={`${step.index}-${step.node}-${step.status}`}>
+                                <span>{step.node}</span>
+                                <small>{step.message}</small>
+                              </li>
+                            ))}
+                          </ol>
+                        </details>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+
                 <h2>작성 팁</h2>
                 <ul>
                   <li>가지고 있는 재료를 구체적으로 적어주세요.</li>
