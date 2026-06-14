@@ -161,15 +161,10 @@ export class OpenAiCommentAnalyzerProvider implements CommentAnalyzerProvider {
 
   private createInstructions(): string {
     return [
-      'You classify Korean or English discussion comments for Arena.',
-      'Return only the requested JSON schema.',
-      'Use FACT_CLAIM only when the comment asserts a checkable factual claim.',
-      'Use OPINION for subjective evaluation or preference.',
-      'Use QUESTION for questions.',
-      'Use TOXIC for insults, threats, harassment, or personal attacks.',
-      'Use CHITCHAT for short reactions or comments that do not fit the other types.',
-      'Set moderationStatus to NEEDS_REVIEW for TOXIC comments, otherwise NORMAL.',
-      'Do not decide whether factual claims are true or false.',
+      'Classify one ko/en comment.',
+      'Types: FACT_CLAIM checkable claim; OPINION subjective; QUESTION question; TOXIC insult/threat/harassment; CHITCHAT other.',
+      'moderationStatus=NEEDS_REVIEW iff TOXIC else NORMAL.',
+      'Return schema JSON only. Do not judge truth.',
     ].join('\n');
   }
 
