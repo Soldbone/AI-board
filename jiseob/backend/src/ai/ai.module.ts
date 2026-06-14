@@ -7,14 +7,16 @@ import {
 } from './comment-analysis/comment-analyzer.provider';
 import { CommentAnalysisService } from './comment-analysis/comment-analysis.service';
 import { CommentAnalysis } from './comment-analysis/entities/comment-analysis.entity';
+import { OpenAiCommentAnalyzerProvider } from './comment-analysis/openai-comment-analyzer.provider';
 
 @Module({
   imports: [TypeOrmModule.forFeature([CommentAnalysis, Comment])],
   providers: [
     CommentAnalysisService,
+    RuleBasedCommentAnalyzerProvider,
     {
       provide: CommentAnalyzerProvider,
-      useClass: RuleBasedCommentAnalyzerProvider,
+      useClass: OpenAiCommentAnalyzerProvider,
     },
   ],
   exports: [CommentAnalysisService],
