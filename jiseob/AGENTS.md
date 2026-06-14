@@ -138,6 +138,8 @@ POST /api/v1/admin/comments/:commentId/analysis/retry
 
 - RAG 검색은 모든 댓글에 수행하지 않는다.
 - AI가 `FACT_CLAIM`으로 분류한 댓글에 대해서만 수행한다.
+- RAG 검색은 댓글 분석 성공 직후 서버 내부 비동기 작업으로 자동 시도한다.
+- 사용자의 “근거 후보 보기” 동작은 이미 생성된 근거 후보 조회만 담당하고, MVP에서는 새 RAG 작업을 트리거하지 않는다.
 - RAG 결과는 참/거짓 판정이 아니다.
 - 사용자에게는 “근거 후보” 또는 “관련 있을 수 있는 자막 구간”으로 표현한다.
 - 댓글 목록 응답에는 근거 상세 전체를 포함하지 않는다.
@@ -152,6 +154,26 @@ POST /api/v1/admin/comments/:commentId/analysis/retry
 ```http
 GET /api/v1/comments/:commentId/evidences
 ```
+
+검색 기준:
+
+- 기본 검색은 pgvector cosine distance 기반 similarity search를 사용한다.
+- `similarity = 1 - cosineDistance`로 계산한다.
+- 기본 `topK`는 3개다.
+- 기본 similarity threshold는 0.70이다.
+- threshold 미만 결과는 사용자에게 노출하지 않는다.
+- similarity score는 근거 후보에 저장한다.
+- 운영 런타임에서는 mock evidence를 사용자에게 반환하지 않는다.
+- mock provider는 자동 테스트 또는 명시적인 로컬 검증용으로만 사용한다.
+
+상태 정책:
+
+- 사실 주장으로 분류되면 `ragStatus=PENDING`으로 시작한다.
+- 영상 embedding이 아직 처리 중이면 `PENDING`을 유지한다.
+- 근거 후보가 저장되면 `SUCCESS`로 처리한다.
+- threshold 이상 결과가 없으면 `NO_RESULT`로 처리한다.
+- 자막 없음, embedding 실패, provider 실패처럼 처리 불가 상태가 확정되면 `FAILED`로 처리한다.
+- RAG 실패 사유는 AI 댓글 분석 실패 사유와 분리해서 저장한다.
 
 ### 3-8. 댓글 스레드 요약 정책
 

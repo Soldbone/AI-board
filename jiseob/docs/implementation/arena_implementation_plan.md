@@ -398,8 +398,10 @@ GET /api/v1/comments/:commentId/evidences
 - 해당 게시글의 Video와 TranscriptChunk 조회
 - 댓글 내용을 embedding으로 변환
 - pgvector similarity search 수행
-- 상위 N개 근거 후보 저장
+- similarity threshold 이상인 상위 3개 근거 후보 저장
 - evidenceCount를 댓글 목록에서 보여줄 수 있게 처리
+- RAG 전용 errorCode/errorMessage 저장
+- 댓글 수정 또는 영상 재처리 시 기존 RAG 근거 후보를 최신 상태로 초기화
 
 ### 완료 기준
 
@@ -407,16 +409,36 @@ GET /api/v1/comments/:commentId/evidences
 - 근거 후보가 있으면 RagEvidence가 저장된다.
 - 근거 후보가 없으면 ragStatus=NO_RESULT로 처리된다.
 - 의견/질문/잡담 댓글은 ragStatus=NOT_REQUIRED로 처리된다.
+- 영상 embedding이 아직 처리 중이면 ragStatus=PENDING을 유지한다.
+- 자막 없음이나 embedding 실패처럼 처리 불가 상태가 확정되면 ragStatus=FAILED로 처리된다.
+- GET evidences API는 조회만 수행하고 RAG 생성이나 재실행을 트리거하지 않는다.
 
 ### 직접 했다면 접근법
 
-처음에는 실제 vector search 대신 transcript chunk 텍스트 검색으로 mock 처리해도 된다. 데이터 흐름이 맞으면 pgvector 검색으로 교체한다.
+기본 구현은 pgvector similarity search로 시작한다. 테스트에서는 외부 API key와 네트워크에 의존하지 않도록 embedding provider와 검색 결과를 mock할 수 있지만, 운영 런타임에서는 mock evidence를 사용자에게 반환하지 않는다.
 
 ### 유의사항
 
 - RAG 결과를 fact verdict로 표현하지 않는다.
 - 댓글 목록에는 근거 상세 전체를 포함하지 않는다.
 - RAG 상세는 사용자가 펼쳐볼 때 별도 API로 조회한다.
+- RAG는 댓글 분석 성공 후 서버 내부 비동기 작업으로 자동 실행한다.
+- 사용자의 “근거 후보 보기” 버튼은 이미 생성된 evidence 조회만 담당한다.
+- 기본 topK는 3개다.
+- 기본 similarity threshold는 0.70이다.
+- similarity는 `1 - cosineDistance`로 계산하고 score를 저장한다.
+- 최신 결과만 유지하므로 재검색 또는 재분석 시 기존 evidence를 삭제하고 새 결과를 저장한다.
+- 비회원은 이미 생성된 evidence 조회만 가능하다.
+- 삭제된 댓글 또는 삭제된 게시글의 evidence는 노출하지 않는다.
+
+### Smoke test 기준
+
+자동 테스트는 실제 API key와 외부 네트워크에 의존하지 않는다. 실제 provider smoke test는 환경변수와 네트워크가 준비된 경우 별도로 수행한다.
+
+```text
+YouTube metadata smoke videoId: jNQXAC9IVRw
+Transcript/RAG smoke videoId: uehJDFfKMpU
+```
 
 ---
 

@@ -553,10 +553,18 @@ export class CommentAnalysis extends BaseModel {
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage?: string | null;
+
+  @Column({ name: 'rag_error_code', type: 'varchar', length: 80, nullable: true })
+  ragErrorCode?: string | null;
+
+  @Column({ name: 'rag_error_message', type: 'text', nullable: true })
+  ragErrorMessage?: string | null;
 }
 ```
 
 `ragStatus`와 `evidenceCount`를 CommentAnalysis에 둔 이유는 댓글 목록에서 RAG 상세를 모두 가져오지 않고도 “근거 후보가 있는지” 표시하기 위해서다.
+
+`errorMessage`는 댓글 분석 실패 사유이고, `ragErrorMessage`는 RAG 검색 실패 사유다. 두 실패 원인은 서로 다른 외부 provider와 상태 전이를 가지므로 분리해서 저장한다.
 
 ---
 
@@ -592,6 +600,8 @@ export class RagEvidence extends BaseModel {
   similarityScore?: number | null;
 }
 ```
+
+RAG 검색은 pgvector cosine distance 기반 exact search로 시작한다. MVP 기본값은 `topK=3`, `similarityThreshold=0.70`, `similarity=1-cosineDistance`다.
 
 ---
 
