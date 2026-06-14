@@ -41,4 +41,10 @@ export class CommentAnalysis extends BaseModel {
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage?: string | null;
+
+  @Column({ name: 'rag_error_code', type: 'varchar', length: 80, nullable: true })
+  ragErrorCode?: string | null;
+
+  @Column({ name: 'rag_error_message', type: 'text', nullable: true })
+  ragErrorMessage?: string | null;
 }

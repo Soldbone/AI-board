@@ -14,6 +14,7 @@ import {
 } from '../common/enums/video-status.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { Post } from '../posts/entities/post.entity';
+import { RagService } from '../ai/rag/rag.service';
 import { TranscriptChunk } from './entities/transcript-chunk.entity';
 import { Video } from './entities/video.entity';
 import { EmbeddingProvider } from './providers/embedding.provider';
@@ -39,6 +40,7 @@ export class VideoProcessingService {
     private readonly transcriptProvider: YoutubeTranscriptProvider,
     private readonly embeddingProvider: EmbeddingProvider,
     private readonly transcriptChunkingService: TranscriptChunkingService,
+    private readonly ragService: RagService,
     @InjectRepository(Video)
     private readonly videosRepository: Repository<Video>,
     @InjectRepository(TranscriptChunk)
@@ -174,6 +176,7 @@ export class VideoProcessingService {
       }
 
       const savedChunks = await this.dataSource.transaction(async (manager) => {
+        await this.ragService.resetForVideo(video.id, manager);
         await manager.getRepository(TranscriptChunk).delete({ videoId: video.id });
         const transcriptChunks = chunks.map((chunk) =>
           manager.getRepository(TranscriptChunk).create({
@@ -229,6 +232,7 @@ export class VideoProcessingService {
         embeddingErrorCode: null,
         embeddingErrorMessage: null,
       });
+      await this.ragService.enqueuePendingForVideo(video.id);
     } catch (error) {
       const providerError = toProviderError(
         error,
@@ -242,6 +246,7 @@ export class VideoProcessingService {
         embeddingErrorCode: providerError.code,
         embeddingErrorMessage: providerError.userMessage,
       });
+      await this.ragService.failForVideo(video.id, providerError.code, providerError.userMessage);
     }
   }
 
@@ -266,6 +271,12 @@ export class VideoProcessingService {
         embeddingErrorCode: 'TRANSCRIPT_REQUIRED',
         embeddingErrorMessage: '자막이 없어 임베딩을 생성할 수 없습니다.',
       });
+      await this.ragService.failForVideo(
+        videoId,
+        providerError.code,
+        providerError.userMessage,
+        manager,
+      );
     });
   }
 

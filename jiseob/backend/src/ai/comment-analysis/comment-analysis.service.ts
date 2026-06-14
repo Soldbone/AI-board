@@ -9,6 +9,8 @@ import {
   CommentAnalysisResult,
 } from './comment-analyzer.provider';
 import { CommentAnalysis } from './entities/comment-analysis.entity';
+import { RagEvidence } from '../rag/entities/rag-evidence.entity';
+import { RagService } from '../rag/rag.service';
 
 @Injectable()
 export class CommentAnalysisService {
@@ -17,6 +19,7 @@ export class CommentAnalysisService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly analyzerProvider: CommentAnalyzerProvider,
+    private readonly ragService: RagService,
     @InjectRepository(CommentAnalysis)
     private readonly analysesRepository: Repository<CommentAnalysis>,
     @InjectRepository(Comment)
@@ -38,7 +41,11 @@ export class CommentAnalysisService {
       analyzedAt: null,
       errorCode: null,
       errorMessage: null,
+      ragErrorCode: null,
+      ragErrorMessage: null,
     };
+
+    await repository.manager.getRepository(RagEvidence).delete({ commentId });
 
     if (existingAnalysis) {
       await repository.update(existingAnalysis.id, pendingValues);
@@ -61,6 +68,10 @@ export class CommentAnalysisService {
       const result = await this.analyzerProvider.analyze(comment.content);
 
       await this.storeAnalysisSuccess(comment, result);
+
+      if (result.commentType === CommentType.FACT_CLAIM) {
+        this.ragService.enqueueForComment(comment.id);
+      }
     } catch (error) {
       const analyzerError = this.toAnalyzerError(error);
 
@@ -96,6 +107,8 @@ export class CommentAnalysisService {
           analyzedAt: new Date(),
           errorCode: null,
           errorMessage: null,
+          ragErrorCode: null,
+          ragErrorMessage: null,
         },
       );
     });

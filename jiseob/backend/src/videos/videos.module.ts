@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AiModule } from '../ai/ai.module';
 import { CommonModule } from '../common/common.module';
 import { Post } from '../posts/entities/post.entity';
 import { TranscriptChunk } from './entities/transcript-chunk.entity';
 import { Video } from './entities/video.entity';
-import { EmbeddingProvider, OpenAiEmbeddingProvider } from './providers/embedding.provider';
 import {
   YoutubeDataApiMetadataProvider,
   YoutubeMetadataProvider,
@@ -19,7 +19,7 @@ import { VideosController } from './videos.controller';
 import { VideosService } from './videos.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Video, TranscriptChunk, Post]), CommonModule],
+  imports: [TypeOrmModule.forFeature([Video, TranscriptChunk, Post]), CommonModule, AiModule],
   controllers: [VideosController],
   providers: [
     VideosService,
@@ -32,10 +32,6 @@ import { VideosService } from './videos.service';
     {
       provide: YoutubeTranscriptProvider,
       useClass: YoutubeTranscriptCliProvider,
-    },
-    {
-      provide: EmbeddingProvider,
-      useClass: OpenAiEmbeddingProvider,
     },
   ],
   exports: [VideosService, VideoProcessingService],
