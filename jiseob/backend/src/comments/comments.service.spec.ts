@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
+import { CommentAnalysis } from '../ai/comment-analysis/entities/comment-analysis.entity';
+import { AiAnalysisStatus, RagStatus } from '../common/enums/ai-status.enum';
 import { ModerationStatus } from '../common/enums/comment-status.enum';
 import { UserRole } from '../common/enums/user-role.enum';
 import { Post } from '../posts/entities/post.entity';
@@ -30,12 +32,149 @@ describe('CommentsService', () => {
       ...overrides,
     }) as Comment;
 
-  const createService = (dataSource: unknown = {}) =>
+  const createAnalysisService = (overrides: Partial<Record<string, unknown>> = {}) => ({
+    preparePendingAnalysis: jest.fn(),
+    analyzeComment: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  });
+
+  const createService = (
+    dataSource: unknown = {},
+    analysisService: ReturnType<typeof createAnalysisService> = createAnalysisService(),
+    commentsRepository: unknown = {},
+    postsRepository: unknown = {},
+  ) =>
     new CommentsService(
       dataSource as ConstructorParameters<typeof CommentsService>[0],
-      {} as never,
-      {} as never,
+      analysisService as never,
+      commentsRepository as never,
+      postsRepository as never,
     );
+
+  const createPostRepository = (post: Partial<Post> = {}) => ({
+    findOne: jest.fn().mockResolvedValue({
+      id: '01J00000000000000000000003',
+      deletedAt: null,
+      ...post,
+    }),
+    createQueryBuilder: jest.fn().mockReturnValue({
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn(),
+    }),
+  });
+
+  const createCommentQueryBuilder = (comment: Comment) => ({
+    withDeleted: jest.fn().mockReturnThis(),
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(comment),
+  });
+
+  it('creates pending analysis and requests async analysis after creating a comment', async () => {
+    const pendingAnalysis = {
+      commentType: null,
+      aiAnalysisStatus: AiAnalysisStatus.PENDING,
+      ragStatus: RagStatus.NOT_REQUIRED,
+      evidenceCount: 0,
+      analyzedAt: null,
+    } as CommentAnalysis;
+    const savedComment = createComment({
+      analysis: pendingAnalysis,
+      author: {
+        id: user.id,
+        nickname: '작성자',
+      } as User,
+    });
+    const commentRepository = {
+      create: jest.fn((input: Partial<Comment>) => ({
+        ...savedComment,
+        ...input,
+      })),
+      save: jest.fn(async (comment: Comment) => comment),
+    };
+    const postRepository = createPostRepository();
+    const manager = {
+      getRepository: jest.fn((entity: typeof Comment | typeof Post) => {
+        if (entity === Comment) {
+          return commentRepository;
+        }
+
+        return postRepository;
+      }),
+    } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (callback: (manager: EntityManager) => Promise<unknown>) =>
+        callback(manager),
+      ),
+    };
+    const analysisService = createAnalysisService();
+    const service = createService(
+      dataSource,
+      analysisService,
+      {
+        createQueryBuilder: jest.fn().mockReturnValue(createCommentQueryBuilder(savedComment)),
+      },
+      {},
+    );
+
+    const response = await service.createComment(user, savedComment.postId, {
+      content: '  댓글  ',
+    });
+
+    expect(response.content).toBe('댓글');
+    expect(response.analysis?.aiAnalysisStatus).toBe(AiAnalysisStatus.PENDING);
+    expect(analysisService.preparePendingAnalysis).toHaveBeenCalledWith(savedComment.id, manager);
+    expect(analysisService.analyzeComment).toHaveBeenCalledWith(savedComment.id);
+  });
+
+  it('resets analysis state and moderation when updating a comment', async () => {
+    const existingComment = createComment({
+      moderationStatus: ModerationStatus.NEEDS_REVIEW,
+    });
+    const commentRepository = {
+      findOne: jest.fn().mockResolvedValue(existingComment),
+      save: jest.fn(async (comment: Comment) => comment),
+    };
+    const postRepository = createPostRepository();
+    const manager = {
+      getRepository: jest.fn((entity: typeof Comment | typeof Post) => {
+        if (entity === Comment) {
+          return commentRepository;
+        }
+
+        return postRepository;
+      }),
+    } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (callback: (manager: EntityManager) => Promise<unknown>) =>
+        callback(manager),
+      ),
+    };
+    const analysisService = createAnalysisService();
+    const service = createService(
+      dataSource,
+      analysisService,
+      {
+        createQueryBuilder: jest.fn().mockReturnValue(createCommentQueryBuilder(existingComment)),
+      },
+      {},
+    );
+
+    await service.updateComment(user, existingComment.id, {
+      content: ' 수정된 댓글 ',
+    });
+
+    expect(existingComment.content).toBe('수정된 댓글');
+    expect(existingComment.moderationStatus).toBe(ModerationStatus.NORMAL);
+    expect(analysisService.preparePendingAnalysis).toHaveBeenCalledWith(
+      existingComment.id,
+      manager,
+    );
+    expect(analysisService.analyzeComment).toHaveBeenCalledWith(existingComment.id);
+  });
 
   it('rejects replies to replies', async () => {
     const parentReply = createComment({

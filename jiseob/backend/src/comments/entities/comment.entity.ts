@@ -1,4 +1,5 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, OneToOne } from 'typeorm';
+import { CommentAnalysis } from '../../ai/comment-analysis/entities/comment-analysis.entity';
 import { BaseModel } from '../../common/entities/base.entity';
 import { ModerationStatus } from '../../common/enums/comment-status.enum';
 import { Post } from '../../posts/entities/post.entity';
@@ -43,4 +44,7 @@ export class Comment extends BaseModel {
     default: ModerationStatus.NORMAL,
   })
   moderationStatus: ModerationStatus;
+
+  @OneToOne(() => CommentAnalysis, (analysis) => analysis.comment)
+  analysis?: CommentAnalysis | null;
 }

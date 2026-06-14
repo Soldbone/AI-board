@@ -2,10 +2,14 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { CommentAnalysisService } from '../ai/comment-analysis/comment-analysis.service';
+import { CommentAnalysis } from '../ai/comment-analysis/entities/comment-analysis.entity';
+import { AiAnalysisStatus, CommentType, RagStatus } from '../common/enums/ai-status.enum';
 import { ModerationStatus } from '../common/enums/comment-status.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { Post } from '../posts/entities/post.entity';
@@ -20,12 +24,21 @@ type CommentAuthorResponse = {
   nickname: string;
 };
 
+type CommentAnalysisResponse = {
+  commentType: CommentType | null;
+  aiAnalysisStatus: AiAnalysisStatus;
+  ragStatus: RagStatus;
+  evidenceCount: number;
+  analyzedAt: Date | null;
+};
+
 export type CommentResponse = {
   id: string;
   postId: string;
   parentCommentId: string | null;
   content: string;
   moderationStatus: ModerationStatus;
+  analysis: CommentAnalysisResponse | null;
   isDeleted: boolean;
   author: CommentAuthorResponse;
   replies: CommentResponse[];
@@ -35,12 +48,16 @@ export type CommentResponse = {
 
 type CommentWithAuthor = Comment & {
   author: User | null;
+  analysis?: CommentAnalysis | null;
 };
 
 @Injectable()
 export class CommentsService {
+  private readonly logger = new Logger(CommentsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
+    private readonly commentAnalysisService: CommentAnalysisService,
     @InjectRepository(Comment)
     private readonly commentsRepository: Repository<Comment>,
     @InjectRepository(Post)
@@ -54,6 +71,7 @@ export class CommentsService {
       .createQueryBuilder('comment')
       .withDeleted()
       .leftJoinAndSelect('comment.author', 'author')
+      .leftJoinAndSelect('comment.analysis', 'analysis')
       .where('comment.post_id = :postId', { postId })
       .orderBy('comment.createdAt', 'ASC')
       .getMany();
@@ -80,9 +98,12 @@ export class CommentsService {
       );
 
       await this.increaseCommentCount(postId, manager);
+      await this.commentAnalysisService.preparePendingAnalysis(comment.id, manager);
 
       return comment.id;
     });
+
+    this.enqueueCommentAnalysis(commentId);
 
     return this.getComment(commentId);
   }
@@ -113,9 +134,12 @@ export class CommentsService {
       );
 
       await this.increaseCommentCount(parentComment.postId, manager);
+      await this.commentAnalysisService.preparePendingAnalysis(comment.id, manager);
 
       return comment.id;
     });
+
+    this.enqueueCommentAnalysis(commentId);
 
     return this.getComment(commentId);
   }
@@ -134,8 +158,12 @@ export class CommentsService {
       this.assertAuthor(comment, user.id);
 
       comment.content = content;
+      comment.moderationStatus = ModerationStatus.NORMAL;
       await manager.getRepository(Comment).save(comment);
+      await this.commentAnalysisService.preparePendingAnalysis(comment.id, manager);
     });
+
+    this.enqueueCommentAnalysis(commentId);
 
     return this.getComment(commentId);
   }
@@ -164,6 +192,7 @@ export class CommentsService {
       .createQueryBuilder('comment')
       .withDeleted()
       .leftJoinAndSelect('comment.author', 'author')
+      .leftJoinAndSelect('comment.analysis', 'analysis')
       .where('comment.id = :commentId', { commentId })
       .getOne();
 
@@ -248,6 +277,15 @@ export class CommentsService {
     }
   }
 
+  private enqueueCommentAnalysis(commentId: string): void {
+    void this.commentAnalysisService.analyzeComment(commentId).catch((error: unknown) => {
+      this.logger.warn(
+        `Comment analysis failed after comment write: ${commentId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
+  }
+
   private normalizeContent(content: string): string {
     const normalizedContent = content.trim();
 
@@ -290,11 +328,26 @@ export class CommentsService {
       parentCommentId: comment.parentCommentId ?? null,
       content: isDeleted ? this.getDeletedContent(comment.moderationStatus) : comment.content,
       moderationStatus: comment.moderationStatus,
+      analysis: this.toAnalysisResponse(comment.analysis ?? null),
       isDeleted,
       author: this.toAuthorResponse(comment),
       replies: replies.map((reply) => this.toCommentResponse(reply, [])),
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
+    };
+  }
+
+  private toAnalysisResponse(analysis: CommentAnalysis | null): CommentAnalysisResponse | null {
+    if (!analysis) {
+      return null;
+    }
+
+    return {
+      commentType: analysis.commentType ?? null,
+      aiAnalysisStatus: analysis.aiAnalysisStatus,
+      ragStatus: analysis.ragStatus,
+      evidenceCount: analysis.evidenceCount,
+      analyzedAt: analysis.analyzedAt ?? null,
     };
   }
 
