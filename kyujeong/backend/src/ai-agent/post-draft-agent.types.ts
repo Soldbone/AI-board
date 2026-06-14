@@ -29,6 +29,21 @@ export type DraftSignals = {
   tastePreference: string | null;
 };
 
+export type PostQualityCheck = {
+  label: string;
+  status: 'good' | 'warning' | 'missing';
+  detail: string;
+};
+
+export type PostSuccessPlan = {
+  score: number;
+  level: 'strong' | 'needs_work' | 'weak';
+  summary: string;
+  checks: PostQualityCheck[];
+  expectedComments: string[];
+  engagementQuestions: string[];
+};
+
 export type PostDraftAgentState = {
   input: PostDraftAgentInput;
   status: PostDraftAgentStatus;
@@ -43,6 +58,7 @@ export type PostDraftAgentState = {
   missingInfoQuestions: string[];
   nutritionAnalysis: IngredientSetAnalysis | null;
   nutritionSummary: string | null;
+  successPlan: PostSuccessPlan | null;
   suggestedTitle: string | null;
   suggestedBody: string | null;
   suggestedTags: string[];
@@ -58,6 +74,7 @@ export type PostDraftAgentResponse = {
   ingredients: string[];
   nutritionSummary: string | null;
   nutritionAnalysis: IngredientSetAnalysis | null;
+  successPlan: PostSuccessPlan | null;
   steps: PostDraftAgentStep[];
   toolCalls: PostDraftToolCall[];
   errors: string[];

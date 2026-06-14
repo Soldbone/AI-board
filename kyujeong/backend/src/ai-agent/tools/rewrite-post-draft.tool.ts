@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   DraftSignals,
   PostDraftAgentInput,
+  PostSuccessPlan,
 } from '../post-draft-agent.types';
 import type { IngredientSetAnalysis } from '../../food-metadata/food-metadata.types';
 
@@ -11,6 +12,7 @@ export type RewritePostDraftInput = {
   signals: DraftSignals;
   nutritionSummary: string | null;
   nutritionAnalysis: IngredientSetAnalysis | null;
+  successPlan: PostSuccessPlan | null;
 };
 
 export type RewritePostDraftResult = {
@@ -72,6 +74,10 @@ export class RewritePostDraftTool {
                   'Do not generate a complete recipe answer.',
                   'Mention ingredients, time, meal context, and taste preference when available.',
                   'Use nutritionSummary only as a factual support line, not as medical advice.',
+                  'Use successPlan to make the post more likely to receive useful comments.',
+                  'Include one engagement question near the end of suggestedBody.',
+                  'If additionalRequest asks for 어그로, 눈길, 클릭, or 반응, write an attention-grabbing but honest community title.',
+                  'Do not use false claims, insults, harassment, or medical fear as clickbait.',
                   'suggestedTags must be short Korean tags and at most 5 items.',
                 ],
               }),
@@ -122,17 +128,28 @@ export class RewritePostDraftTool {
     const mealContext = input.signals.mealContext ?? '한 끼';
     const taste = input.signals.tastePreference ?? '부담 없는 맛';
     const additionalRequest = input.draft.additionalRequest?.trim();
+    const attentionStyle = this.wantsAttentionStyle(additionalRequest);
+    const suggestedTitle = attentionStyle
+      ? this.buildAttentionTitle(primaryIngredients, time, mealContext)
+      : `${primaryIngredients}로 ${time} ${mealContext} 메뉴 추천해주세요`;
+    const engagementQuestion =
+      this.pickEngagementQuestion(input, attentionStyle);
     const nutritionLine = input.nutritionSummary
       ? `\n\nMCP로 확인한 식재료 메타데이터: ${input.nutritionSummary}`
       : '';
 
     return {
-      suggestedTitle: `${primaryIngredients}로 ${time} ${mealContext} 메뉴 추천해주세요`,
+      suggestedTitle,
       suggestedBody: [
         `냉장고에 ${primaryIngredients}가 있어요.`,
         `${time} 안에 ${mealContext}로 먹기 좋은 ${taste} 메뉴를 추천받고 싶습니다.`,
-        additionalRequest ? `추가로 원하는 점은 ${additionalRequest}입니다.` : '',
-        '가진 재료를 최대한 활용하고, 꼭 필요한 추가 재료가 있다면 적게 알려주세요.',
+        additionalRequest && !attentionStyle
+          ? `추가로 원하는 점은 ${additionalRequest}입니다.`
+          : '',
+        attentionStyle
+          ? '뻔한 추천 말고, 댓글에서 갈릴 만한 메뉴나 의외의 조합도 궁금합니다.'
+          : '가진 재료를 최대한 활용하고, 꼭 필요한 추가 재료가 있다면 적게 알려주세요.',
+        engagementQuestion,
         nutritionLine,
       ]
         .filter(Boolean)
@@ -140,6 +157,38 @@ export class RewritePostDraftTool {
       suggestedTags: this.buildFallbackTags(input),
       source: 'FALLBACK',
     };
+  }
+
+  private wantsAttentionStyle(additionalRequest?: string) {
+    if (!additionalRequest) {
+      return false;
+    }
+
+    return /어그로|눈길|클릭|자극|반응|댓글.*끌|끌리게|핫하게/.test(
+      additionalRequest,
+    );
+  }
+
+  private buildAttentionTitle(
+    primaryIngredients: string,
+    time: string,
+    mealContext: string,
+  ) {
+    return `솔직히 ${primaryIngredients}로 ${time} ${mealContext}, 뻔한 메뉴 말고 답 있나요?`;
+  }
+
+  private pickEngagementQuestion(
+    input: RewritePostDraftInput,
+    attentionStyle: boolean,
+  ) {
+    if (attentionStyle) {
+      return '김치볶음밥 같은 정석 말고, 여러분만의 반전 메뉴 있으면 한 번 설득해주세요.';
+    }
+
+    return (
+      input.successPlan?.engagementQuestions[0] ??
+      '여러분이라면 이 재료로 어떤 메뉴를 먼저 해드세요?'
+    );
   }
 
   private buildFallbackTags(input: RewritePostDraftInput) {

@@ -174,6 +174,21 @@ type PostDraftToolCall = {
   outputSummary: string
 }
 
+type PostQualityCheck = {
+  label: string
+  status: 'good' | 'warning' | 'missing'
+  detail: string
+}
+
+type PostSuccessPlan = {
+  score: number
+  level: 'strong' | 'needs_work' | 'weak'
+  summary: string
+  checks: PostQualityCheck[]
+  expectedComments: string[]
+  engagementQuestions: string[]
+}
+
 type PostDraftAgentResponse = {
   status: PostDraftAgentStatus
   message: string
@@ -184,6 +199,7 @@ type PostDraftAgentResponse = {
   ingredients: string[]
   nutritionSummary: string | null
   nutritionAnalysis: IngredientSetAnalysis | null
+  successPlan: PostSuccessPlan | null
   steps: PostDraftAgentStep[]
   toolCalls: PostDraftToolCall[]
   errors: string[]
@@ -617,8 +633,18 @@ function getIngredientMatchLabel(status: MatchStatus) {
 function getPostDraftAgentStatusLabel(status: PostDraftAgentStatus) {
   const labels: Record<PostDraftAgentStatus, string> = {
     needs_input: '추가 정보 필요',
-    completed: 'AI 초안 완료',
-    fallback: '기본 초안 완료',
+    completed: '성공률 진단 완료',
+    fallback: '기본 진단 완료',
+  }
+
+  return labels[status]
+}
+
+function getPostQualityCheckLabel(status: PostQualityCheck['status']) {
+  const labels: Record<PostQualityCheck['status'], string> = {
+    good: '좋음',
+    warning: '보강',
+    missing: '부족',
   }
 
   return labels[status]
@@ -2125,8 +2151,8 @@ function App() {
 
   async function handlePostDraftAgentAssist() {
     if (!accessToken) {
-      setPostDraftAgentErrorMessage('로그인 후 AI 작성 보조를 실행할 수 있습니다.')
-      setLoginErrorMessage('로그인 후 AI 작성 보조를 실행할 수 있습니다.')
+      setPostDraftAgentErrorMessage('로그인 후 게시글 성공률 진단을 실행할 수 있습니다.')
+      setLoginErrorMessage('로그인 후 게시글 성공률 진단을 실행할 수 있습니다.')
       setCurrentView('login')
       return
     }
@@ -2160,7 +2186,7 @@ function App() {
       const data = await readJsonResponse<PostDraftAgentResponse>(response)
 
       if (!response.ok) {
-        throw new Error(data.message ?? 'AI 작성 보조를 실행하지 못했습니다.')
+        throw new Error(data.message ?? '게시글 성공률 진단을 실행하지 못했습니다.')
       }
 
       setPostDraftAgentResult(data)
@@ -2174,8 +2200,8 @@ function App() {
         getFriendlyErrorMessage(
           error instanceof Error
             ? error.message
-            : 'AI 작성 보조를 실행하지 못했습니다.',
-          'AI 작성 보조를 실행하지 못했습니다.',
+            : '게시글 성공률 진단을 실행하지 못했습니다.',
+          '게시글 성공률 진단을 실행하지 못했습니다.',
         ),
       )
     } finally {
@@ -3685,9 +3711,9 @@ function App() {
               </form>
 
               <aside className="write-guide-card" aria-label="작성 팁">
-                <section className="post-draft-agent" aria-label="AI 작성 보조">
+                <section className="post-draft-agent" aria-label="게시글 성공률 매니저">
                   <div className="post-draft-agent-heading">
-                    <h2>AI 작성 보조</h2>
+                    <h2>게시글 성공률 매니저</h2>
                     <span>Agent</span>
                   </div>
                   <label>
@@ -3708,7 +3734,7 @@ function App() {
                     onClick={handlePostDraftAgentAssist}
                     disabled={isPostDraftAgentLoading}
                   >
-                    {isPostDraftAgentLoading ? '분석 중' : 'AI 작성 보조'}
+                    {isPostDraftAgentLoading ? '분석 중' : '성공률 진단'}
                   </button>
 
                   {postDraftAgentErrorMessage ? (
@@ -3726,6 +3752,16 @@ function App() {
                         <span>{postDraftAgentResult.message}</span>
                       </div>
 
+                      {postDraftAgentResult.successPlan ? (
+                        <div className="post-draft-agent-success">
+                          <div className="post-draft-agent-score">
+                            <strong>{postDraftAgentResult.successPlan.score}</strong>
+                            <span>댓글 성공률</span>
+                          </div>
+                          <p>{postDraftAgentResult.successPlan.summary}</p>
+                        </div>
+                      ) : null}
+
                       {postDraftAgentResult.questions.length > 0 ? (
                         <div className="post-draft-agent-section">
                           <h3>더 필요한 정보</h3>
@@ -3734,6 +3770,24 @@ function App() {
                               <li key={question}>{question}</li>
                             ))}
                           </ul>
+                        </div>
+                      ) : null}
+
+                      {postDraftAgentResult.successPlan?.checks.length ? (
+                        <div className="post-draft-agent-section">
+                          <h3>게시 전 체크</h3>
+                          <div className="post-draft-agent-checks">
+                            {postDraftAgentResult.successPlan.checks.map((check) => (
+                              <div
+                                className={`post-draft-agent-check ${check.status}`}
+                                key={check.label}
+                              >
+                                <strong>{check.label}</strong>
+                                <span>{getPostQualityCheckLabel(check.status)}</span>
+                                <p>{check.detail}</p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
 
@@ -3752,6 +3806,33 @@ function App() {
                         <p className="post-draft-agent-nutrition">
                           {postDraftAgentResult.nutritionSummary}
                         </p>
+                      ) : null}
+
+                      {postDraftAgentResult.successPlan?.expectedComments.length ? (
+                        <div className="post-draft-agent-section">
+                          <h3>예상 댓글</h3>
+                          <ul>
+                            {postDraftAgentResult.successPlan.expectedComments.map(
+                              (comment) => (
+                                <li key={comment}>{comment}</li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {postDraftAgentResult.successPlan?.engagementQuestions
+                        .length ? (
+                        <div className="post-draft-agent-section">
+                          <h3>댓글 유도 질문</h3>
+                          <div className="post-draft-agent-tags">
+                            {postDraftAgentResult.successPlan.engagementQuestions.map(
+                              (question) => (
+                                <span key={question}>{question}</span>
+                              ),
+                            )}
+                          </div>
+                        </div>
                       ) : null}
 
                       {postDraftAgentResult.suggestedTitle ||

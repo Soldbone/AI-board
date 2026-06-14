@@ -3,6 +3,7 @@ import { FoodMetadataService } from '../food-metadata/food-metadata.service';
 import { AiAgentService } from './ai-agent.service';
 import { PostDraftAgentRunner } from './post-draft-agent.runner';
 import { AnalyzeFoodMetadataTool } from './tools/analyze-food-metadata.tool';
+import { EvaluatePostSuccessTool } from './tools/evaluate-post-success.tool';
 import { ExtractIngredientsTool } from './tools/extract-ingredients.tool';
 import { RewritePostDraftTool } from './tools/rewrite-post-draft.tool';
 
@@ -78,6 +79,7 @@ describe('AiAgentService', () => {
         PostDraftAgentRunner,
         ExtractIngredientsTool,
         AnalyzeFoodMetadataTool,
+        EvaluatePostSuccessTool,
         RewritePostDraftTool,
         {
           provide: FoodMetadataService,
@@ -109,10 +111,24 @@ describe('AiAgentService', () => {
     expect(result.status).toBe('fallback');
     expect(result.suggestedTitle).toContain('계란');
     expect(result.suggestedBody).toContain('MCP');
+    expect(result.successPlan?.score).toBeGreaterThan(0);
+    expect(result.successPlan?.expectedComments.length).toBeGreaterThan(0);
     expect(result.ingredients).toContain('계란');
     expect(result.toolCalls.map((toolCall) => toolCall.toolName)).toContain(
       'analyze_food_metadata',
     );
     expect(foodMetadataService.analyzeIngredientsNutrition).toHaveBeenCalled();
+  });
+
+  it('reflects attention-grabbing requests without replacing the community post', async () => {
+    const result = await service.assistPostDraft({
+      title: '계란 김치 밥',
+      content: '계란, 김치, 밥이 있어요. 10분 안에 저녁으로 먹고 싶어요.',
+      additionalRequest: '어그로 끌리게 게시글 쓰고싶어',
+    });
+
+    expect(result.suggestedTitle).toContain('뻔한 메뉴 말고');
+    expect(result.suggestedBody).toContain('댓글에서 갈릴 만한');
+    expect(result.suggestedBody).toContain('설득해주세요');
   });
 });

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AnalyzeFoodMetadataTool } from './tools/analyze-food-metadata.tool';
 import { ExtractIngredientsTool } from './tools/extract-ingredients.tool';
 import { RewritePostDraftTool } from './tools/rewrite-post-draft.tool';
+import { EvaluatePostSuccessTool } from './tools/evaluate-post-success.tool';
 import type {
   PostDraftAgentInput,
   PostDraftAgentResponse,
@@ -10,12 +11,13 @@ import type {
 
 @Injectable()
 export class PostDraftAgentRunner {
-  private readonly maxSteps = 6;
+  private readonly maxSteps = 7;
   private readonly maxToolCallsPerTool = 1;
 
   constructor(
     private readonly extractIngredientsTool: ExtractIngredientsTool,
     private readonly analyzeFoodMetadataTool: AnalyzeFoodMetadataTool,
+    private readonly evaluatePostSuccessTool: EvaluatePostSuccessTool,
     private readonly rewritePostDraftTool: RewritePostDraftTool,
   ) {}
 
@@ -77,6 +79,23 @@ export class PostDraftAgentRunner {
       ),
     );
 
+    state = this.runNode(state, 'evaluate_post_success', (currentState) =>
+      this.runTool(
+        currentState,
+        'evaluate_post_success',
+        '댓글 성공률과 예상 댓글 시뮬레이션',
+        (toolState) => ({
+          ...toolState,
+          successPlan: this.evaluatePostSuccessTool.run({
+            draft: toolState.input,
+            ingredients: toolState.ingredients,
+            signals: toolState.signals,
+            nutritionSummary: toolState.nutritionSummary,
+          }),
+        }),
+      ),
+    );
+
     state = await this.runAsyncNode(state, 'rewrite_post_draft', (currentState) =>
       this.runAsyncTool(
         currentState,
@@ -89,6 +108,7 @@ export class PostDraftAgentRunner {
             signals: toolState.signals,
             nutritionAnalysis: toolState.nutritionAnalysis,
             nutritionSummary: toolState.nutritionSummary,
+            successPlan: toolState.successPlan,
           });
 
           return {
@@ -128,6 +148,7 @@ export class PostDraftAgentRunner {
       missingInfoQuestions: [],
       nutritionAnalysis: null,
       nutritionSummary: null,
+      successPlan: null,
       suggestedTitle: null,
       suggestedBody: null,
       suggestedTags: [],
@@ -391,6 +412,7 @@ export class PostDraftAgentRunner {
       ingredients: state.ingredients,
       nutritionSummary: state.nutritionSummary,
       nutritionAnalysis: state.nutritionAnalysis,
+      successPlan: state.successPlan,
       steps: state.steps,
       toolCalls: state.toolCalls,
       errors: state.errors,
