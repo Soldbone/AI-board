@@ -55,6 +55,8 @@ class PlaceSearchItem(BaseModel):
     address: str = ""
     link: str = ""
     naver_map_url: str = ""
+    image_url: str = ""
+    image_source_url: str = ""
 
 
 class PlaceSearchResponse(BaseModel):

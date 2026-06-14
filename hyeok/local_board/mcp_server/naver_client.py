@@ -1,3 +1,4 @@
+import asyncio
 from html import unescape
 import re
 from urllib.parse import quote
@@ -27,7 +28,7 @@ def build_search_query(region: str, keyword: str) -> str:
 
 
 def build_naver_map_url(query: str) -> str:
-    encoded_query = quote(query)
+    encoded_query = quote(query, safe="")
     return f"https://map.naver.com/p/search/{encoded_query}"
 
 
@@ -42,6 +43,54 @@ def _normalize_display(display: int) -> int:
     return min(max(display, 1), MAX_DISPLAY)
 
 
+def _build_place_image_query(place: dict, fallback_query: str) -> str:
+    title = place.get("title", "")
+    category = place.get("category", "").replace(">", " ")
+    image_query = " ".join(part for part in [title, category] if part)
+    return image_query or fallback_query
+
+
+async def _search_place_image(
+    client: httpx.AsyncClient,
+    settings,
+    headers: dict[str, str],
+    query: str,
+) -> dict[str, str]:
+    params = {
+        "query": query,
+        "display": 1,
+        "start": 1,
+        "sort": "sim",
+        "filter": "medium",
+    }
+
+    try:
+        response = await client.get(
+            settings.naver_image_search_url,
+            headers=headers,
+            params=params,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return {
+            "image_url": "",
+            "image_source_url": "",
+        }
+
+    items = response.json().get("items", [])
+    if not items:
+        return {
+            "image_url": "",
+            "image_source_url": "",
+        }
+
+    first_item = items[0]
+    return {
+        "image_url": _clean_html(first_item.get("thumbnail")),
+        "image_source_url": _clean_html(first_item.get("link")),
+    }
+
+
 def _format_place(item: dict, fallback_query: str) -> dict:
     title = _clean_html(item.get("title"))
     road_address = _clean_html(item.get("roadAddress"))
@@ -49,7 +98,7 @@ def _format_place(item: dict, fallback_query: str) -> dict:
     category = _clean_html(item.get("category"))
     link = _clean_html(item.get("link"))
 
-    map_query = " ".join(part for part in [road_address or address, title] if part)
+    map_query = " ".join(part for part in [title, road_address or address] if part)
     if not map_query:
         map_query = fallback_query
 
@@ -60,6 +109,8 @@ def _format_place(item: dict, fallback_query: str) -> dict:
         "address": address,
         "link": link,
         "naver_map_url": build_naver_map_url(map_query),
+        "image_url": "",
+        "image_source_url": "",
     }
 
 
@@ -91,16 +142,32 @@ async def search_local_places(
                 params=params,
             )
             response.raise_for_status()
+
+            data = response.json()
+            items = data.get("items", [])
+            places = [_format_place(item, query) for item in items]
+            image_results = await asyncio.gather(
+                *[
+                    _search_place_image(
+                        client=client,
+                        settings=settings,
+                        headers=headers,
+                        query=_build_place_image_query(place, query),
+                    )
+                    for place in places
+                ],
+                return_exceptions=True,
+            )
+
+            for place, image_result in zip(places, image_results):
+                if isinstance(image_result, dict):
+                    place.update(image_result)
     except httpx.HTTPStatusError as exc:
         raise NaverLocalSearchError(
             f"Naver local search failed: {exc.response.status_code}"
         ) from exc
     except httpx.HTTPError as exc:
         raise NaverLocalSearchError("Naver local search request failed.") from exc
-
-    data = response.json()
-    items = data.get("items", [])
-    places = [_format_place(item, query) for item in items]
 
     return {
         "query": query,

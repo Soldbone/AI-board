@@ -1,5 +1,9 @@
 ﻿/* eslint-disable react-hooks/set-state-in-effect */
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import {
+  getAgentPlaceRecommendation,
+  type AgentPlaceRecommendationResponse,
+} from './api/agentApi'
 import { getMe, login, signup, type UserResponse } from './api/authApi'
 import { createComment, deleteComment, getComments, type CommentRead } from './api/commentApi'
 import {
@@ -89,6 +93,8 @@ function App() {
   const [selectedPost, setSelectedPost] = useState<PostRead | null>(null)
   const [comments, setComments] = useState<CommentRead[]>([])
   const [tags, setTags] = useState<TagSuggestion[]>([])
+  const [agentRecommendation, setAgentRecommendation] =
+    useState<AgentPlaceRecommendationResponse | null>(null)
 
   const [postForm, setPostForm] = useState<PostFormState>(emptyPostForm)
   const [commentContent, setCommentContent] = useState('')
@@ -104,6 +110,7 @@ function App() {
   const [totalPages, setTotalPages] = useState(0)
   const [message, setMessage] = useState('게시글 목록을 불러오는 중입니다.')
   const [isLoading, setIsLoading] = useState(true)
+  const [isAgentLoading, setIsAgentLoading] = useState(false)
 
   const hasAccessToken = Boolean(accessToken)
 
@@ -277,6 +284,7 @@ function App() {
     setViewMode('detail')
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
@@ -305,6 +313,7 @@ function App() {
     setPostForm(emptyPostForm)
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
@@ -360,6 +369,7 @@ function App() {
       await loadTags()
       setSelectedPost(createdPost)
       setComments([])
+      setAgentRecommendation(null)
       setViewMode('detail')
       setMessage('게시글을 등록했습니다.')
     } catch (error) {
@@ -496,6 +506,34 @@ function App() {
     }
   }
 
+  async function handleAgentRecommendation() {
+    if (!selectedPost) return
+
+    if (!selectedPost.region) {
+      setMessage('AI 장소 추천은 게시글의 지역 정보가 필요합니다.')
+      return
+    }
+
+    setIsAgentLoading(true)
+    setMessage('AI가 장소를 추천하는 중입니다.')
+
+    try {
+      const recommendation = await getAgentPlaceRecommendation({
+        region: selectedPost.region,
+        title: selectedPost.title,
+        content: selectedPost.content,
+        keyword: selectedPost.category ?? selectedPost.store_name ?? null,
+        display: 3,
+      })
+      setAgentRecommendation(recommendation)
+      setMessage('AI 장소 추천을 불러왔습니다.')
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setIsAgentLoading(false)
+    }
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const nextKeyword = keywordInput.trim()
@@ -528,6 +566,7 @@ function App() {
     setViewMode('list')
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
     setMessage('')
   }
 
@@ -637,9 +676,11 @@ function App() {
           <PostDetailPage
             commentContent={commentContent}
             comments={comments}
+            agentRecommendation={agentRecommendation}
             formatDate={formatDate}
             hasAccessToken={hasAccessToken}
             isAnonymous={isAnonymous}
+            isAgentLoading={isAgentLoading}
             isLoading={isLoading}
             currentUserId={currentUser?.id ?? null}
             onAnonymousChange={setIsAnonymous}
@@ -650,6 +691,7 @@ function App() {
             onDeleteComment={handleDeleteComment}
             onDeletePost={handleDeletePost}
             onEdit={openEditForm}
+            onRequestAgentRecommendation={handleAgentRecommendation}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
             post={selectedPost}
             replyTargetId={replyTargetId}

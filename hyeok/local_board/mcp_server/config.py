@@ -21,6 +21,7 @@ class Settings:
     naver_client_id: str
     naver_client_secret: str
     naver_local_search_url: str
+    naver_image_search_url: str
 
 
 def _get_required_env(name: str) -> str:
@@ -40,5 +41,9 @@ def get_settings() -> Settings:
         naver_local_search_url=os.getenv(
             "NAVER_LOCAL_SEARCH_URL",
             "https://openapi.naver.com/v1/search/local.json",
+        ).strip(),
+        naver_image_search_url=os.getenv(
+            "NAVER_IMAGE_SEARCH_URL",
+            "https://openapi.naver.com/v1/search/image",
         ).strip(),
     )
