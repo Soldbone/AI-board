@@ -229,3 +229,10 @@ Phase 7에서 이어받을 핵심:
 - 댓글 유형 분석은 댓글 작성 성공과 분리한다.
 - 사실 주장 댓글만 RAG 근거 후보 검색 대상으로 넘긴다.
 - Phase 6에서 저장된 `transcript_chunks.embedding`은 Phase 8 RAG 검색의 기반 데이터가 된다.
+
+과제 요구사항의 MCP와 Agent 기능은 Phase 9, Phase 10에서 구현한다.
+
+- MCP는 외부 API 호출을 모두 대체하는 경로가 아니라 Agent가 호출할 수 있는 tool server로 제공한다.
+- Agent는 MCP tool을 선택하고 실행하는 제한된 추론 루프를 가진다.
+- Phase 6의 YouTube metadata provider, video processing status, transcript chunk 저장 결과는 MCP tool의 내부 구현 재료로 재사용한다.
+- 자세한 결정은 `docs/implementation/mcp_agent_tool_strategy.md`에 정리한다.

@@ -18,6 +18,8 @@ Arena는 처음부터 AI 기능을 구현하려고 하면 복잡해진다. 따�
 → 자막/임베딩
 → AI 댓글 분석
 → RAG 근거 후보
+→ MCP Agent Tool Server
+→ AI Agent 추론 루프
 → 댓글 스레드 요약
 → 관리자 기능
 → 테스트/문서 정리
@@ -28,6 +30,21 @@ Arena는 처음부터 AI 기능을 구현하려고 하면 복잡해진다. 따�
 ```text
 게시판 기능은 반드시 동작한다.
 외부 API와 AI 기능은 실패해도 상태값으로 표현한다.
+```
+
+과제 요구사항의 AI 활용 기능은 다음처럼 대응한다.
+
+```text
+RAG
+→ 영상 자막 chunk와 pgvector 기반 근거 후보 검색
+
+MCP
+→ Agent가 호출할 수 있는 tool server로 제공
+→ 최소 1개 이상의 실제 외부 서비스는 YouTube Data API 기반 metadata tool로 충족
+
+AI Agent
+→ LLM이 MCP tool을 선택하고 실행하는 제한된 추론 루프 구현
+→ Function Calling, 상태 저장, 최대 step 제한, 예외 처리 정책 포함
 ```
 
 ---
@@ -403,7 +420,99 @@ GET /api/v1/comments/:commentId/evidences
 
 ---
 
-## Phase 9. 댓글 스레드 요약 구현
+## Phase 9. MCP Agent Tool Server 구현
+
+### 목표
+
+MCP를 일반 백엔드 외부 API 호출 경로가 아니라, AI Agent가 사용할 수 있는 tool 계층으로 제공한다.
+
+### 작업 목록
+
+- McpModule 작성
+- MCP JSON-RPC 요청/응답 처리 구조 작성
+- tool registry 작성
+- tool argument schema와 response schema 정의
+- `youtube.fetchMetadata` tool 작성
+- `video.getProcessingStatus` tool 작성
+- `video.retryProcessing` tool 작성
+- `post.getContext` tool 작성
+- `transcript.searchChunks` tool 작성
+- MCP tool 호출용 권한 context 설계
+- API key와 provider raw error가 tool response에 노출되지 않도록 처리
+- MCP tool 단위 테스트 작성
+
+### 완료 기준
+
+- Agent가 MCP tool 목록을 조회할 수 있다.
+- Agent가 tool name과 arguments로 MCP tool을 호출할 수 있다.
+- 최소 1개 이상의 tool이 실제 외부 서비스와 연동된다.
+- YouTube API key는 환경변수에서만 읽고 tool argument나 response에 포함되지 않는다.
+- 권한 없는 사용자는 write 성격의 tool을 호출할 수 없다.
+- provider 실패는 정제된 errorCode/errorMessage로 반환된다.
+
+### 직접 했다면 접근법
+
+Phase 6 provider adapter를 McpModule로 옮기지 않는다. 기존 제품 흐름은 VideosService와 VideoProcessingService가 계속 담당하고, McpModule은 Agent가 호출할 수 있는 얇은 tool wrapper를 제공한다.
+
+### 유의사항
+
+- MCP는 사용자 공개 REST API가 아니라 Agent와 서버 사이의 tool boundary다.
+- tool은 allowlist 방식으로만 노출한다.
+- raw API key, access token, cookie, stack trace는 tool response에 포함하지 않는다.
+- `retryProcessing` 같은 write tool은 사용자 권한 또는 관리자 권한을 반드시 확인한다.
+- 외부 URL fetch tool을 일반화하면 SSRF 위험이 생기므로 MVP에서는 YouTube videoId처럼 검증 가능한 입력으로 제한한다.
+
+---
+
+## Phase 10. AI Agent 추론 루프 구현
+
+### 목표
+
+LLM이 MCP tool을 선택하고 실행하는 제한된 Agent를 구현한다.
+
+### API
+
+```http
+POST /api/v1/posts/:postId/agent/runs
+GET  /api/v1/agent/runs/:runId
+```
+
+### 작업 목록
+
+- AgentRun Entity 작성
+- AgentStep Entity 작성
+- AgentService 작성
+- LLM Function Calling 기반 tool 선택 구현
+- MCP client 또는 MCP tool caller 작성
+- post context를 Agent state에 주입
+- tool execution trace 저장
+- 최대 step 수, timeout, token budget 제한 구현
+- tool 실패 시 Agent가 사용자에게 설명 가능한 결과를 반환하게 처리
+- Agent run 조회 API 작성
+
+### 완료 기준
+
+- 로그인 사용자는 게시글 단위 Agent run을 생성할 수 있다.
+- Agent는 최소 1개 이상의 MCP tool을 선택해 호출할 수 있다.
+- Agent는 tool 결과를 바탕으로 게시글/댓글 맥락에 맞는 답변을 생성한다.
+- Agent run은 최대 step 수를 넘기지 않는다.
+- tool 실패가 무한 retry나 요청 실패 전체로 이어지지 않는다.
+- Agent 답변에는 참/거짓 단정 대신 근거 후보와 한계를 함께 표현한다.
+
+### 직접 했다면 접근법
+
+처음에는 LangGraph 같은 무거운 프레임워크를 바로 도입하지 않고, `plan -> tool call -> observe -> answer` 형태의 작은 상태 머신으로 시작한다. 상태 머신으로 한계가 보이면 LangGraph 또는 유사 구조로 교체한다.
+
+### 유의사항
+
+- Agent가 사용자 대신 게시글, 댓글, 삭제 같은 write action을 자동 수행하지 않도록 한다.
+- write tool 실행은 명시적 사용자 요청과 권한 확인이 있을 때만 허용한다.
+- Agent memory에는 API key나 refresh token 같은 credential을 저장하지 않는다.
+- Agent 답변은 RAG 근거 후보를 인용할 수 있지만, AI가 사실 판정자처럼 보이면 안 된다.
+
+---
+
+## Phase 11. 댓글 스레드 요약 구현
 
 ### 목표
 
@@ -447,7 +556,7 @@ GET  /api/v1/comments/:rootCommentId/summary
 
 ---
 
-## Phase 10. 관리자 기능 구현
+## Phase 12. 관리자 기능 구현
 
 ### 목표
 
@@ -487,7 +596,7 @@ POST   /api/v1/admin/comments/:commentId/analysis/retry
 
 ---
 
-## Phase 11. 테스트 정리
+## Phase 13. 테스트 정리
 
 ### 목표
 
@@ -526,7 +635,7 @@ MVP 정책이 실제로 깨지지 않는지 확인한다.
 
 ---
 
-## Phase 12. 문서 정리
+## Phase 14. 문서 정리
 
 ### 목표
 

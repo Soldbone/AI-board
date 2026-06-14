@@ -16,7 +16,7 @@ Posts: 게시글
 Comments: 댓글/대댓글
 Videos: 유튜브 영상 및 처리 상태
 Tags: 태그
-Mcp: YouTube 외부 도구 인터페이스
+Mcp: Agent가 호출하는 외부 도구 인터페이스
 Ai: 댓글 분석, RAG, 요약
 Admin: 관리자 기능
 Common: 공통 유틸, guard, decorator, enum
@@ -131,9 +131,15 @@ src/
 │
 ├── mcp/
 │   ├── mcp.module.ts
-│   ├── youtube-tool.service.ts
+│   ├── mcp-server.service.ts
+│   ├── tools/
+│   │   ├── youtube-metadata.tool.ts
+│   │   ├── video-processing.tool.ts
+│   │   ├── post-context.tool.ts
+│   │   └── transcript-search.tool.ts
 │   └── dto/
-│       └── youtube-metadata.dto.ts
+│       ├── mcp-tool-request.dto.ts
+│       └── mcp-tool-response.dto.ts
 │
 ├── ai/
 │   ├── ai.module.ts
@@ -384,30 +390,42 @@ provider 오류는 그대로 사용자에게 전달하지 않는다. 서버 로�
 
 ### 책임
 
-- 외부 도구 인터페이스 제공
-- YouTube API 호출
-- YouTube URL parsing 보조
-- 영상 메타데이터 구조화
-- 자막 수집 도구 제공 가능
+- AI Agent가 사용할 tool 인터페이스 제공
+- MCP Server 역할 수행
+- JSON-RPC 기반 tool 요청/응답 처리
+- 기존 domain service와 provider adapter를 Agent가 호출 가능한 도구로 노출
+- 최소 1개 이상의 실제 외부 서비스 연동 tool 제공
 
 ### 주요 Service
 
 ```text
-YoutubeMetadataProvider
-- fetchMetadata(youtubeVideoId)
+McpServerService
+- listTools()
+- callTool(name, arguments, context)
 
-YoutubeTranscriptProvider
-- fetchTranscript(youtubeVideoId, languages)
+YoutubeMetadataTool
+- fetchYoutubeMetadata(youtubeVideoId)
 
-EmbeddingProvider
-- embedTexts(texts)
+VideoProcessingTool
+- getVideoProcessingStatus(videoId)
+- retryVideoProcessing(videoId)
+
+PostContextTool
+- getPostContext(postId)
+
+TranscriptSearchTool
+- searchTranscriptChunks(postId, query, limit)
 ```
 
 ### 주의사항
 
-McpModule은 외부 API 세부 구현을 감싸는 계층이다. PostsService나 VideosService가 YouTube API client의 세부사항을 직접 알지 않도록 한다.
+McpModule은 Phase 6 provider adapter를 대체하지 않는다. 게시글 작성, 영상 처리, 자막 저장 같은 기본 제품 흐름은 기존 NestJS service가 직접 담당하고, McpModule은 Agent가 선택적으로 호출할 수 있는 tool boundary를 제공한다.
 
-비공식 transcript provider는 반드시 adapter 뒤에 둔다. `youtube-transcript-api`가 차단되거나 깨지면 `yt-dlp`, hosted transcript API, STT provider로 교체할 수 있어야 한다.
+외부 API key는 tool argument로 받지 않는다. YouTube API key, OpenAI API key 등은 서버 환경변수에서만 읽고, Agent prompt나 tool response에 포함하지 않는다.
+
+MCP tool은 현재 사용자 context를 받아 권한을 확인한다. 읽기 tool은 공개 게시글과 접근 가능한 리소스에 제한하고, retry 같은 write 성격의 tool은 게시글 작성자 또는 관리자 권한으로 제한한다.
+
+비공식 transcript provider는 계속 adapter 뒤에 둔다. `youtube-transcript-api`가 차단되거나 깨지면 `yt-dlp`, hosted transcript API, STT provider로 교체할 수 있어야 한다. MCP tool은 raw provider error를 그대로 반환하지 않고, 기존 errorCode/errorMessage 정책을 따른다.
 
 ---
 
