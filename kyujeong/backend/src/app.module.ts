@@ -7,6 +7,7 @@ import { UsersModule } from './users/users.module';
 import { PostsModule } from './posts/posts.module';
 import { CommentsModule } from './comments/comments.module';
 import { AiRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
+import { FoodMetadataModule } from './food-metadata/food-metadata.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AiRecommendationsModule } from './ai-recommendations/ai-recommendations
     PostsModule,
     CommentsModule,
     AiRecommendationsModule,
+    FoodMetadataModule,
   ],
   controllers: [AppController],
   providers: [AppService],
