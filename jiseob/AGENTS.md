@@ -175,7 +175,28 @@ GET /api/v1/comments/:commentId/evidences
 - 자막 없음, embedding 실패, provider 실패처럼 처리 불가 상태가 확정되면 `FAILED`로 처리한다.
 - RAG 실패 사유는 AI 댓글 분석 실패 사유와 분리해서 저장한다.
 
-### 3-8. 댓글 스레드 요약 정책
+### 3-8. MCP Agent Tool 정책
+
+MCP는 일반 사용자 공개 REST API가 아니라 AI Agent가 호출할 tool boundary다.
+
+```http
+POST /api/v1/mcp
+```
+
+- Phase 9에서는 HTTP JSON-RPC 2.0 endpoint 하나로 `tools/list`, `tools/call`을 처리한다.
+- MCP endpoint는 `Authorization: Bearer` access token을 요구한다.
+- Access token은 cookie가 아니라 Authorization header에서만 읽으므로 MCP endpoint에는 CSRF guard를 적용하지 않는다.
+- 일반 사용자 화면의 state-changing REST API는 기존처럼 `JwtAuthGuard + CsrfGuard`를 유지한다.
+- tool은 allowlist 방식으로만 노출한다.
+- tool argument로 API key, access token, cookie 값을 받지 않는다.
+- tool response에는 raw API key, access token, cookie, provider raw error, stack trace를 포함하지 않는다.
+- `youtube.fetchMetadata`는 실제 YouTube Data API provider를 호출하지만 DB를 수정하지 않는다.
+- `transcript.searchChunks`는 pgvector similarity search를 사용하고 기본 `limit=5`, 최대 `limit=10`, similarity threshold `0.70`을 적용한다.
+- `video.retryProcessing`은 write 성격의 tool이므로 게시글 작성자 또는 관리자만 호출할 수 있다.
+- `video.retryProcessing`은 `metadataStatus`, `transcriptStatus`, `embeddingStatus` 중 하나라도 `FAILED`일 때만 허용한다.
+- `NOT_AVAILABLE`은 자막 부재가 확정된 상태이므로 retry 허용 조건에는 포함하지 않는다.
+
+### 3-9. 댓글 스레드 요약 정책
 
 - 댓글 스레드 요약은 자동 생성하지 않는다.
 - 로그인 사용자가 “AI 요약” 버튼을 눌렀을 때만 생성한다.
@@ -356,6 +377,8 @@ id: string;
 - AI 분석 실패가 댓글 작성 실패로 이어지지 않는다.
 - AI 분석 재시도는 관리자만 가능하다.
 - AI 분석 재시도는 FAILED 상태에서만 가능하다.
+- MCP tool은 allowlist로만 호출할 수 있다.
+- MCP write tool은 권한과 실패 상태 조건을 모두 검증한다.
 - 댓글 스레드 요약은 댓글 수 10개 이상일 때만 가능하다.
 
 ---
@@ -386,10 +409,12 @@ id: string;
 9. TranscriptChunk / pgvector migration 구현
 10. AI 댓글 분석 상태 구현
 11. RAG 근거 후보 구현
-12. Summary 구현
-13. Admin 기능 구현
-14. E2E 테스트 정리
-15. README / 실행 문서 정리
+12. MCP Agent Tool Server 구현
+13. AI Agent 추론 루프 구현
+14. Summary 구현
+15. Admin 기능 구현
+16. E2E 테스트 정리
+17. README / 실행 문서 정리
 
 ---
 
@@ -407,6 +432,8 @@ id: string;
 → 자막 저장
 → AI 분석 상태
 → RAG 근거 후보
+→ MCP Agent Tool Server
+→ AI Agent 추론 루프
 → 요약
 → 관리자 기능
 ```

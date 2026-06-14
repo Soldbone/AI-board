@@ -341,6 +341,9 @@ DELETE /api/v1/comments/:commentId
 - 테스트에서는 외부 API key와 YouTube 네트워크에 의존하지 않도록 provider adapter를 mock할 수 있다.
 - raw provider error에는 API key, 내부 URL, stack trace가 섞일 수 있으므로 사용자 응답에는 그대로 노출하지 않는다.
 - transcript 언어 기본값은 `ko,en`, chunk 기본값은 1000자와 overlap 200자로 시작한다.
+- retry는 metadata, transcript, embedding 중 하나라도 `FAILED`일 때만 허용한다.
+- `transcriptStatus=NOT_AVAILABLE`은 자막 부재가 확정된 상태이므로 retry 허용 조건에는 포함하지 않는다.
+- 일반 REST retry API는 로그인 사용자와 CSRF를 요구하고, Phase 9 MCP retry tool은 Bearer JWT 기반 tool boundary로 처리한다.
 
 ---
 
@@ -452,6 +455,7 @@ MCP를 일반 백엔드 외부 API 호출 경로가 아니라, AI Agent가 사�
 
 - McpModule 작성
 - MCP JSON-RPC 요청/응답 처리 구조 작성
+- `POST /api/v1/mcp` endpoint 작성
 - tool registry 작성
 - tool argument schema와 response schema 정의
 - `youtube.fetchMetadata` tool 작성
@@ -470,18 +474,25 @@ MCP를 일반 백엔드 외부 API 호출 경로가 아니라, AI Agent가 사�
 - 최소 1개 이상의 tool이 실제 외부 서비스와 연동된다.
 - YouTube API key는 환경변수에서만 읽고 tool argument나 response에 포함되지 않는다.
 - 권한 없는 사용자는 write 성격의 tool을 호출할 수 없다.
+- `video.retryProcessing`은 작성자 또는 관리자만 호출할 수 있고, metadata/transcript/embedding 중 하나라도 `FAILED`일 때만 허용된다.
+- `transcript.searchChunks`는 pgvector similarity search를 사용하고 기본 limit 5, 최대 limit 10, threshold 0.70을 적용한다.
 - provider 실패는 정제된 errorCode/errorMessage로 반환된다.
 
 ### 직접 했다면 접근법
 
-Phase 6 provider adapter를 McpModule로 옮기지 않는다. 기존 제품 흐름은 VideosService와 VideoProcessingService가 계속 담당하고, McpModule은 Agent가 호출할 수 있는 얇은 tool wrapper를 제공한다.
+Phase 6 provider adapter를 McpModule로 옮기지 않는다. 기존 제품 흐름은 VideosService와 VideoProcessingService가 계속 담당하고, McpModule은 Agent가 호출할 수 있는 얇은 tool wrapper를 제공한다. 모듈 의존성은 `McpModule -> VideosModule / PostsModule / AiModule` 방향으로 두고, `VideosModule -> McpModule` 순환을 만들지 않는다.
 
 ### 유의사항
 
 - MCP는 사용자 공개 REST API가 아니라 Agent와 서버 사이의 tool boundary다.
+- Phase 9 HTTP endpoint는 `POST /api/v1/mcp` 하나로 두고 JSON-RPC 2.0의 `tools/list`, `tools/call`을 처리한다.
+- MCP endpoint는 `Authorization: Bearer` access token을 요구한다.
+- 현재 access token은 cookie가 아니라 Authorization header에서만 읽으므로 MCP endpoint에는 CSRF guard를 적용하지 않는다.
+- 브라우저 사용자 화면의 state-changing REST API는 기존처럼 `JwtAuthGuard + CsrfGuard`를 유지한다.
 - tool은 allowlist 방식으로만 노출한다.
 - raw API key, access token, cookie, stack trace는 tool response에 포함하지 않는다.
 - `retryProcessing` 같은 write tool은 사용자 권한 또는 관리자 권한을 반드시 확인한다.
+- `youtube.fetchMetadata`는 실제 YouTube Data API provider를 호출하지만 DB를 수정하지 않는다.
 - 외부 URL fetch tool을 일반화하면 SSRF 위험이 생기므로 MVP에서는 YouTube videoId처럼 검증 가능한 입력으로 제한한다.
 
 ---

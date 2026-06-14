@@ -70,6 +70,7 @@ youtube.fetchMetadata
 - input: youtubeVideoId
 - output: title, channelTitle, thumbnailUrl, publishedAt, youtube statistics
 - external service: YouTube Data API v3
+- side effect: 없음. DB를 수정하지 않는다.
 
 video.getProcessingStatus
 - input: videoId
@@ -79,6 +80,7 @@ video.retryProcessing
 - input: videoId
 - output: accepted, current status
 - 권한: 게시글 작성자 또는 관리자
+- 조건: metadataStatus, transcriptStatus, embeddingStatus 중 하나라도 FAILED
 
 post.getContext
 - input: postId
@@ -87,6 +89,8 @@ post.getContext
 transcript.searchChunks
 - input: postId, query, limit
 - output: related transcript chunks
+- search: pgvector similarity search
+- default: limit 5, max 10, threshold 0.70, similarity = 1 - cosineDistance
 ```
 
 과제의 “최소 1개 이상의 실제 외부 서비스 연동”은 `youtube.fetchMetadata`로 충족한다. 이 tool은 내부적으로 Phase 6의 `YoutubeMetadataProvider`를 재사용하고, API key는 서버 환경변수에서 읽는다.
@@ -128,10 +132,20 @@ API key 정책:
 권한 정책:
 
 - MCP Server는 공개 사용자 API처럼 열지 않는다.
-- AgentService 또는 내부 인증된 caller만 MCP tool을 호출할 수 있게 한다.
+- Phase 9에서는 `POST /api/v1/mcp` HTTP JSON-RPC endpoint를 두고 `Authorization: Bearer` access token을 요구한다.
+- AgentService 또는 인증된 tool caller만 MCP tool을 호출할 수 있게 한다.
 - tool 호출에는 현재 사용자 context를 전달한다.
 - 읽기 tool은 공개 게시글과 접근 가능한 리소스로 제한한다.
 - write tool은 게시글 작성자 또는 관리자 권한을 확인한다.
+- `video.retryProcessing`은 권한 조건을 만족해도 metadata/transcript/embedding 중 하나라도 `FAILED`인 경우에만 허용한다.
+
+CSRF 정책:
+
+- 일반 사용자 화면의 state-changing REST API는 기존처럼 `JwtAuthGuard + CsrfGuard`를 사용한다.
+- MCP endpoint는 Bearer token 기반 tool boundary이므로 Phase 9에서는 `JwtAuthGuard`만 적용한다.
+- 현재 access token은 cookie에서 자동 전송되지 않고 Authorization header에서만 읽는다.
+- 악성 사이트는 사용자의 Bearer token 값을 모르면 Authorization header를 만들 수 없으므로 CSRF 위험 모델이 cookie 인증 API와 다르다.
+- 나중에 access token을 cookie에서 읽도록 바꾸거나 MCP를 브라우저 사용자 액션 API로 공개하면 CSRF 또는 internal-only 인증 정책을 재검토한다.
 
 입력 검증:
 

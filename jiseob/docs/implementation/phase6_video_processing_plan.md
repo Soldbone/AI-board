@@ -117,7 +117,9 @@ POST /api/v1/videos/:videoId/processing/retry
 
 - 로그인과 CSRF가 필요하다.
 - MVP에서는 해당 video로 작성한 게시글의 작성자만 retry할 수 있다.
-- 관리자 retry 권한은 Phase 10 Admin 기능에서 확장한다.
+- Phase 9 MCP `video.retryProcessing` tool에서는 관리자도 retry할 수 있다.
+- retry는 `metadataStatus`, `transcriptStatus`, `embeddingStatus` 중 하나라도 `FAILED`일 때만 허용한다.
+- `transcriptStatus=NOT_AVAILABLE`은 자막 부재가 확정된 상태이므로 retry 허용 조건에는 포함하지 않는다.
 - retry는 metadata, transcript, embedding을 다시 시도한다.
 - 이미 처리 중인 video에 대한 중복 retry는 막는다.
 

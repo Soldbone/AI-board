@@ -347,7 +347,7 @@ DELETE /api/v1/posts/:postId/like
 
 ### 주의사항
 
-PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처리는 VideosModule 또는 McpModule로 분리한다.
+PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처리는 VideosModule이 담당하고, McpModule은 Agent가 같은 기능을 선택적으로 호출할 수 있는 얇은 tool wrapper만 제공한다.
 
 게시글 카운터는 원본 데이터와 함께 다룬다. 좋아요는 `post_likes`를 원본으로 두고, `posts.like_count`는 같은 transaction 안에서 증감한다. 댓글 수는 CommentsModule에서 댓글 생성/삭제 transaction 안에 `posts.comment_count`를 증감한다.
 
@@ -368,8 +368,7 @@ PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처�
 
 ### 의존성
 
-- McpModule
-- AiModule 또는 LlmService 일부
+- AiModule
 
 ### Controller
 
@@ -398,6 +397,14 @@ provider 오류는 그대로 사용자에게 전달하지 않는다. 서버 로�
 - 기존 domain service와 provider adapter를 Agent가 호출 가능한 도구로 노출
 - 최소 1개 이상의 실제 외부 서비스 연동 tool 제공
 
+### Controller
+
+```http
+POST /api/v1/mcp
+```
+
+Phase 9에서는 HTTP JSON-RPC 2.0 endpoint 하나로 `tools/list`, `tools/call`을 처리한다.
+
 ### 주요 Service
 
 ```text
@@ -425,7 +432,9 @@ McpModule은 Phase 6 provider adapter를 대체하지 않는다. 게시글 작�
 
 외부 API key는 tool argument로 받지 않는다. YouTube API key, OpenAI API key 등은 서버 환경변수에서만 읽고, Agent prompt나 tool response에 포함하지 않는다.
 
-MCP tool은 현재 사용자 context를 받아 권한을 확인한다. 읽기 tool은 공개 게시글과 접근 가능한 리소스에 제한하고, retry 같은 write 성격의 tool은 게시글 작성자 또는 관리자 권한으로 제한한다.
+MCP tool은 현재 사용자 context를 받아 권한을 확인한다. 읽기 tool은 공개 게시글과 접근 가능한 리소스에 제한하고, retry 같은 write 성격의 tool은 게시글 작성자 또는 관리자 권한으로 제한한다. `video.retryProcessing`은 metadata/transcript/embedding 중 하나라도 `FAILED`일 때만 허용한다.
+
+MCP endpoint는 `Authorization: Bearer` access token을 요구한다. 현재 access token은 cookie가 아니라 Authorization header에서만 읽으므로 Phase 9 MCP endpoint에는 CSRF guard를 적용하지 않는다. 일반 사용자 화면의 state-changing REST API는 기존처럼 `JwtAuthGuard + CsrfGuard`를 유지한다.
 
 비공식 transcript provider는 계속 adapter 뒤에 둔다. `youtube-transcript-api`가 차단되거나 깨지면 `yt-dlp`, hosted transcript API, STT provider로 교체할 수 있어야 한다. MCP tool은 raw provider error를 그대로 반환하지 않고, 기존 errorCode/errorMessage 정책을 따른다.
 
@@ -597,9 +606,9 @@ export class AppModule {}
 ```text
 AuthModule → UsersModule
 PostsModule → VideosModule, TagsModule
-VideosModule → McpModule
 CommentsModule → AiModule
-AiModule → VideosModule 또는 TranscriptChunk Repository
+VideosModule → AiModule
+McpModule → VideosModule, PostsModule, AiModule
 AdminModule → CommentsModule, AiModule
 ```
 
