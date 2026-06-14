@@ -1605,7 +1605,60 @@ GET /api/v1/ai/outputs/9
 }
 ```
 
-## 27. Phase 5 한계와 다음 개선 방향
+## 27. 개발용 RAG seed 데이터
+
+RAG 기능을 화면과 API에서 바로 확인하기 위해 `scripts/seed_dev_data.py`를 추가했다.
+
+이 스크립트는 프론트 mock이 아니라 실제 DB row를 만든다.
+따라서 게시글 목록, 상세 화면, 댓글, 태그, 이미지 메타데이터, RAG 검색 chunk, 저장된 AI 결과 조회까지 같은 백엔드 API 흐름으로 확인할 수 있다.
+
+포함 데이터:
+
+- 개발용 사용자 3명
+- `REVIEW`, `INFO`, `QUESTION`, `PURCHASE_HELP` 게시글
+- 후기 게시글의 `PostFigureInfo`
+- 댓글, 태그, 게시글-태그 연결
+- 로컬 SVG placeholder 이미지와 `PostImage` 메타데이터
+- `ContentChunk`와 deterministic mock embedding vector
+- 질문 참고 답변과 구매 고민 요약 예시 `AiOutput`
+- 각 AI 결과의 근거를 보여주는 `AiOutputSource`
+
+실행:
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\seed_dev_data.py --reset
+```
+
+삭제만 할 때:
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\seed_dev_data.py --reset-only
+```
+
+로그인 테스트 계정:
+
+```text
+dev_yoonji / devpass1234!
+dev_miku / devpass1234!
+dev_collector / devpass1234!
+```
+
+중요한 점:
+
+- 실제 OpenAI API를 호출하지 않는다.
+- embedding 모델명은 `dev-deterministic-embedding-v1`로 저장된다.
+- vector는 텍스트 hash 기반 deterministic 값이라 재실행해도 같은 텍스트는 같은 vector를 갖는다.
+- `--reset`은 전체 DB를 지우지 않고 개발용 seed 계정과 개발용 게시글 중심으로 정리한다.
+- 이 seed는 RAG 기능의 화면/응답 확인용이며, 운영 품질의 embedding 검색 정확도를 검증하는 데이터는 아니다.
+
+이 seed를 넣으면 다음 흐름을 바로 확인할 수 있다.
+
+- 후기 상세에서 유사 후기 추천
+- 질문 상세에서 저장된 질문 참고 답변 조회 또는 새 생성 요청
+- 구매 고민 상세에서 저장된 구매 요약 조회 또는 새 생성 요청
+- AI 결과의 sources 표시
+
+## 28. Phase 5 한계와 다음 개선 방향
 
 현재 한계:
 

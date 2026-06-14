@@ -102,6 +102,11 @@ function PostListPage({
     setPage(1);
   }
 
+  function handleBoardChange(event) {
+    setBoardCode(event.target.value);
+    setPage(1);
+  }
+
   function handleSearchSubmit(event) {
     event.preventDefault();
     setAppliedSearchQuery(searchQuery.trim());
