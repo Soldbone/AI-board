@@ -4,6 +4,7 @@ import {
   getAgentPlaceRecommendation,
   type AgentPlaceRecommendationResponse,
 } from './api/agentApi'
+import { getSimilarPosts, type SimilarPostItem } from './api/aiApi'
 import { getMe, login, signup, type UserResponse } from './api/authApi'
 import { createComment, deleteComment, getComments, type CommentRead } from './api/commentApi'
 import {
@@ -82,6 +83,12 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString('ko-KR')
 }
 
+function buildDetailSimilarTagNames(post: PostRead) {
+  return [post.region, post.store_name, post.category].filter(
+    (value): value is string => Boolean(value),
+  )
+}
+
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm)
@@ -95,6 +102,8 @@ function App() {
   const [tags, setTags] = useState<TagSuggestion[]>([])
   const [agentRecommendation, setAgentRecommendation] =
     useState<AgentPlaceRecommendationResponse | null>(null)
+  const [detailSimilarPosts, setDetailSimilarPosts] = useState<SimilarPostItem[]>([])
+  const [detailSimilarPostMessage, setDetailSimilarPostMessage] = useState('')
 
   const [postForm, setPostForm] = useState<PostFormState>(emptyPostForm)
   const [commentContent, setCommentContent] = useState('')
@@ -111,6 +120,7 @@ function App() {
   const [message, setMessage] = useState('게시글 목록을 불러오는 중입니다.')
   const [isLoading, setIsLoading] = useState(true)
   const [isAgentLoading, setIsAgentLoading] = useState(false)
+  const [isDetailSimilarPostLoading, setIsDetailSimilarPostLoading] = useState(false)
 
   const hasAccessToken = Boolean(accessToken)
 
@@ -165,6 +175,31 @@ function App() {
     },
     [activeKeyword, activeTag, activeSort],
   )
+
+  async function loadDetailSimilarPosts(post: PostRead) {
+    setIsDetailSimilarPostLoading(true)
+    setDetailSimilarPostMessage('비슷한 게시글을 찾는 중입니다.')
+
+    try {
+      const data = await getSimilarPosts({
+        title: post.title,
+        content: post.content,
+        tag_names: buildDetailSimilarTagNames(post),
+        limit: 5,
+        exclude_post_id: post.id,
+      })
+
+      setDetailSimilarPosts(data.items)
+      setDetailSimilarPostMessage(data.items.length ? '' : '비슷한 게시글이 없습니다.')
+    } catch (error) {
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage(
+        error instanceof Error ? error.message : '비슷한 게시글을 찾지 못했습니다.',
+      )
+    } finally {
+      setIsDetailSimilarPostLoading(false)
+    }
+  }
 
   useEffect(() => {
     void loadPosts(1, { keyword: '', tag: '', sort: 'latest' })
@@ -285,6 +320,8 @@ function App() {
     setSelectedPost(null)
     setComments([])
     setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
@@ -296,6 +333,7 @@ function App() {
       setSelectedPost(postData)
       setComments(commentData)
       setMessage('')
+      void loadDetailSimilarPosts(postData)
     } catch (error) {
       setMessage(getErrorMessage(error))
     } finally {
@@ -314,6 +352,8 @@ function App() {
     setSelectedPost(null)
     setComments([])
     setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
@@ -370,6 +410,9 @@ function App() {
       setSelectedPost(createdPost)
       setComments([])
       setAgentRecommendation(null)
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage('')
+      void loadDetailSimilarPosts(createdPost)
       setViewMode('detail')
       setMessage('게시글을 등록했습니다.')
     } catch (error) {
@@ -405,6 +448,10 @@ function App() {
       const updatedPost = await updatePost(selectedPost.id, payload, accessToken)
       await loadPosts(page, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
       setSelectedPost(updatedPost)
+      setAgentRecommendation(null)
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage('')
+      void loadDetailSimilarPosts(updatedPost)
       setViewMode('detail')
       setMessage('게시글을 수정했습니다.')
     } catch (error) {
@@ -567,6 +614,8 @@ function App() {
     setSelectedPost(null)
     setComments([])
     setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setMessage('')
   }
 
@@ -677,10 +726,13 @@ function App() {
             commentContent={commentContent}
             comments={comments}
             agentRecommendation={agentRecommendation}
+            similarPosts={detailSimilarPosts}
+            similarPostMessage={detailSimilarPostMessage}
             formatDate={formatDate}
             hasAccessToken={hasAccessToken}
             isAnonymous={isAnonymous}
             isAgentLoading={isAgentLoading}
+            isSimilarPostLoading={isDetailSimilarPostLoading}
             isLoading={isLoading}
             currentUserId={currentUser?.id ?? null}
             onAnonymousChange={setIsAnonymous}
@@ -692,6 +744,7 @@ function App() {
             onDeletePost={handleDeletePost}
             onEdit={openEditForm}
             onRequestAgentRecommendation={handleAgentRecommendation}
+            onOpenSimilarPost={(postId) => void openDetail(postId)}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
             post={selectedPost}
             replyTargetId={replyTargetId}

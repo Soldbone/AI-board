@@ -28,6 +28,7 @@ def get_similar_posts(
         content=request_data.content,
         tag_names=request_data.tag_names,
         limit=request_data.limit,
+        exclude_post_id=request_data.exclude_post_id,
     )
 
     return {"items": items}

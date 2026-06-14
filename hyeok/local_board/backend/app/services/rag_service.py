@@ -31,7 +31,77 @@ STOPWORDS = {
     "합니다",
     "후기",
     "해주세요",
+    "실제",
+    "실제로",
+    "이용",
+    "이용해본",
+    "이용해보신",
+    "이용해봤",
+    "이용한",
+    "이용했던",
+    "방문",
+    "방문해본",
+    "방문한",
+    "가본",
+    "가보신",
+    "가보신분",
+    "분들",
+    "분들의",
+    "분",
+    "분이",
+    "분은",
+    "분께",
+    "사람",
+    "사람들",
+    "가격",
+    "가격대",
+    "비용",
+    "대기",
+    "대기시간",
+    "시간",
+    "얼마",
+    "정도",
+    "혹시",
+    "여기",
+    "저기",
+    "어디",
+    "어떤",
+    "어때",
+    "어떤가요",
+    "궁금합니다",
+    "알려주세요",
+    "있을까요",
+    "있으면",
+    "없는",
+    "많이",
+    "진짜",
+    "괜찮은",
+    "괜찮나요",
+    "추천좀",
 }
+
+STOPWORD_SUFFIXES = (
+    "에서",
+    "에게",
+    "으로",
+    "까지",
+    "부터",
+    "처럼",
+    "보다",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "의",
+    "에",
+    "도",
+    "만",
+    "로",
+    "와",
+    "과",
+)
 
 FIELD_WEIGHTS = {
     "title": 4,
@@ -58,6 +128,19 @@ def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def is_stopword(value: str) -> bool:
+    if value in STOPWORDS:
+        return True
+
+    for suffix in STOPWORD_SUFFIXES:
+        if len(value) > len(suffix) + 1 and value.endswith(suffix):
+            base_word = value.removesuffix(suffix)
+            if base_word in STOPWORDS:
+                return True
+
+    return False
+
+
 def extract_keywords(
     title: str,
     content: str,
@@ -73,7 +156,7 @@ def extract_keywords(
 
         if (
             len(cleaned_word) >= 2
-            and cleaned_word not in STOPWORDS
+            and not is_stopword(cleaned_word)
             and cleaned_word not in keywords
         ):
             keywords.append(cleaned_word)
@@ -159,15 +242,20 @@ def find_similar_posts(
     content: str,
     tag_names: list[str],
     limit: int = DEFAULT_SIMILAR_POST_LIMIT,
+    exclude_post_id: int | None = None,
 ):
     keywords = extract_keywords(title, content, tag_names)
 
     if not keywords:
         return []
 
+    query = db.query(Post).filter(Post.deleted_at.is_(None))
+
+    if exclude_post_id is not None:
+        query = query.filter(Post.id != exclude_post_id)
+
     posts = (
-        db.query(Post)
-        .filter(Post.deleted_at.is_(None))
+        query
         .order_by(Post.created_at.desc())
         .limit(SEARCH_CANDIDATE_LIMIT)
         .all()

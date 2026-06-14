@@ -5,6 +5,7 @@ export type SimilarPostRequest = {
   content: string
   tag_names: string[]
   limit?: number
+  exclude_post_id?: number
 }
 
 export type SimilarPostItem = {

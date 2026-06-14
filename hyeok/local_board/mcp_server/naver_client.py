@@ -91,14 +91,14 @@ async def _search_place_image(
     }
 
 
-def _format_place(item: dict, fallback_query: str) -> dict:
+def _format_place(item: dict, fallback_query: str, region: str) -> dict:
     title = _clean_html(item.get("title"))
     road_address = _clean_html(item.get("roadAddress"))
     address = _clean_html(item.get("address"))
     category = _clean_html(item.get("category"))
     link = _clean_html(item.get("link"))
 
-    map_query = " ".join(part for part in [title, road_address or address] if part)
+    map_query = " ".join(part for part in [region, title] if part)
     if not map_query:
         map_query = fallback_query
 
@@ -145,7 +145,7 @@ async def search_local_places(
 
             data = response.json()
             items = data.get("items", [])
-            places = [_format_place(item, query) for item in items]
+            places = [_format_place(item, query, region) for item in items]
             image_results = await asyncio.gather(
                 *[
                     _search_place_image(

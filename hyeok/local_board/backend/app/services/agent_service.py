@@ -14,6 +14,7 @@ from app.schemas.agent import (
 from app.services.mcp_client_service import (
     McpClientError,
     get_mcp_stdio_server_config,
+    search_places_with_mcp,
 )
 
 
@@ -34,6 +35,21 @@ SYSTEM_PROMPT = """
 
 class AgentServiceError(RuntimeError):
     pass
+
+
+FALLBACK_KEYWORD_RULES = [
+    ("중국집", ("중국집", "중식", "짜장", "짬뽕", "탕수육")),
+    ("카페", ("카페", "커피", "디저트")),
+    ("미용실", ("미용실", "머리", "염색", "펌")),
+    ("치킨", ("치킨", "닭강정")),
+    ("한식", ("한식", "백반", "국밥", "찌개")),
+    ("일식", ("일식", "초밥", "스시", "돈까스", "라멘")),
+    ("분식", ("분식", "떡볶이", "김밥", "순대")),
+    ("고깃집", ("고깃집", "삼겹살", "갈비", "고기")),
+    ("빵집", ("빵집", "베이커리", "빵")),
+    ("술집", ("술집", "호프", "맥주", "이자카야")),
+    ("옷가게", ("옷가게", "의류", "옷")),
+]
 
 
 def get_agent_model_name() -> str:
@@ -81,6 +97,42 @@ def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> s
 위 정보를 바탕으로 사용자가 참고할 만한 장소를 추천해줘.
 필요하면 search_local_places 도구를 사용해줘.
 """.strip()
+
+
+def build_fallback_keyword(request_data: AgentPlaceRecommendationRequest) -> str:
+    if request_data.keyword:
+        return request_data.keyword
+
+    source_text = f"{request_data.title} {request_data.content}".strip()
+    for keyword, aliases in FALLBACK_KEYWORD_RULES:
+        if any(alias in source_text for alias in aliases):
+            return keyword
+
+    return source_text[:30].strip() or "맛집"
+
+
+async def recommend_places_with_mcp_fallback(
+    request_data: AgentPlaceRecommendationRequest,
+) -> AgentPlaceRecommendationResponse:
+    keyword = build_fallback_keyword(request_data)
+    try:
+        tool_payload = await search_places_with_mcp(
+            region=request_data.region,
+            keyword=keyword,
+            display=request_data.display,
+        )
+    except McpClientError as exc:
+        raise AgentServiceError("Failed to run MCP fallback place search.") from exc
+
+    return AgentPlaceRecommendationResponse(
+        answer="MCP 장소 검색 결과를 표시합니다.",
+        used_mcp=bool(tool_payload),
+        query=tool_payload.get("query", ""),
+        places=tool_payload.get("places", []),
+        fallback_map_url=tool_payload.get("fallback_map_url", ""),
+        reasoning_summary="Agent 응답이 비어 있거나 실패하여 MCP 직접 검색으로 대체했습니다.",
+        tool_status=tool_payload.get("status", "fallback_direct_mcp"),
+    )
 
 
 def _extract_final_answer(result: dict[str, Any]) -> str:
@@ -164,12 +216,18 @@ async def recommend_places_with_agent(
             }
         )
     except Exception as exc:
-        raise AgentServiceError("Failed to run place recommendation Agent.") from exc
+        try:
+            return await recommend_places_with_mcp_fallback(request_data)
+        except AgentServiceError:
+            raise AgentServiceError("Failed to run place recommendation Agent.") from exc
 
     tool_payload = _extract_tool_payload(result)
     answer = _extract_final_answer(result)
     places = tool_payload.get("places", [])
     used_mcp = bool(tool_payload)
+
+    if not places:
+        return await recommend_places_with_mcp_fallback(request_data)
 
     if not answer:
         answer = "추천 결과를 생성하지 못했습니다."
