@@ -1,15 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { FoodMetadataService } from '../food-metadata/food-metadata.service';
+import type { IngredientSetAnalysis } from '../food-metadata/food-metadata.types';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  EmbeddingService,
-  RAG_EMBEDDING_DIMENSION,
-} from './embedding.service';
+import { EmbeddingService, RAG_EMBEDDING_DIMENSION } from './embedding.service';
 import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
+import { CreateRecommendationDto } from './dto/create-recommendation.dto';
 import {
   RecipeLlmService,
   type RecommendationGrounding,
 } from './recipe-llm.service';
+import {
+  AI_RECOMMENDATION_GOAL_LABELS,
+  normalizeAiRecommendationGoal,
+} from './recommendation-goal';
 
 const ragPostSelect = {
   id: true,
@@ -209,6 +213,7 @@ export class AiRecommendationsService {
     private readonly prismaService: PrismaService,
     private readonly embeddingService: EmbeddingService,
     private readonly recipeLlmService: RecipeLlmService,
+    private readonly foodMetadataService: FoodMetadataService,
   ) {}
 
   async getStatus() {
@@ -275,11 +280,21 @@ export class AiRecommendationsService {
     return recommendation ? this.mapRecommendation(recommendation) : null;
   }
 
-  async create(postId: number, requesterId: number) {
+  async create(
+    postId: number,
+    requesterId: number,
+    createRecommendationDto: CreateRecommendationDto = {},
+  ) {
     const targetPost = await this.findRagPost(postId);
     const targetDocument = this.buildRagDocument(targetPost);
     const targetIngredients = this.extractIngredientsFromRagPost(targetPost);
-    const targetEmbeddingResult = await this.embeddingService.embed(targetDocument);
+    const nutritionGoal = normalizeAiRecommendationGoal(
+      createRecommendationDto.nutritionGoal,
+    );
+    const additionalRequest =
+      createRecommendationDto.additionalRequest?.trim() ?? '';
+    const targetEmbeddingResult =
+      await this.embeddingService.embed(targetDocument);
 
     await this.upsertRagDocument(
       targetPost.id,
@@ -306,9 +321,11 @@ export class AiRecommendationsService {
       targetIngredients,
     );
     const grounding = this.getRecommendationGrounding(similarPosts);
+    const nutritionMetadata =
+      await this.getIngredientNutritionMetadata(targetIngredients);
     const recommendationDraft =
       await this.recipeLlmService.createRecommendation(
-        this.toRecipeContext(targetPost, targetIngredients),
+        this.toRecipeContext(targetPost, targetIngredients, additionalRequest),
         similarPosts.map((similarPost) => ({
           title: similarPost.title,
           summary: similarPost.summary,
@@ -322,6 +339,8 @@ export class AiRecommendationsService {
           missingIngredients: similarPost.missingIngredients,
         })),
         grounding,
+        nutritionMetadata,
+        nutritionGoal,
       );
 
     const recommendation =
@@ -383,8 +402,12 @@ export class AiRecommendationsService {
     );
     const conditions = createDirectRecommendationDto.conditions?.trim() ?? '';
     const targetIngredients = this.normalizeIngredientTerms(ingredients);
+    const nutritionGoal = normalizeAiRecommendationGoal(
+      createDirectRecommendationDto.nutritionGoal,
+    );
     const targetDocument = this.buildDirectRagDocument(ingredients, conditions);
-    const targetEmbeddingResult = await this.embeddingService.embed(targetDocument);
+    const targetEmbeddingResult =
+      await this.embeddingService.embed(targetDocument);
     const candidatePosts = await this.prismaService.post.findMany({
       take: 50,
       orderBy: {
@@ -398,6 +421,8 @@ export class AiRecommendationsService {
       targetIngredients,
     );
     const grounding = this.getRecommendationGrounding(similarPosts);
+    const nutritionMetadata =
+      await this.getIngredientNutritionMetadata(targetIngredients);
     const recommendationDraft =
       await this.recipeLlmService.createRecommendation(
         {
@@ -405,6 +430,7 @@ export class AiRecommendationsService {
           content: [
             `보유 재료: ${ingredients.join(', ')}`,
             conditions ? `조건: ${conditions}` : '',
+            `추천 목표: ${AI_RECOMMENDATION_GOAL_LABELS[nutritionGoal]}`,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -424,6 +450,8 @@ export class AiRecommendationsService {
           missingIngredients: similarPost.missingIngredients,
         })),
         grounding,
+        nutritionMetadata,
+        nutritionGoal,
       );
 
     const recommendation =
@@ -487,6 +515,31 @@ export class AiRecommendationsService {
     }
   }
 
+  private async getIngredientNutritionMetadata(ingredients: string[]) {
+    if (ingredients.length === 0) {
+      return null;
+    }
+
+    try {
+      const metadata =
+        await this.foodMetadataService.analyzeIngredientsNutrition(
+          ingredients.slice(0, 8),
+        );
+
+      return this.hasUsableNutritionMetadata(metadata) ? metadata : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private hasUsableNutritionMetadata(metadata: IngredientSetAnalysis) {
+    return metadata.ingredients.some((ingredient) =>
+      Object.values(ingredient.nutrition).some(
+        (value) => typeof value === 'number',
+      ),
+    );
+  }
+
   private async findRagPost(postId: number) {
     const post = await this.prismaService.post.findUnique({
       where: { id: postId },
@@ -513,7 +566,8 @@ export class AiRecommendationsService {
       await Promise.all(
         candidatePosts.map(async (post) => {
           const documentText = this.buildRagDocument(post);
-          const embeddingResult = await this.embeddingService.embed(documentText);
+          const embeddingResult =
+            await this.embeddingService.embed(documentText);
 
           await this.upsertRagDocument(
             post.id,
@@ -633,7 +687,9 @@ export class AiRecommendationsService {
 
     return scoredPosts
       .filter((post) => this.isStrongSimilarPost(post, targetIngredients))
-      .sort((firstPost, secondPost) => secondPost.similarity - firstPost.similarity)
+      .sort(
+        (firstPost, secondPost) => secondPost.similarity - firstPost.similarity,
+      )
       .slice(0, MAX_REFERENCE_POSTS);
   }
 
@@ -759,9 +815,7 @@ export class AiRecommendationsService {
   private buildRagDocument(post: RagPost) {
     const tags = this.getTags(post);
     const commentSummary = post.comments.length
-      ? post.comments
-          .map((comment) => `- ${comment.content}`)
-          .join('\n')
+      ? post.comments.map((comment) => `- ${comment.content}`).join('\n')
       : '- 아직 댓글이 없습니다.';
 
     return [
@@ -804,10 +858,19 @@ export class AiRecommendationsService {
       .slice(0, 12);
   }
 
-  private toRecipeContext(post: RagPost, availableIngredients: string[]) {
+  private toRecipeContext(
+    post: RagPost,
+    availableIngredients: string[],
+    additionalRequest = '',
+  ) {
     return {
       title: post.title,
-      content: post.content,
+      content: [
+        post.content,
+        additionalRequest ? `[추가 요청]\n${additionalRequest}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       tags: this.getTags(post),
       availableIngredients,
     };
@@ -829,7 +892,8 @@ export class AiRecommendationsService {
             return extractedIngredients;
           }
 
-          const normalizedIngredient = this.normalizeIngredientToken(ingredient);
+          const normalizedIngredient =
+            this.normalizeIngredientToken(ingredient);
 
           return this.isPotentialDirectIngredientToken(normalizedIngredient)
             ? [this.normalizeIngredientAlias(normalizedIngredient)]
@@ -854,7 +918,9 @@ export class AiRecommendationsService {
       .split(/[,\s]+/)
       .map((token) => this.normalizeIngredientToken(token))
       .filter((token) => this.isKnownIngredientToken(token))
-      .forEach((token) => ingredients.add(this.normalizeIngredientAlias(token)));
+      .forEach((token) =>
+        ingredients.add(this.normalizeIngredientAlias(token)),
+      );
 
     return [...ingredients].slice(0, 12);
   }

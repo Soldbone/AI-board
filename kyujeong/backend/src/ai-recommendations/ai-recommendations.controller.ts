@@ -12,6 +12,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { AiRecommendationsService } from './ai-recommendations.service';
 import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
+import { CreateRecommendationDto } from './dto/create-recommendation.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -46,9 +47,14 @@ export class AiRecommendationsController {
   ])
   create(
     @Param('postId', ParseIntPipe) postId: number,
+    @Body() createRecommendationDto: CreateRecommendationDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.aiRecommendationsService.create(postId, request.user.sub);
+    return this.aiRecommendationsService.create(
+      postId,
+      request.user.sub,
+      createRecommendationDto,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

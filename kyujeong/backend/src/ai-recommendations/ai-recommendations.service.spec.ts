@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { FoodMetadataService } from '../food-metadata/food-metadata.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiRecommendationsService } from './ai-recommendations.service';
 import { EmbeddingService } from './embedding.service';
@@ -10,6 +11,32 @@ describe('AiRecommendationsService', () => {
   let prismaService: PrismaService;
   let embeddingService: EmbeddingService;
   let recipeLlmService: RecipeLlmService;
+  let foodMetadataService: FoodMetadataService;
+
+  const emptyNutritionMetadata = {
+    originalInputs: [],
+    normalizedInputs: [],
+    ingredients: [],
+    totals: {
+      energyKcal: null,
+      carbohydrateG: null,
+      proteinG: null,
+      fatG: null,
+      sugarG: null,
+      sodiumMg: null,
+    },
+    perIngredientAverage: {
+      energyKcal: null,
+      carbohydrateG: null,
+      proteinG: null,
+      fatG: null,
+      sugarG: null,
+      sodiumMg: null,
+    },
+    dataSource: 'test',
+    matchStatus: 'not_found',
+    notes: [],
+  };
 
   beforeEach(async () => {
     process.env = {
@@ -59,6 +86,14 @@ describe('AiRecommendationsService', () => {
             createRecommendation: jest.fn(),
           },
         },
+        {
+          provide: FoodMetadataService,
+          useValue: {
+            analyzeIngredientsNutrition: jest
+              .fn()
+              .mockResolvedValue(emptyNutritionMetadata),
+          },
+        },
       ],
     }).compile();
 
@@ -66,6 +101,7 @@ describe('AiRecommendationsService', () => {
     prismaService = module.get<PrismaService>(PrismaService);
     embeddingService = module.get<EmbeddingService>(EmbeddingService);
     recipeLlmService = module.get<RecipeLlmService>(RecipeLlmService);
+    foodMetadataService = module.get<FoodMetadataService>(FoodMetadataService);
   });
 
   afterEach(() => {
@@ -147,6 +183,8 @@ describe('AiRecommendationsService', () => {
       expect.any(Object),
       [],
       'GENERAL_AI',
+      null,
+      'BALANCED',
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -225,6 +263,8 @@ describe('AiRecommendationsService', () => {
       expect.any(Object),
       [],
       'GENERAL_AI',
+      null,
+      'BALANCED',
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -305,6 +345,8 @@ describe('AiRecommendationsService', () => {
       expect.any(Object),
       [],
       'GENERAL_AI',
+      null,
+      'BALANCED',
     );
     expect(recommendation.grounding).toBe('GENERAL_AI');
   });
@@ -412,6 +454,8 @@ describe('AiRecommendationsService', () => {
         }),
       ],
       'COMMUNITY_RAG',
+      null,
+      'BALANCED',
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -431,5 +475,155 @@ describe('AiRecommendationsService', () => {
     );
     expect(recommendation.grounding).toBe('COMMUNITY_RAG');
     expect(recommendation.missingIngredients).toEqual(['토마토', '치즈']);
+  });
+
+  it('should pass usable nutrition metadata to recipe generation', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest
+      .spyOn(foodMetadataService, 'analyzeIngredientsNutrition')
+      .mockResolvedValue({
+        ...emptyNutritionMetadata,
+        originalInputs: ['계란'],
+        normalizedInputs: ['계란'],
+        ingredients: [
+          {
+            originalInput: '계란',
+            normalizedInput: '계란',
+            matchedName: '계란',
+            servingSize: '100g',
+            nutrition: {
+              energyKcal: 136,
+              carbohydrateG: 1,
+              proteinG: 12,
+              fatG: 9,
+              sugarG: null,
+              sodiumMg: 130,
+            },
+            matchStatus: 'exact',
+            dataSource: 'test',
+            raw: null,
+          },
+        ],
+        totals: {
+          energyKcal: 136,
+          carbohydrateG: 1,
+          proteinG: 12,
+          fatG: 9,
+          sugarG: null,
+          sodiumMg: 130,
+        },
+        perIngredientAverage: {
+          energyKcal: 136,
+          carbohydrateG: 1,
+          proteinG: 12,
+          fatG: 9,
+          sugarG: null,
+          sodiumMg: 130,
+        },
+        matchStatus: 'exact',
+      });
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '계란 볶음밥',
+      reason: '계란 단백질을 참고했습니다.',
+      availableIngredients: ['계란'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content: '계란을 볶아 밥과 섞어주세요.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 4,
+        postId: null,
+        requestedById: 1,
+        menuName: '계란 볶음밥',
+        reason: '계란 단백질을 참고했습니다.',
+        availableIngredients: ['계란'],
+        missingIngredients: [],
+        estimatedCookingTime: 10,
+        difficulty: '쉬움',
+        content: '계란을 볶아 밥과 섞어주세요.',
+        status: 'ACTIVE',
+        grounding: 'GENERAL_AI',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    await service.createDirect(
+      {
+        ingredients: ['계란'],
+      },
+      1,
+    );
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [],
+      'GENERAL_AI',
+      expect.objectContaining({
+        ingredients: [
+          expect.objectContaining({
+            matchedName: '계란',
+          }),
+        ],
+      }),
+      'BALANCED',
+    );
+  });
+
+  it('should pass the selected nutrition goal to recipe generation', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '두부 계란 한 접시',
+      reason: '고단백 목표를 반영했습니다.',
+      availableIngredients: ['두부', '계란'],
+      missingIngredients: [],
+      estimatedCookingTime: 12,
+      difficulty: '쉬움',
+      content: '두부와 계란을 함께 익혀주세요.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 5,
+        postId: null,
+        requestedById: 1,
+        menuName: '두부 계란 한 접시',
+        reason: '고단백 목표를 반영했습니다.',
+        availableIngredients: ['두부', '계란'],
+        missingIngredients: [],
+        estimatedCookingTime: 12,
+        difficulty: '쉬움',
+        content: '두부와 계란을 함께 익혀주세요.',
+        status: 'ACTIVE',
+        grounding: 'GENERAL_AI',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    await service.createDirect(
+      {
+        ingredients: ['두부', '계란'],
+        nutritionGoal: 'HIGH_PROTEIN',
+      },
+      1,
+    );
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [],
+      'GENERAL_AI',
+      null,
+      'HIGH_PROTEIN',
+    );
   });
 });

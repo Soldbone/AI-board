@@ -1,11 +1,13 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
+import { AI_RECOMMENDATION_GOALS } from '../recommendation-goal';
 
 export class CreateDirectRecommendationDto {
   @IsArray()
@@ -19,4 +21,8 @@ export class CreateDirectRecommendationDto {
   @IsString()
   @MaxLength(500)
   conditions?: string;
+
+  @IsOptional()
+  @IsIn(AI_RECOMMENDATION_GOALS)
+  nutritionGoal?: string;
 }
