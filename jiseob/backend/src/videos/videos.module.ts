@@ -34,6 +34,6 @@ import { VideosService } from './videos.service';
       useClass: YoutubeTranscriptCliProvider,
     },
   ],
-  exports: [VideosService, VideoProcessingService],
+  exports: [VideosService, VideoProcessingService, YoutubeMetadataProvider],
 })
 export class VideosModule {}

@@ -6,6 +6,7 @@ import { CommentsModule } from './comments/comments.module';
 import { CommonModule } from './common/common.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health.controller';
+import { McpModule } from './mcp/mcp.module';
 import { PostsModule } from './posts/posts.module';
 import { TagsModule } from './tags/tags.module';
 import { UsersModule } from './users/users.module';
@@ -26,6 +27,7 @@ import { VideosModule } from './videos/videos.module';
     PostsModule,
     AiModule,
     CommentsModule,
+    McpModule,
   ],
   controllers: [HealthController],
 })
