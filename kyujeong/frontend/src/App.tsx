@@ -59,6 +59,13 @@ type AiReferencedPost = {
 
 type AiRecommendationStatus = 'ACTIVE' | 'STALE'
 type AiRecommendationGrounding = 'COMMUNITY_RAG' | 'GENERAL_AI'
+type AiRecommendationGoal =
+  | 'BALANCED'
+  | 'HIGH_PROTEIN'
+  | 'LIGHT'
+  | 'LOW_SODIUM'
+  | 'FILLING'
+  | 'POST_WORKOUT'
 
 type AiRecommendation = {
   id: number
@@ -92,6 +99,44 @@ type AiServiceStatus = {
   pgvectorAvailable: boolean
   pgvectorInstalled: boolean
   pgvectorDecision: string
+}
+
+type MatchStatus =
+  | 'matched'
+  | 'candidate'
+  | 'not_found'
+  | 'configuration_missing'
+  | 'rate_limited'
+  | 'api_error'
+
+type NutritionFacts = {
+  energyKcal: number | null
+  carbohydrateG: number | null
+  proteinG: number | null
+  fatG: number | null
+  sugarG: number | null
+  sodiumMg: number | null
+}
+
+type IngredientNutritionSummary = {
+  originalInput: string
+  normalizedInput: string
+  matchedName: string | null
+  servingSize: string | null
+  nutrition: NutritionFacts
+  matchStatus: MatchStatus
+  message: string | null
+}
+
+type IngredientSetAnalysis = {
+  originalInputs: string[]
+  normalizedInputs: string[]
+  ingredients: IngredientNutritionSummary[]
+  totals: NutritionFacts
+  perIngredientAverage: NutritionFacts
+  dataSource: string
+  matchStatus: MatchStatus
+  notes: string[]
 }
 
 type MyCommentItem = CommentItem & {
@@ -150,8 +195,46 @@ const tagFilterGroups = [
 const aiRecommendationSteps = [
   '재료와 상황 확인',
   '유사한 요리 흐름 탐색',
+  '영양 목표 반영',
   '냉장고 조합 정리',
   '추천 결과 구성',
+]
+
+const aiRecommendationGoalOptions: Array<{
+  id: AiRecommendationGoal
+  label: string
+  description: string
+}> = [
+  {
+    id: 'BALANCED',
+    label: '기본',
+    description: '재료와 상황을 균형 있게 반영',
+  },
+  {
+    id: 'HIGH_PROTEIN',
+    label: '고단백',
+    description: '단백질 재료를 더 적극 활용',
+  },
+  {
+    id: 'LIGHT',
+    label: '가볍게',
+    description: '기름과 밥/면 비중을 낮춤',
+  },
+  {
+    id: 'LOW_SODIUM',
+    label: '나트륨 낮게',
+    description: '짠 재료와 양념을 조절',
+  },
+  {
+    id: 'FILLING',
+    label: '든든하게',
+    description: '한 끼 포만감을 우선',
+  },
+  {
+    id: 'POST_WORKOUT',
+    label: '운동 후',
+    description: '단백질과 탄수화물 균형',
+  },
 ]
 
 const koreanInitials = [
@@ -383,6 +466,30 @@ function getAiGroundingMessage(grounding?: AiRecommendationGrounding) {
     : '비슷한 커뮤니티 게시글을 참고해 추천했어요.'
 }
 
+function getAiRecommendationGoalLabel(goal: AiRecommendationGoal) {
+  return (
+    aiRecommendationGoalOptions.find((option) => option.id === goal)?.label ??
+    '기본'
+  )
+}
+
+function formatNutritionValue(value: number | null, unit: string) {
+  return typeof value === 'number' ? `${value.toLocaleString('ko-KR')}${unit}` : '확인 불가'
+}
+
+function getIngredientMatchLabel(status: MatchStatus) {
+  const labels: Record<MatchStatus, string> = {
+    matched: '일치',
+    candidate: '후보',
+    not_found: '결과 없음',
+    configuration_missing: '키 필요',
+    rate_limited: '호출 제한',
+    api_error: '조회 오류',
+  }
+
+  return labels[status]
+}
+
 function getTagGroup(tagName: string) {
   const firstLetter = tagName.trim().charAt(0)
   const code = firstLetter.charCodeAt(0)
@@ -444,6 +551,7 @@ function App() {
     | 'mypage'
     | 'tags'
     | 'aiGuide'
+    | 'mcpCheck'
     | 'notifications'
     | 'searchResults'
   >('board')
@@ -528,12 +636,29 @@ function App() {
     useState('')
   const [isAiRecommendationLoading, setIsAiRecommendationLoading] =
     useState(false)
+  const [postAiRecommendationGoal, setPostAiRecommendationGoal] =
+    useState<AiRecommendationGoal>('BALANCED')
+  const [postAiAdditionalRequest, setPostAiAdditionalRequest] = useState('')
   const [directAiIngredientInput, setDirectAiIngredientInput] = useState('')
   const [directAiConditionInput, setDirectAiConditionInput] = useState('')
+  const [directAiRecommendationGoal, setDirectAiRecommendationGoal] =
+    useState<AiRecommendationGoal>('BALANCED')
   const [directAiRecommendation, setDirectAiRecommendation] =
     useState<AiRecommendation | null>(null)
   const [directAiErrorMessage, setDirectAiErrorMessage] = useState('')
   const [isDirectAiSubmitting, setIsDirectAiSubmitting] = useState(false)
+  const [ingredientMetadata, setIngredientMetadata] =
+    useState<IngredientSetAnalysis | null>(null)
+  const [ingredientMetadataErrorMessage, setIngredientMetadataErrorMessage] =
+    useState('')
+  const [isIngredientMetadataLoading, setIsIngredientMetadataLoading] =
+    useState(false)
+  const [mcpIngredientInput, setMcpIngredientInput] = useState('계란, 두부')
+  const [mcpMetadata, setMcpMetadata] = useState<IngredientSetAnalysis | null>(
+    null,
+  )
+  const [mcpMetadataErrorMessage, setMcpMetadataErrorMessage] = useState('')
+  const [isMcpMetadataLoading, setIsMcpMetadataLoading] = useState(false)
   const [aiServiceStatus, setAiServiceStatus] =
     useState<AiServiceStatus | null>(null)
   const [aiStatusErrorMessage, setAiStatusErrorMessage] = useState('')
@@ -582,6 +707,21 @@ function App() {
     currentView === 'login' ||
     currentView === 'signup' ||
     currentView === 'forgotPassword'
+
+  function getDirectAiIngredients() {
+    return parseIngredientInput(directAiIngredientInput)
+  }
+
+  function getMcpIngredients() {
+    return parseIngredientInput(mcpIngredientInput)
+  }
+
+  function parseIngredientInput(value: string) {
+    return value
+      .split(',')
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean)
+  }
 
   function syncPostAiRecommendationStatus(
     postId: number,
@@ -1513,8 +1653,13 @@ function App() {
         {
           method: 'POST',
           headers: {
+            'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
+          body: JSON.stringify({
+            nutritionGoal: postAiRecommendationGoal,
+            additionalRequest: postAiAdditionalRequest.trim(),
+          }),
         },
       )
       const data = await readJsonResponse<AiRecommendation>(response)
@@ -1575,6 +1720,92 @@ function App() {
     setAiModalState('result')
   }
 
+  async function handleIngredientMetadataLookup() {
+    const ingredients = getDirectAiIngredients()
+
+    if (ingredients.length === 0) {
+      setIngredientMetadataErrorMessage('재료를 하나 이상 입력해주세요.')
+      setIngredientMetadata(null)
+      return
+    }
+
+    setIsIngredientMetadataLoading(true)
+    setIngredientMetadataErrorMessage('')
+
+    try {
+      const response = await fetch('/api/food-metadata/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ingredients }),
+      })
+      const data = await readJsonResponse<IngredientSetAnalysis>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? '식재료 정보를 불러오지 못했습니다.')
+      }
+
+      setIngredientMetadata(data)
+    } catch (error) {
+      setIngredientMetadata(null)
+      setIngredientMetadataErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : '식재료 정보를 불러오지 못했습니다.',
+          '식재료 정보를 불러오지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsIngredientMetadataLoading(false)
+    }
+  }
+
+  async function handleMcpMetadataLookup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const ingredients = getMcpIngredients()
+
+    if (ingredients.length === 0) {
+      setMcpMetadataErrorMessage('재료를 하나 이상 입력해주세요.')
+      setMcpMetadata(null)
+      return
+    }
+
+    setIsMcpMetadataLoading(true)
+    setMcpMetadataErrorMessage('')
+
+    try {
+      const response = await fetch('/api/food-metadata/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ingredients }),
+      })
+      const data = await readJsonResponse<IngredientSetAnalysis>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'MCP 식재료 정보를 불러오지 못했습니다.')
+      }
+
+      setMcpMetadata(data)
+    } catch (error) {
+      setMcpMetadata(null)
+      setMcpMetadataErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'MCP 식재료 정보를 불러오지 못했습니다.',
+          'MCP 식재료 정보를 불러오지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsMcpMetadataLoading(false)
+    }
+  }
+
   async function handleDirectAiRecommendation(
     event: React.FormEvent<HTMLFormElement>,
   ) {
@@ -1586,10 +1817,7 @@ function App() {
       return
     }
 
-    const ingredients = directAiIngredientInput
-      .split(',')
-      .map((ingredient) => ingredient.trim())
-      .filter(Boolean)
+    const ingredients = getDirectAiIngredients()
 
     if (ingredients.length === 0) {
       setDirectAiErrorMessage('재료를 하나 이상 입력해주세요.')
@@ -1609,6 +1837,7 @@ function App() {
         body: JSON.stringify({
           ingredients,
           conditions: directAiConditionInput.trim(),
+          nutritionGoal: directAiRecommendationGoal,
         }),
       })
       const data = await readJsonResponse<AiRecommendation>(response)
@@ -2559,26 +2788,150 @@ function App() {
                     type="text"
                     placeholder="예: 계란, 김치, 양파"
                     value={directAiIngredientInput}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setDirectAiIngredientInput(event.target.value)
-                    }
+                      setIngredientMetadataErrorMessage('')
+                    }}
                   />
                 </label>
-                <label>
-                  조건
-                  <input
-                    type="text"
-                    placeholder="예: 10분 안에, 저녁으로, 매운맛 적게"
-                    value={directAiConditionInput}
-                    onChange={(event) =>
+	                <label>
+	                  추가 요청
+	                  <input
+	                    type="text"
+	                    placeholder="예: 10분 안에, 매운맛 적게, 전자레인지로만"
+	                    value={directAiConditionInput}
+	                    onChange={(event) =>
                       setDirectAiConditionInput(event.target.value)
                     }
                   />
                 </label>
+                <div className="ai-goal-selector" role="group" aria-label="추천 목표">
+                  <span>추천 목표</span>
+                  <div>
+                    {aiRecommendationGoalOptions.map((option) => (
+                      <button
+                        className={
+                          directAiRecommendationGoal === option.id
+                            ? 'selected'
+                            : ''
+                        }
+                        key={option.id}
+                        type="button"
+                        onClick={() => setDirectAiRecommendationGoal(option.id)}
+                        title={option.description}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <button type="submit" disabled={isDirectAiSubmitting}>
                   {isDirectAiSubmitting ? '추천 생성 중' : 'AI 추천 실행'}
                 </button>
               </form>
+
+              <section
+                className="ingredient-metadata-panel"
+                aria-label="식재료 영양 정보"
+              >
+                <div className="ingredient-metadata-heading">
+                  <div>
+                    <span>공공데이터 기반</span>
+                    <h2>식재료 영양 정보</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleIngredientMetadataLookup}
+                    disabled={isIngredientMetadataLoading}
+                  >
+                    {isIngredientMetadataLoading ? '확인 중' : '영양 정보 확인'}
+                  </button>
+                </div>
+
+                {ingredientMetadataErrorMessage ? (
+                  <p className="direct-ai-message error">
+                    {ingredientMetadataErrorMessage}
+                  </p>
+                ) : null}
+
+                {ingredientMetadata ? (
+                  <div className="ingredient-metadata-content">
+                    <div className="ingredient-metadata-source">
+                      <span>{ingredientMetadata.dataSource}</span>
+                      <strong>
+                        {getIngredientMatchLabel(ingredientMetadata.matchStatus)}
+                      </strong>
+                    </div>
+                    <ul className="ingredient-metadata-list">
+                      {ingredientMetadata.ingredients.map((ingredient) => (
+                        <li key={`${ingredient.originalInput}-${ingredient.normalizedInput}`}>
+                          <div className="ingredient-metadata-card-heading">
+                            <div>
+                              <span>{ingredient.originalInput}</span>
+                              <strong>
+                                {ingredient.matchedName ??
+                                  ingredient.normalizedInput}
+                              </strong>
+                            </div>
+                            <em>{getIngredientMatchLabel(ingredient.matchStatus)}</em>
+                          </div>
+                          <dl>
+                            <div>
+                              <dt>열량</dt>
+                              <dd>
+                                {formatNutritionValue(
+                                  ingredient.nutrition.energyKcal,
+                                  'kcal',
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>단백질</dt>
+                              <dd>
+                                {formatNutritionValue(
+                                  ingredient.nutrition.proteinG,
+                                  'g',
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>지방</dt>
+                              <dd>
+                                {formatNutritionValue(
+                                  ingredient.nutrition.fatG,
+                                  'g',
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>나트륨</dt>
+                              <dd>
+                                {formatNutritionValue(
+                                  ingredient.nutrition.sodiumMg,
+                                  'mg',
+                                )}
+                              </dd>
+                            </div>
+                          </dl>
+                          <p>
+                            기준량:{' '}
+                            {ingredient.servingSize ?? '공공데이터 응답 기준'}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                    {ingredientMetadata.notes.length > 0 ? (
+                      <p className="ingredient-metadata-note">
+                        {ingredientMetadata.notes[0]}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="ingredient-metadata-empty">
+                    재료를 입력하고 영양 정보를 확인해보세요.
+                  </p>
+                )}
+              </section>
 
               {directAiErrorMessage ? (
                 <p className="direct-ai-message error">{directAiErrorMessage}</p>
@@ -2604,12 +2957,18 @@ function App() {
 	                      <dt>난이도</dt>
 	                      <dd>{directAiRecommendation.difficulty}</dd>
 	                    </div>
-	                    <div>
-	                      <dt>추천 근거</dt>
-	                      <dd>{getAiGroundingLabel(directAiRecommendation.grounding)}</dd>
-	                    </div>
-	                    <div>
-	                      <dt>부족 재료</dt>
+		                    <div>
+		                      <dt>추천 근거</dt>
+		                      <dd>{getAiGroundingLabel(directAiRecommendation.grounding)}</dd>
+		                    </div>
+                    <div>
+                      <dt>추천 목표</dt>
+                      <dd>
+                        {getAiRecommendationGoalLabel(directAiRecommendationGoal)}
+                      </dd>
+                    </div>
+		                    <div>
+		                      <dt>부족 재료</dt>
                       <dd>
                         {directAiRecommendation.missingIngredients.length > 0
                           ? directAiRecommendation.missingIngredients.join(', ')
@@ -2648,6 +3007,122 @@ function App() {
 	                  ) : null}
 	                </div>
               ) : null}
+            </section>
+          </section>
+        ) : currentView === 'mcpCheck' ? (
+          <section className="utility-view guide-view" aria-label="MCP 확인">
+            <button
+              className="back-button"
+              type="button"
+              onClick={() => setCurrentView('board')}
+            >
+              게시판으로
+            </button>
+
+            <div className="utility-heading">
+              <h1>MCP 확인</h1>
+              <p>식재료 메타데이터 MCP 흐름이 실제 영양 정보를 가져오는지 확인합니다.</p>
+            </div>
+
+            <section className="mcp-check-panel" aria-label="식재료 MCP 조회">
+              <form className="mcp-check-form" onSubmit={handleMcpMetadataLookup}>
+                <label>
+                  식재료
+                  <input
+                    type="text"
+                    placeholder="예: 계란, 두부, 대파"
+                    value={mcpIngredientInput}
+                    onChange={(event) => {
+                      setMcpIngredientInput(event.target.value)
+                      setMcpMetadataErrorMessage('')
+                    }}
+                  />
+                </label>
+                <button type="submit" disabled={isMcpMetadataLoading}>
+                  {isMcpMetadataLoading ? '조회 중' : 'MCP 조회'}
+                </button>
+              </form>
+
+              {mcpMetadataErrorMessage ? (
+                <p className="direct-ai-message error">{mcpMetadataErrorMessage}</p>
+              ) : null}
+
+              {mcpMetadata ? (
+                <div className="ingredient-metadata-content">
+                  <div className="ingredient-metadata-source">
+                    <span>{mcpMetadata.dataSource}</span>
+                    <strong>{getIngredientMatchLabel(mcpMetadata.matchStatus)}</strong>
+                  </div>
+                  <ul className="ingredient-metadata-list">
+                    {mcpMetadata.ingredients.map((ingredient) => (
+                      <li
+                        key={`mcp-${ingredient.originalInput}-${ingredient.normalizedInput}`}
+                      >
+                        <div className="ingredient-metadata-card-heading">
+                          <div>
+                            <span>{ingredient.originalInput}</span>
+                            <strong>
+                              {ingredient.matchedName ?? ingredient.normalizedInput}
+                            </strong>
+                          </div>
+                          <em>{getIngredientMatchLabel(ingredient.matchStatus)}</em>
+                        </div>
+                        <dl>
+                          <div>
+                            <dt>열량</dt>
+                            <dd>
+                              {formatNutritionValue(
+                                ingredient.nutrition.energyKcal,
+                                'kcal',
+                              )}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>탄수화물</dt>
+                            <dd>
+                              {formatNutritionValue(
+                                ingredient.nutrition.carbohydrateG,
+                                'g',
+                              )}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>단백질</dt>
+                            <dd>
+                              {formatNutritionValue(
+                                ingredient.nutrition.proteinG,
+                                'g',
+                              )}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>나트륨</dt>
+                            <dd>
+                              {formatNutritionValue(
+                                ingredient.nutrition.sodiumMg,
+                                'mg',
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                        <p>
+                          기준량: {ingredient.servingSize ?? '공공데이터 응답 기준'}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                  {mcpMetadata.notes.length > 0 ? (
+                    <p className="ingredient-metadata-note">
+                      {mcpMetadata.notes[0]}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="coming-soon-panel">
+                  <strong>식재료를 입력해 조회해보세요.</strong>
+                  <p>공공데이터포털 API 결과가 백엔드 메타데이터 계층을 거쳐 표시됩니다.</p>
+                </div>
+              )}
             </section>
           </section>
         ) : currentView === 'notifications' ? (
@@ -3163,14 +3638,45 @@ function App() {
                       <p>이 글과 비슷한 게시글을 찾아 레시피 추천을 만들 수 있습니다.</p>
                     </section>
                   )}
-                  {aiRecommendationErrorMessage ? (
-                    <p className="ai-panel-message error">
-                      {aiRecommendationErrorMessage}
-                    </p>
-                  ) : null}
-                  <div className="detail-ai-actions">
-                    {aiRecommendation ? (
-                      <button
+	                  {aiRecommendationErrorMessage ? (
+	                    <p className="ai-panel-message error">
+	                      {aiRecommendationErrorMessage}
+	                    </p>
+	                  ) : null}
+                  <div className="ai-goal-selector compact" role="group" aria-label="추천 목표">
+                    <span>추천 목표</span>
+                    <div>
+                      {aiRecommendationGoalOptions.map((option) => (
+                        <button
+                          className={
+                            postAiRecommendationGoal === option.id
+                              ? 'selected'
+                              : ''
+                          }
+                          key={option.id}
+                          type="button"
+                          onClick={() => setPostAiRecommendationGoal(option.id)}
+                          title={option.description}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="ai-additional-request">
+                    추가 요청
+                    <input
+                      type="text"
+                      placeholder="예: 매운맛 적게, 10분 안에, 국물 없는 메뉴"
+                      value={postAiAdditionalRequest}
+                      onChange={(event) =>
+                        setPostAiAdditionalRequest(event.target.value)
+                      }
+                    />
+                  </label>
+	                  <div className="detail-ai-actions">
+	                    {aiRecommendation ? (
+	                      <button
                         className="ai-secondary-action"
                         type="button"
                         onClick={openAiRecommendationResultModal}
@@ -3349,6 +3855,16 @@ function App() {
             <button
               type="button"
               onClick={() => {
+                setCurrentView('mcpCheck')
+                setSelectedPost(null)
+              }}
+            >
+              <span aria-hidden="true">◎</span>
+              MCP 확인
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setCurrentView('aiGuide')
                 setSelectedPost(null)
               }}
@@ -3520,10 +4036,18 @@ function App() {
                   </button>
                 </div>
                 <h2 id="ai-running-title">AI 추천 실행</h2>
-                <p>
-                  {aiTargetTitle}에 맞는 재료 조합과 조리 흐름을 정리하고
-                  있어요.
+	                <p>
+	                  {aiTargetTitle}에 맞는 재료 조합과 조리 흐름을 정리하고
+	                  있어요.
+	                </p>
+                <p className="ai-modal-source">
+                  추천 목표: {getAiRecommendationGoalLabel(postAiRecommendationGoal)}
                 </p>
+                {postAiAdditionalRequest.trim() ? (
+                  <p className="ai-modal-source">
+                    추가 요청: {postAiAdditionalRequest.trim()}
+                  </p>
+                ) : null}
 
                 <ol className="ai-step-list">
                   {aiRecommendationSteps.map((step, index) => (
@@ -3575,7 +4099,15 @@ function App() {
                   </button>
                 </div>
                 <h2 id="ai-result-title">AI 추천 결과</h2>
-                <p className="ai-modal-source">{aiTargetTitle}</p>
+	                <p className="ai-modal-source">{aiTargetTitle}</p>
+                <p className="ai-modal-source">
+                  추천 목표: {getAiRecommendationGoalLabel(postAiRecommendationGoal)}
+                </p>
+                {postAiAdditionalRequest.trim() ? (
+                  <p className="ai-modal-source">
+                    추가 요청: {postAiAdditionalRequest.trim()}
+                  </p>
+                ) : null}
 
                 <div className="ai-result-summary">
                   <div className="ai-result-visual" aria-hidden="true">
