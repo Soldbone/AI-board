@@ -15,3 +15,9 @@ class TagRead(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+
+class TagSuggestionRead(BaseModel):
+    id: int
+    name: str
+    count: int

@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -8,6 +8,7 @@ from app.models.post import Post
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
+from app.services.embedding_service import embed_post_by_id
 
 router = APIRouter(tags=["comments"])
 
@@ -41,6 +42,7 @@ def build_comment_response(comment: Comment, author: User) -> dict:
 def create_comment(
     post_id: int,
     comment_data: CommentCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -90,6 +92,7 @@ def create_comment(
     db.add(new_comment)
     db.commit()
     db.refresh(new_comment)
+    background_tasks.add_task(embed_post_by_id, post_id)
 
     return build_comment_response(new_comment, current_user)
 
@@ -166,6 +169,7 @@ def read_comments(post_id: int, db: Session = Depends(get_db)):
 def update_comment(
     comment_id: int,
     comment_data: CommentUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -191,6 +195,7 @@ def update_comment(
 
     db.commit()
     db.refresh(comment)
+    background_tasks.add_task(embed_post_by_id, comment.post_id)
 
     return build_comment_response(comment, current_user)
 
@@ -198,6 +203,7 @@ def update_comment(
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_comment(
     comment_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -222,5 +228,6 @@ def delete_comment(
     comment.deleted_at = datetime.utcnow()
 
     db.commit()
+    background_tasks.add_task(embed_post_by_id, comment.post_id)
 
     return None
