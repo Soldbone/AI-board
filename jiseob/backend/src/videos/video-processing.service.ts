@@ -12,6 +12,7 @@ import {
   MetadataStatus,
   TranscriptStatus,
 } from '../common/enums/video-status.enum';
+import { UserRole } from '../common/enums/user-role.enum';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { Post } from '../posts/entities/post.entity';
 import { RagService } from '../ai/rag/rag.service';
@@ -86,18 +87,24 @@ export class VideoProcessingService {
     user: AuthenticatedUser,
     videoId: string,
   ): Promise<VideoProcessingAcceptedResponse> {
-    await this.findVideoOrThrow(videoId);
+    const video = await this.findVideoOrThrow(videoId);
 
-    const authoredPostCount = await this.postsRepository.count({
-      where: {
-        videoId,
-        authorId: user.id,
-        deletedAt: IsNull(),
-      },
-    });
+    if (user.role !== UserRole.ADMIN) {
+      const authoredPostCount = await this.postsRepository.count({
+        where: {
+          videoId,
+          authorId: user.id,
+          deletedAt: IsNull(),
+        },
+      });
 
-    if (authoredPostCount === 0) {
-      throw new ForbiddenException('영상 처리 재시도 권한이 없습니다.');
+      if (authoredPostCount === 0) {
+        throw new ForbiddenException('영상 처리 재시도 권한이 없습니다.');
+      }
+    }
+
+    if (!this.hasRetryableFailure(video)) {
+      throw new ConflictException('재시도할 실패 상태가 없습니다.');
     }
 
     return this.enqueueProcessing(videoId, {
@@ -329,6 +336,21 @@ export class VideoProcessingService {
       video.metadataStatus === MetadataStatus.SUCCESS &&
       video.transcriptStatus === TranscriptStatus.SUCCESS &&
       video.embeddingStatus === EmbeddingStatus.SUCCESS
+    );
+  }
+
+  private hasRetryableFailure(video: Video): boolean {
+    if (video.metadataStatus === MetadataStatus.FAILED) {
+      return true;
+    }
+
+    if (video.transcriptStatus === TranscriptStatus.FAILED) {
+      return true;
+    }
+
+    return (
+      video.embeddingStatus === EmbeddingStatus.FAILED &&
+      video.transcriptStatus !== TranscriptStatus.NOT_AVAILABLE
     );
   }
 

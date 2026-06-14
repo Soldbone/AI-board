@@ -26,6 +26,11 @@ describe('VideoProcessingService', () => {
     embeddingStatus: EmbeddingStatus.PENDING,
     processingLockedUntil: null,
   } as Video;
+  const createVideo = (overrides: Partial<Video> = {}) =>
+    ({
+      ...video,
+      ...overrides,
+    }) as Video;
 
   const createService = (overrides: {
     dataSource?: unknown;
@@ -71,7 +76,11 @@ describe('VideoProcessingService', () => {
     const execute = jest.fn().mockResolvedValue({ affected: 0 });
     const service = createService({
       videosRepository: {
-        findOne: jest.fn().mockResolvedValue(video),
+        findOne: jest.fn().mockResolvedValue(
+          createVideo({
+            metadataStatus: MetadataStatus.FAILED,
+          }),
+        ),
         createQueryBuilder: jest.fn().mockReturnValue({
           update: jest.fn().mockReturnThis(),
           set: jest.fn().mockReturnThis(),
@@ -86,6 +95,73 @@ describe('VideoProcessingService', () => {
     });
 
     await expect(service.retryProcessing(user, video.id)).rejects.toThrow(ConflictException);
+  });
+
+  it('rejects retry when the video has no retryable failure status', async () => {
+    const service = createService({
+      videosRepository: {
+        findOne: jest.fn().mockResolvedValue(video),
+      },
+      postsRepository: {
+        count: jest.fn().mockResolvedValue(1),
+      },
+    });
+
+    await expect(service.retryProcessing(user, video.id)).rejects.toThrow(ConflictException);
+  });
+
+  it('does not treat transcript NOT_AVAILABLE as a retryable failure by itself', async () => {
+    const service = createService({
+      videosRepository: {
+        findOne: jest.fn().mockResolvedValue(
+          createVideo({
+            transcriptStatus: TranscriptStatus.NOT_AVAILABLE,
+            embeddingStatus: EmbeddingStatus.FAILED,
+          }),
+        ),
+      },
+      postsRepository: {
+        count: jest.fn().mockResolvedValue(1),
+      },
+    });
+
+    await expect(service.retryProcessing(user, video.id)).rejects.toThrow(ConflictException);
+  });
+
+  it('allows admin users to retry a video with a retryable failure', async () => {
+    const service = createService({
+      videosRepository: {
+        findOne: jest.fn().mockResolvedValue(
+          createVideo({
+            metadataStatus: MetadataStatus.FAILED,
+          }),
+        ),
+      },
+      postsRepository: {
+        count: jest.fn(),
+      },
+    });
+    const enqueueProcessing = jest.spyOn(service, 'enqueueProcessing').mockResolvedValue({
+      videoId: video.id,
+      accepted: true,
+    });
+
+    await expect(
+      service.retryProcessing(
+        {
+          ...user,
+          role: UserRole.ADMIN,
+        },
+        video.id,
+      ),
+    ).resolves.toEqual({
+      videoId: video.id,
+      accepted: true,
+    });
+    expect(enqueueProcessing).toHaveBeenCalledWith(video.id, {
+      force: true,
+      throwOnConflict: true,
+    });
   });
 
   it('stores sanitized failure statuses when providers fail', async () => {
