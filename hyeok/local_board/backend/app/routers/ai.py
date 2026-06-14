@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.ai import (
+    PlaceSearchRequest,
+    PlaceSearchResponse,
     SimilarPostRequest,
     SimilarPostResponse,
     TagSuggestionRequest,
     TagSuggestionResponse,
 )
+from app.services.mcp_client_service import McpClientError, search_places_with_mcp
 from app.services.rag_service import find_similar_posts, suggest_tags
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -43,3 +46,15 @@ def get_tag_suggestions(
     )
 
     return {"items": items}
+
+
+@router.post("/place-search", response_model=PlaceSearchResponse)
+async def search_places(request_data: PlaceSearchRequest):
+    try:
+        return await search_places_with_mcp(
+            region=request_data.region,
+            keyword=request_data.keyword,
+            display=request_data.display,
+        )
+    except McpClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

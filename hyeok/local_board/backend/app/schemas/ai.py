@@ -40,3 +40,29 @@ class TagSuggestionItem(BaseModel):
 
 class TagSuggestionResponse(BaseModel):
     items: list[TagSuggestionItem]
+
+
+class PlaceSearchRequest(BaseModel):
+    region: str
+    keyword: str
+    display: int = Field(default=5, ge=1, le=5)
+
+
+class PlaceSearchItem(BaseModel):
+    title: str = ""
+    category: str = ""
+    road_address: str = ""
+    address: str = ""
+    link: str = ""
+    naver_map_url: str = ""
+
+
+class PlaceSearchResponse(BaseModel):
+    status: str
+    query: str = ""
+    display: int | None = None
+    total: int | None = None
+    places: list[PlaceSearchItem] = Field(default_factory=list)
+    fallback_map_url: str = ""
+    code: str | None = None
+    message: str | None = None
