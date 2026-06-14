@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type PostListItem = {
@@ -66,6 +66,24 @@ type AiRecommendationGoal =
   | 'LOW_SODIUM'
   | 'FILLING'
   | 'POST_WORKOUT'
+
+type AppView =
+  | 'board'
+  | 'login'
+  | 'signup'
+  | 'forgotPassword'
+  | 'write'
+  | 'mypage'
+  | 'tags'
+  | 'aiGuide'
+  | 'mcpCheck'
+  | 'notifications'
+  | 'searchResults'
+
+type AppHistoryState = {
+  appView: AppView | 'post'
+  postId?: number
+}
 
 type AiRecommendation = {
   id: number
@@ -236,6 +254,80 @@ const aiRecommendationGoalOptions: Array<{
     description: '단백질과 탄수화물 균형',
   },
 ]
+
+const appViewPaths: Record<AppView, string> = {
+  board: '/',
+  login: '/login',
+  signup: '/signup',
+  forgotPassword: '/forgot-password',
+  write: '/write',
+  mypage: '/mypage',
+  tags: '/tags',
+  aiGuide: '/ai-recommendations',
+  mcpCheck: '/mcp-check',
+  notifications: '/notifications',
+  searchResults: '/search',
+}
+
+const pathToAppView = new Map(
+  Object.entries(appViewPaths).map(([view, path]) => [path, view as AppView]),
+)
+
+function getPostDetailPath(postId: number) {
+  return `/posts/${postId}`
+}
+
+function getPostIdFromPath(pathname = window.location.pathname) {
+  const match = pathname.match(/^\/posts\/(\d+)\/?$/)
+  const postId = match ? Number(match[1]) : null
+
+  return typeof postId === 'number' && Number.isInteger(postId) && postId > 0
+    ? postId
+    : null
+}
+
+function getAppRouteFromPath(pathname = window.location.pathname): AppHistoryState {
+  const postId = getPostIdFromPath(pathname)
+
+  if (postId) {
+    return {
+      appView: 'post',
+      postId,
+    }
+  }
+
+  return {
+    appView: pathToAppView.get(pathname.replace(/\/$/, '') || '/') ?? 'board',
+  }
+}
+
+function getAppRoutePath(state: AppHistoryState) {
+  return state.appView === 'post' && state.postId
+    ? getPostDetailPath(state.postId)
+    : appViewPaths[state.appView === 'post' ? 'board' : state.appView]
+}
+
+function updateBrowserHistory(
+  state: AppHistoryState,
+  mode: 'push' | 'replace',
+) {
+  const url = getAppRoutePath(state)
+
+  if (
+    window.location.pathname === url &&
+    window.history.state?.appView === state.appView &&
+    window.history.state?.postId === state.postId
+  ) {
+    return
+  }
+
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', url)
+    return
+  }
+
+  window.history.pushState(state, '', url)
+}
 
 const koreanInitials = [
   'ㄱ',
@@ -542,19 +634,11 @@ function mapPostListItem(post: PostListItem): BoardPost {
 }
 
 function App() {
-  const [currentView, setCurrentView] = useState<
-    | 'board'
-    | 'login'
-    | 'signup'
-    | 'forgotPassword'
-    | 'write'
-    | 'mypage'
-    | 'tags'
-    | 'aiGuide'
-    | 'mcpCheck'
-    | 'notifications'
-    | 'searchResults'
-  >('board')
+  const initialRoute = useMemo(() => getAppRouteFromPath(), [])
+  const isApplyingHistoryRef = useRef(false)
+  const [currentView, setCurrentView] = useState<AppView>(
+    initialRoute.appView === 'post' ? 'board' : initialRoute.appView,
+  )
   const [accessToken, setAccessToken] = useState(getSavedAccessToken)
   const [currentUser, setCurrentUser] = useState<LoginUser | null>(getSavedUser)
   const [activeCategory, setActiveCategory] = useState('전체')
@@ -964,7 +1048,10 @@ function App() {
     setCurrentView('board')
   }
 
-  async function loadPostDetail(postId: number) {
+  async function loadPostDetail(
+    postId: number,
+    options: { updateHistory?: boolean } = {},
+  ) {
     setIsDetailLoading(true)
     setDetailErrorMessage('')
     setCommentErrorMessage('')
@@ -976,6 +1063,11 @@ function App() {
     setComments([])
     setAiRecommendation(null)
     setAiRecommendationErrorMessage('')
+    setCurrentView('board')
+
+    if (options.updateHistory ?? true) {
+      updateBrowserHistory({ appView: 'post', postId }, 'push')
+    }
 
     try {
       const [postResponse, commentsResponse, aiRecommendationResponse] =
@@ -1019,7 +1111,7 @@ function App() {
     }
   }
 
-  function goBackToList() {
+  function goBackToList(options: { updateHistory?: boolean } = {}) {
     setSelectedPost(null)
     setComments([])
     setDetailErrorMessage('')
@@ -1033,7 +1125,76 @@ function App() {
     setAiRecommendationErrorMessage('')
     setAiModalState('closed')
     setAiProgress(0)
+    setCurrentView('board')
+
+    if (options.updateHistory ?? true) {
+      updateBrowserHistory({ appView: 'board' }, 'replace')
+    }
   }
+
+  useEffect(() => {
+    const initialRoute = getAppRouteFromPath()
+    let initialRouteTimer: number | null = null
+
+    updateBrowserHistory(initialRoute, 'replace')
+
+    if (initialRoute.appView === 'post' && initialRoute.postId) {
+      initialRouteTimer = window.setTimeout(() => {
+        void loadPostDetail(initialRoute.postId as number, {
+          updateHistory: false,
+        })
+      }, 0)
+    }
+
+    function handlePopState(event: PopStateEvent) {
+      const state = (event.state as AppHistoryState | null) ?? getAppRouteFromPath()
+      const postId = state.appView === 'post' ? state.postId : null
+
+      isApplyingHistoryRef.current = true
+
+      if (postId) {
+        void loadPostDetail(postId, { updateHistory: false })
+      } else {
+        goBackToList({ updateHistory: false })
+        setCurrentView(state.appView === 'post' ? 'board' : state.appView)
+      }
+
+      window.setTimeout(() => {
+        isApplyingHistoryRef.current = false
+      }, 0)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      if (initialRouteTimer !== null) {
+        window.clearTimeout(initialRouteTimer)
+      }
+
+      window.removeEventListener('popstate', handlePopState)
+    }
+    // The history listener must be registered once for the current app shell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (isApplyingHistoryRef.current) {
+      return
+    }
+
+    if (selectedPost) {
+      updateBrowserHistory(
+        {
+          appView: 'post',
+          postId: selectedPost.id,
+        },
+        'push',
+      )
+      return
+    }
+
+    updateBrowserHistory({ appView: currentView }, 'push')
+  }, [currentView, selectedPost])
 
   async function handleCreateComment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1595,11 +1756,9 @@ function App() {
         throw new Error(data.message ?? '게시글을 삭제하지 못했습니다.')
       }
 
-      setSelectedPost(null)
-      setComments([])
+      goBackToList()
       setPage(1)
       setPostListReloadKey((currentKey) => currentKey + 1)
-      setCurrentView('board')
     } catch (error) {
       if (handleExpiredSession(error)) {
         return
@@ -3410,7 +3569,11 @@ function App() {
           </section>
         ) : selectedPost || isDetailLoading || detailErrorMessage ? (
           <section className="detail-view">
-            <button className="back-button" type="button" onClick={goBackToList}>
+            <button
+              className="back-button"
+              type="button"
+              onClick={() => goBackToList()}
+            >
               목록으로
             </button>
 
