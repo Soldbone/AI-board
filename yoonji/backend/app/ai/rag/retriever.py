@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from app.ai.rag.embedding_client import EmbeddingClientError, get_embedding_clie
 from app.ai.rag.vector_store import VectorStoreError, get_vector_store
 from app.core.config import settings
 from app.core.exceptions import AppException
-from app.models.enums import BoardCode, ContentSourceType
+from app.models.enums import BoardCode, ContentSourceType, PriceRange
 from app.models.post import Post
 
 
@@ -142,6 +143,85 @@ def retrieve_question_reference_chunks(
     return retrieved[:top_k]
 
 
+def retrieve_purchase_summary_chunks(
+    db: Session,
+    *,
+    post: Post,
+    top_k: int,
+    include_similar_price_range: bool,
+) -> list[RetrievedChunk]:
+    document = document_loader.build_post_document(post)
+
+    if document is None or post.board.code != BoardCode.PURCHASE_HELP:
+        return []
+
+    query_text = document.page_content
+    query_vector = _embed_query(query_text)
+    target_tags = _normalize_tags(document.metadata.get("tags", []))
+    target_price_range = _infer_price_range(query_text)
+
+    try:
+        search_results = get_vector_store().similarity_search(
+            db,
+            query_vector=query_vector,
+            board_code=BoardCode.REVIEW,
+            source_types=[ContentSourceType.POST],
+            limit=max(top_k * 10, 20),
+        )
+    except VectorStoreError as exc:
+        raise AppException(
+            "Vector store search failed.",
+            code="VECTOR_STORE_SEARCH_FAILED",
+            status_code=500,
+        ) from exc
+
+    best_by_post_id: dict[int, RetrievedChunk] = {}
+
+    for result in search_results:
+        chunk = result.chunk
+
+        if chunk.post_id is None:
+            continue
+
+        base_score = max(result.score, 0.0)
+
+        if base_score <= 0:
+            continue
+
+        ranked = _rank_purchase_review_chunk(
+            chunk_metadata=chunk.metadata_json or {},
+            query_text=query_text,
+            target_tags=target_tags,
+            target_price_range=target_price_range,
+            base_score=base_score,
+            include_similar_price_range=include_similar_price_range,
+        )
+
+        if ranked is None:
+            continue
+
+        current = best_by_post_id.get(chunk.post_id)
+        if current is None or ranked.score > current.score:
+            best_by_post_id[chunk.post_id] = RetrievedChunk(
+                chunk_id=chunk.id,
+                post_id=chunk.post_id,
+                comment_id=chunk.comment_id,
+                chunk_text=chunk.chunk_text,
+                score=ranked.score,
+                metadata=ranked.metadata,
+            )
+
+    return sorted(
+        best_by_post_id.values(),
+        key=lambda chunk: (
+            _purchase_evidence_priority(chunk.metadata),
+            _safe_int(chunk.metadata.get("satisfaction_score")),
+            chunk.score,
+        ),
+        reverse=True,
+    )[:top_k]
+
+
 def _embed_query(text: str) -> list[float]:
     try:
         return get_embedding_client().embed_query(text)
@@ -159,3 +239,186 @@ def _embed_query(text: str) -> list[float]:
             status_code=503,
             details={"model": settings.openai_embedding_model},
         ) from exc
+
+
+@dataclass
+class _RankedPurchaseChunk:
+    score: float
+    metadata: dict[str, Any]
+
+
+def _rank_purchase_review_chunk(
+    *,
+    chunk_metadata: dict[str, Any],
+    query_text: str,
+    target_tags: set[str],
+    target_price_range: PriceRange | None,
+    base_score: float,
+    include_similar_price_range: bool,
+) -> _RankedPurchaseChunk | None:
+    matched_signals: list[str] = []
+    evidence_kind = "related_review"
+    rerank_score = base_score
+    priority = 1
+
+    figure_name = _as_text(chunk_metadata.get("figure_name"))
+    manufacturer = _as_text(chunk_metadata.get("manufacturer"))
+    review_price_range = _price_range_from_metadata(chunk_metadata.get("price_range"))
+    satisfaction_score = _safe_int(chunk_metadata.get("satisfaction_score"))
+    review_tags = _normalize_tags(chunk_metadata.get("tags", []))
+    shared_tags = sorted(target_tags & review_tags)
+
+    if _text_appears_in_query(figure_name, query_text):
+        rerank_score += 0.45
+        evidence_kind = "same_figure"
+        priority = 4
+        matched_signals.append("same figure name")
+    elif _text_appears_in_query(manufacturer, query_text):
+        rerank_score += 0.18
+        evidence_kind = "same_manufacturer"
+        priority = 3
+        matched_signals.append("same manufacturer")
+
+    if shared_tags:
+        rerank_score += min(len(shared_tags), 3) * 0.06
+        if priority < 2:
+            evidence_kind = "shared_tags"
+            priority = 2
+        matched_signals.append("shared tags")
+
+    if include_similar_price_range and _same_price_range(
+        target_price_range,
+        review_price_range,
+    ):
+        rerank_score += 0.12
+        if priority < 2:
+            evidence_kind = "similar_price_high_satisfaction"
+            priority = 2
+        matched_signals.append("similar price range")
+
+    if include_similar_price_range and satisfaction_score >= 4:
+        rerank_score += 0.08
+        if priority < 2:
+            evidence_kind = "similar_price_high_satisfaction"
+            priority = 2
+        matched_signals.append("high satisfaction")
+
+    # Keep weak vector-only matches only when the score is still meaningful.
+    if priority == 1 and base_score < 0.35:
+        return None
+
+    return _RankedPurchaseChunk(
+        score=round(min(rerank_score, 1.0), 4),
+        metadata={
+            **chunk_metadata,
+            "evidence_kind": evidence_kind,
+            "matched_signals": matched_signals,
+            "retrieval_score": round(base_score, 4),
+            "rerank_score": round(min(rerank_score, 1.0), 4),
+            "target_price_range": target_price_range.value if target_price_range else None,
+        },
+    )
+
+
+def _infer_price_range(text: str) -> PriceRange | None:
+    normalized = text.replace(",", "")
+    amounts: list[float] = []
+
+    for match in re.finditer(r"(\d+(?:\.\d+)?)\s*(만원|만|원)?", normalized):
+        number = float(match.group(1))
+        unit = match.group(2) or ""
+
+        if unit in {"만원", "만"}:
+            amounts.append(number * 10000)
+        elif unit == "원":
+            amounts.append(number)
+        elif number >= 1000:
+            amounts.append(number)
+
+    if not amounts:
+        return None
+
+    amount = max(amounts)
+
+    if amount < 30000:
+        return PriceRange.UNDER_30000
+
+    if amount < 50000:
+        return PriceRange.PRICE_30000_50000
+
+    if amount < 100000:
+        return PriceRange.PRICE_50000_100000
+
+    if amount < 200000:
+        return PriceRange.PRICE_100000_200000
+
+    return PriceRange.OVER_200000
+
+
+def _same_price_range(
+    left: PriceRange | None,
+    right: PriceRange | None,
+) -> bool:
+    return left is not None and right is not None and left == right
+
+
+def _price_range_from_metadata(value: Any) -> PriceRange | None:
+    if isinstance(value, PriceRange):
+        return value
+
+    if isinstance(value, str):
+        try:
+            return PriceRange(value)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _normalize_tags(value: Any) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+
+    return {
+        str(item).strip().casefold()
+        for item in value
+        if str(item).strip()
+    }
+
+
+def _text_appears_in_query(value: str | None, query_text: str) -> bool:
+    if value is None:
+        return False
+
+    normalized_value = value.strip().casefold()
+
+    if len(normalized_value) < 2:
+        return False
+
+    return normalized_value in query_text.casefold()
+
+
+def _as_text(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    return text or None
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _purchase_evidence_priority(metadata: dict[str, Any]) -> int:
+    priority_by_kind = {
+        "same_figure": 4,
+        "same_manufacturer": 3,
+        "shared_tags": 2,
+        "similar_price_high_satisfaction": 2,
+        "related_review": 1,
+    }
+    return priority_by_kind.get(str(metadata.get("evidence_kind")), 1)

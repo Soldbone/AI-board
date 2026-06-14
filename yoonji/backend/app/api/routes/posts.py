@@ -8,6 +8,7 @@ from app.ai.usecases import similar_posts
 from app.models.enums import BoardCode
 from app.schemas.ai_schema import (
     AiOutputResponse,
+    PurchaseSummaryRequest,
     ReferenceAnswerRequest,
     SimilarPostListResponse,
 )
@@ -97,6 +98,27 @@ def request_question_reference_answer(
     background_tasks: BackgroundTasks,
 ) -> AiOutputResponse:
     return ai_service.request_question_reference_answer(
+        db,
+        post_id=post_id,
+        payload=payload,
+        current_user=current_user,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/{post_id}/ai/purchase-summary",
+    response_model=AiOutputResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_purchase_summary(
+    post_id: Annotated[int, Path(gt=0)],
+    payload: PurchaseSummaryRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
+) -> AiOutputResponse:
+    return ai_service.request_purchase_summary(
         db,
         post_id=post_id,
         payload=payload,

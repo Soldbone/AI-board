@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getAiOutput,
+  requestPurchaseSummary,
   requestQuestionReferenceAnswer,
 } from "../api/aiApi";
 import { getApiErrorMessage } from "./usePosts";
@@ -59,19 +60,13 @@ export function useAiAnswer(postId) {
     [clearPolling],
   );
 
-  const requestReferenceAnswer = useCallback(
-    async ({ topK = 5 } = {}) => {
-      if (!postId) {
-        return null;
-      }
-
+  const requestAiOutput = useCallback(
+    async (requester) => {
       setIsRequesting(true);
       setErrorMessage("");
 
       try {
-        const response = await requestQuestionReferenceAnswer(postId, {
-          top_k: topK,
-        });
+        const response = await requester();
         setAiOutput(response);
 
         if (!FINAL_STATUSES.has(response.status)) {
@@ -86,7 +81,38 @@ export function useAiAnswer(postId) {
         setIsRequesting(false);
       }
     },
-    [pollAiOutput, postId],
+    [pollAiOutput],
+  );
+
+  const requestReferenceAnswer = useCallback(
+    async ({ topK = 5 } = {}) => {
+      if (!postId) {
+        return null;
+      }
+
+      return requestAiOutput(() =>
+        requestQuestionReferenceAnswer(postId, {
+          top_k: topK,
+        }),
+      );
+    },
+    [postId, requestAiOutput],
+  );
+
+  const requestPurchaseSummaryAnswer = useCallback(
+    async ({ includeSimilarPriceRange = true, topK = 5 } = {}) => {
+      if (!postId) {
+        return null;
+      }
+
+      return requestAiOutput(() =>
+        requestPurchaseSummary(postId, {
+          include_similar_price_range: includeSimilarPriceRange,
+          top_k: topK,
+        }),
+      );
+    },
+    [postId, requestAiOutput],
   );
 
   useEffect(() => {
@@ -103,6 +129,7 @@ export function useAiAnswer(postId) {
     errorMessage,
     isPolling,
     isRequesting,
+    requestPurchaseSummaryAnswer,
     requestReferenceAnswer,
   };
 }

@@ -868,6 +868,28 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.ai-option-row {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475467;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.4;
+}
+
+.ai-option-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2f5f63;
+}
+
 .ai-source-list {
   display: grid;
   gap: 10px;

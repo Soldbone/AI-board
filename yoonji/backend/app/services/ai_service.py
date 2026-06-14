@@ -5,9 +5,9 @@ import logging
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
-from app.ai.llm.prompts import NO_EVIDENCE_ANSWER
+from app.ai.llm.prompts import NO_EVIDENCE_ANSWER, PURCHASE_NO_EVIDENCE_ANSWER
 from app.ai.rag.rag_chain import RagChainError
-from app.ai.usecases import question_reference_answer
+from app.ai.usecases import purchase_summary, question_reference_answer
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.db.database import SessionLocal
@@ -20,7 +20,11 @@ from app.models.enums import (
 )
 from app.models.user import User
 from app.repositories import ai_output_repository, post_repository
-from app.schemas.ai_schema import AiOutputResponse, ReferenceAnswerRequest
+from app.schemas.ai_schema import (
+    AiOutputResponse,
+    PurchaseSummaryRequest,
+    ReferenceAnswerRequest,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -89,6 +93,71 @@ def request_question_reference_answer(
     return AiOutputResponse.model_validate(ai_output)
 
 
+def request_purchase_summary(
+    db: Session,
+    *,
+    post_id: int,
+    payload: PurchaseSummaryRequest,
+    current_user: User,
+    background_tasks: BackgroundTasks,
+) -> AiOutputResponse:
+    post = post_repository.get_public_post_by_id(db, post_id)
+
+    if post is None:
+        raise AppException(
+            "Post was not found.",
+            code="POST_NOT_FOUND",
+            status_code=404,
+        )
+
+    if post.board.code != BoardCode.PURCHASE_HELP:
+        raise AppException(
+            "Purchase summary is only available for PURCHASE_HELP posts.",
+            code="PURCHASE_SUMMARY_ONLY_FOR_PURCHASE_HELP",
+            status_code=400,
+        )
+
+    if not post.content.strip():
+        raise AppException(
+            "Purchase help content is required for AI purchase summary.",
+            code="PURCHASE_CONTENT_REQUIRED",
+            status_code=400,
+        )
+
+    try:
+        ai_output = ai_output_repository.create_ai_output(
+            db,
+            output_type=AiOutputType.PURCHASE_SUMMARY,
+            requester_id=current_user.id,
+            target_post_id=post.id,
+            query_text=_build_query_text(post),
+            title="AI 구매 요약",
+            status=AiOutputStatus.REQUESTED,
+            grounding_status=GroundingStatus.NO_EVIDENCE,
+            metadata_json={
+                "top_k": payload.top_k,
+                "include_similar_price_range": payload.include_similar_price_range,
+                "embedding_model": settings.openai_embedding_model,
+                "chat_model": settings.openai_chat_model,
+            },
+        )
+        db.commit()
+        db.refresh(ai_output)
+    except Exception:
+        db.rollback()
+        raise
+
+    background_tasks.add_task(
+        _run_purchase_summary_task,
+        ai_output.id,
+        post.id,
+        payload.top_k,
+        payload.include_similar_price_range,
+    )
+
+    return AiOutputResponse.model_validate(ai_output)
+
+
 def get_ai_output(db: Session, *, ai_output_id: int) -> AiOutputResponse:
     ai_output = ai_output_repository.get_ai_output_by_id(db, ai_output_id)
 
@@ -151,6 +220,57 @@ def _run_question_reference_answer_task(
         db.close()
 
 
+def _run_purchase_summary_task(
+    ai_output_id: int,
+    post_id: int,
+    top_k: int,
+    include_similar_price_range: bool,
+) -> None:
+    db = SessionLocal()
+
+    try:
+        ai_output = _get_ai_output_for_background(db, ai_output_id=ai_output_id)
+        post = post_repository.get_public_post_by_id(db, post_id)
+
+        if post is None:
+            _mark_background_failed(
+                db,
+                ai_output=ai_output,
+                error_message="Target post was not found while generating AI output.",
+            )
+            return
+
+        ai_output_repository.mark_ai_output_processing(ai_output)
+        db.commit()
+        db.refresh(ai_output)
+
+        purchase_summary.generate_and_store_purchase_summary(
+            db,
+            ai_output=ai_output,
+            post=post,
+            top_k=top_k,
+            include_similar_price_range=include_similar_price_range,
+        )
+        db.commit()
+    except RagChainError as exc:
+        db.rollback()
+        _fail_background_task(
+            db,
+            ai_output_id=ai_output_id,
+            error_message=str(exc),
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to generate purchase summary %s", ai_output_id)
+        _fail_background_task(
+            db,
+            ai_output_id=ai_output_id,
+            error_message=type(exc).__name__,
+        )
+    finally:
+        db.close()
+
+
 def _get_ai_output_for_background(
     db: Session,
     *,
@@ -187,7 +307,7 @@ def _mark_background_failed(
     ai_output_repository.mark_ai_output_failed(
         ai_output,
         error_message=error_message,
-        content=NO_EVIDENCE_ANSWER,
+        content=_fallback_content_for(ai_output),
         grounding_status=GroundingStatus.NO_EVIDENCE,
         model_name=settings.openai_chat_model,
         metadata_json={
@@ -201,6 +321,13 @@ def _mark_background_failed(
         source_values=[],
     )
     db.commit()
+
+
+def _fallback_content_for(ai_output: AiOutput) -> str:
+    if ai_output.output_type == AiOutputType.PURCHASE_SUMMARY:
+        return PURCHASE_NO_EVIDENCE_ANSWER
+
+    return NO_EVIDENCE_ANSWER
 
 
 def _build_query_text(post) -> str:

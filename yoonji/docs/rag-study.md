@@ -1270,3 +1270,355 @@ GET /api/v1/ai/outputs/7
 - 답변을 요약, 주의점, 참고 근거 섹션으로 구조화한다.
 - Celery/RQ 같은 worker queue로 긴 AI 작업을 분리한다.
 - Phase 5에서 구매 고민 요약/추천 usecase를 같은 구조로 확장한다.
+
+---
+
+## 23. Phase 5 구현 요약
+
+AI Phase 5에서는 구매 고민 게시판(`PURCHASE_HELP`) 글에서 후기 게시판(`REVIEW`) 근거를 찾아 구매 판단 보조 요약을 생성하는 기능을 구현했다.
+
+추가된 API는 다음과 같다.
+
+```text
+POST /api/v1/posts/{post_id}/ai/purchase-summary
+GET /api/v1/ai/outputs/{ai_output_id}
+```
+
+전체 흐름은 다음과 같다.
+
+```text
+구매 고민 게시글 상세 화면
+-> 사용자가 AI Purchase Summary 생성 요청
+-> AiOutput을 PURCHASE_SUMMARY / REQUESTED 상태로 저장
+-> 백그라운드 작업에서 PROCESSING 상태로 변경
+-> 현재 구매 고민 글을 embedding query로 변환
+-> REVIEW 게시글 chunk 검색
+-> 동일 피규어명, 제조사, 태그, 가격대, 만족도 metadata로 재랭킹
+-> 검색된 후기 context를 prompt에 넣어 LLM 호출
+-> 요약/장점/단점/유사 가격대 추천을 AiOutput에 저장
+-> 참고 후기 source를 AiOutputSource에 저장
+-> 프론트가 GET /ai/outputs/{id}로 polling 후 결과 표시
+```
+
+구매 고민 글은 `PostFigureInfo`를 만들지 않는다.
+그래서 동일 피규어 판단은 “REVIEW chunk metadata의 `figure_name`이나 `manufacturer`가 구매 고민 제목/본문에 직접 등장하는지”를 우선 신호로 사용한다.
+그 외에는 태그 공유, 추정 가격대, 만족도 점수를 보조 신호로 활용한다.
+
+## 24. Phase 5 수정 파일별 설명
+
+### `backend/app/ai/llm/prompts.py`
+
+`PURCHASE_SUMMARY_SYSTEM_PROMPT`, `PURCHASE_SUMMARY_USER_TEMPLATE`, `PURCHASE_NO_EVIDENCE_ANSWER`를 추가했다.
+
+구매 요약 prompt는 단순 추천이 아니라 판단 보조 정보가 되도록 작성했다.
+특히 다음 지시를 포함한다.
+
+- 동일 피규어 후기가 있으면 먼저 요약한다.
+- 장점과 단점 또는 주의점을 나눈다.
+- 동일 피규어 근거가 부족하면 유사 가격대 고만족 후기를 참고 추천으로 소개한다.
+- 구매를 단정적으로 강요하지 않는다.
+- 근거가 부족한 부분은 부족하다고 말한다.
+
+### `backend/app/ai/rag/retriever.py`
+
+`retrieve_purchase_summary_chunks`를 추가했다.
+
+검색 대상은 `REVIEW` 게시글 chunk만 사용한다.
+구매 고민 글 자체는 `PURCHASE_HELP`이지만, 요약과 추천 근거는 실제 사용 후기가 있는 `REVIEW`가 더 적합하기 때문이다.
+
+재랭킹 신호는 다음과 같다.
+
+- `same_figure`: 후기 metadata의 피규어명이 구매 고민 글에 등장한다.
+- `same_manufacturer`: 제조사가 구매 고민 글에 등장한다.
+- `shared_tags`: 구매 고민 글과 후기 글의 태그가 겹친다.
+- `similar_price_high_satisfaction`: 고민 글에서 추정한 가격대와 후기 가격대가 비슷하고 만족도가 높다.
+- `related_review`: vector similarity만으로 관련성이 있는 후기다.
+
+이렇게 재랭킹을 두는 이유는 vector similarity만으로는 “동일 피규어 후기”보다 “문장이 비슷한 후기”가 먼저 나올 수 있기 때문이다.
+구매 고민에서는 동일 피규어 근거가 가장 강한 근거이므로 metadata 기반 우선순위가 필요하다.
+
+### `backend/app/ai/rag/rag_chain.py`
+
+`generate_purchase_summary`를 추가했다.
+
+retriever가 찾은 후기 chunk를 LLM prompt context로 포맷할 때 다음 metadata를 함께 넣는다.
+
+- `evidence_kind`
+- `figure_name`
+- `manufacturer`
+- `price_range`
+- `satisfaction_score`
+- `matched_signals`
+
+LLM이 단순히 본문만 보는 것보다, 왜 이 후기가 근거로 선택되었는지를 함께 알 수 있어 요약 품질이 좋아진다.
+
+### `backend/app/ai/usecases/purchase_summary.py`
+
+구매 고민 요약 usecase를 구현했다.
+
+역할은 다음과 같다.
+
+- 구매 고민 글에 맞는 REVIEW chunk 검색
+- 근거가 없으면 `PURCHASE_NO_EVIDENCE_ANSWER`를 저장
+- 근거가 있으면 구매 요약 RAG chain 호출
+- 결과를 `AiOutput`에 저장
+- 참고 후기 source를 `AiOutputSource`에 저장
+- 동일 피규어 근거 개수와 유사 가격대 추천 개수를 metadata에 저장
+
+`grounding_status`는 근거가 충분하면 `GROUNDED`, 근거는 있지만 제한적이면 `PARTIALLY_GROUNDED`, 근거가 없으면 `NO_EVIDENCE`가 된다.
+
+### `backend/app/services/ai_service.py`
+
+`request_purchase_summary`와 백그라운드 작업 `_run_purchase_summary_task`를 추가했다.
+
+service 계층에서는 다음 검증을 담당한다.
+
+- 게시글 존재 여부
+- 대상 게시판이 `PURCHASE_HELP`인지
+- 본문이 비어 있지 않은지
+- `AiOutputType.PURCHASE_SUMMARY`로 결과를 저장하는지
+
+Phase 4의 질문 참고 답변과 같은 비동기 상태 흐름을 사용한다.
+프론트는 즉시 `202 Accepted`를 받고, 결과 조회 API로 생성 상태를 확인한다.
+
+### `backend/app/api/routes/posts.py`
+
+다음 API를 추가했다.
+
+```text
+POST /posts/{post_id}/ai/purchase-summary
+```
+
+로그인 사용자만 호출할 수 있고, route는 service 호출만 담당한다.
+
+### `frontend/src/api/aiApi.js`
+
+`requestPurchaseSummary(postId, payload)`를 추가했다.
+
+요청 body는 다음 값을 보낸다.
+
+```json
+{
+  "top_k": 5,
+  "include_similar_price_range": true
+}
+```
+
+### `frontend/src/hooks/useAiAnswer.js`
+
+기존 질문 참고 답변 polling hook을 확장해 `requestPurchaseSummaryAnswer`를 추가했다.
+
+두 생성 기능 모두 다음 상태를 공유한다.
+
+- 생성 요청 중인지
+- 결과 polling 중인지
+- 최신 `AiOutput`
+- 오류 메시지
+
+이렇게 한 hook에서 공통 상태를 처리하면 `GET /ai/outputs/{id}` polling 로직을 중복하지 않아도 된다.
+
+### `frontend/src/components/ai/PurchaseSummaryBox.jsx`
+
+구매 고민 상세 화면에서 AI 구매 요약을 생성하고 보여주는 컴포넌트를 추가했다.
+
+상태는 다음과 같다.
+
+- 비로그인 사용자는 생성 버튼 비활성화
+- 생성 중 메시지 표시
+- 완료된 요약 본문 표시
+- source 목록 표시
+- 실패 시 fallback 또는 error 표시
+
+### `frontend/src/pages/PostDetailPage.jsx`
+
+현재 게시글이 `PURCHASE_HELP`일 때만 `PurchaseSummaryBox`를 렌더링하도록 연결했다.
+
+## 25. Phase 5 핵심 코드 설명
+
+### 구매 고민 글을 검색 query로 사용
+
+```python
+document = document_loader.build_post_document(post)
+query_vector = _embed_query(document.page_content)
+```
+
+구매 고민 글은 별도 피규어 정보 테이블이 없으므로 제목, 본문, 태그가 검색 query의 핵심이다.
+이 query를 embedding으로 변환해야 REVIEW chunk와 의미적으로 비슷한 후기를 찾을 수 있다.
+
+### REVIEW chunk만 검색
+
+```python
+search_results = get_vector_store().similarity_search(
+    db,
+    query_vector=query_vector,
+    board_code=BoardCode.REVIEW,
+    source_types=[ContentSourceType.POST],
+)
+```
+
+구매 고민에 답할 때 가장 중요한 근거는 실제 후기다.
+질문 글이나 다른 구매 고민 글은 추측을 늘릴 위험이 있으므로 Phase 5에서는 REVIEW 게시글 근거만 사용한다.
+
+### metadata 기반 재랭킹
+
+```python
+if _text_appears_in_query(figure_name, query_text):
+    rerank_score += 0.45
+    evidence_kind = "same_figure"
+```
+
+동일 피규어 후기는 구매 판단에서 가장 직접적인 근거다.
+그래서 vector score가 조금 낮아도 동일 피규어명이 확인되면 우선순위를 높인다.
+
+```python
+if include_similar_price_range and satisfaction_score >= 4:
+    rerank_score += 0.08
+```
+
+동일 피규어 근거가 부족할 때는 비슷한 가격대에서 만족도가 높은 후기를 보조 추천 근거로 쓸 수 있다.
+이 값은 답변을 단정하기 위한 점수가 아니라, 어떤 후기를 prompt에 우선 넣을지 결정하는 검색 점수다.
+
+### 구매 요약 prompt context 구성
+
+```python
+context = _format_purchase_context(retrieved_chunks)
+user_prompt = PURCHASE_SUMMARY_USER_TEMPLATE.format(
+    purchase_title=purchase_title,
+    purchase_content=purchase_content,
+    context=context,
+)
+```
+
+LLM은 vector store를 직접 보지 못한다.
+검색된 후기 chunk와 metadata를 context로 만들어 prompt에 넣어야 장점, 단점, 추천 근거를 후기 기반으로 정리할 수 있다.
+
+### AiOutput 저장
+
+```python
+ai_output_repository.mark_ai_output_generated(
+    ai_output,
+    content=answer.content,
+    grounding_status=_resolve_grounding_status(retrieved_chunks),
+    confidence_score=_estimate_confidence(retrieved_chunks),
+    model_name=answer.model_name,
+)
+```
+
+생성된 구매 요약은 사용자 댓글이 아니라 `AiOutput`으로 저장한다.
+AI 결과와 사용자 작성 콘텐츠를 분리해야 화면과 DB에서 출처가 명확해진다.
+
+### source 저장
+
+```python
+ai_output_repository.replace_ai_output_sources(
+    db,
+    ai_output=ai_output,
+    source_values=[...],
+)
+```
+
+source를 별도 테이블에 저장하면 사용자가 AI 요약이 참고한 후기 글을 확인할 수 있다.
+구매 판단 보조 기능에서는 이 근거 표시가 특히 중요하다.
+
+## 26. Phase 5 실행 방법
+
+먼저 REVIEW 게시글이 인덱싱되어 있어야 한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\reindex_content_chunks.py
+```
+
+필요한 환경변수:
+
+```env
+OPENAI_API_KEY=...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_CHAT_MODEL=gpt-4o-mini
+VECTOR_STORE_PROVIDER=pgvector
+```
+
+구매 고민 게시글에 대해 요약 생성을 요청한다.
+
+```text
+POST /api/v1/posts/30/ai/purchase-summary
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "top_k": 5,
+  "include_similar_price_range": true
+}
+```
+
+예상 응답:
+
+```json
+{
+  "id": 9,
+  "output_type": "PURCHASE_SUMMARY",
+  "target_post_id": 30,
+  "title": "AI 구매 요약",
+  "content": null,
+  "status": "REQUESTED",
+  "grounding_status": "NO_EVIDENCE",
+  "sources": []
+}
+```
+
+결과 조회:
+
+```text
+GET /api/v1/ai/outputs/9
+```
+
+생성 완료 예시:
+
+```json
+{
+  "id": 9,
+  "status": "GENERATED",
+  "grounding_status": "PARTIALLY_GROUNDED",
+  "content": "동일 피규어 후기는 부족하지만, 비슷한 가격대 후기에서는 ...",
+  "metadata_json": {
+    "same_figure_count": 0,
+    "similar_price_recommendation_count": 2
+  },
+  "sources": [
+    {
+      "source_post_id": 18,
+      "relevance_score": 0.82,
+      "rank_order": 1,
+      "excerpt": "Board: REVIEW ..."
+    }
+  ]
+}
+```
+
+근거가 없을 때:
+
+```json
+{
+  "status": "GENERATED",
+  "grounding_status": "NO_EVIDENCE",
+  "content": "관련 후기 근거가 부족해 구매 요약이나 추천을 생성할 수 없습니다.",
+  "sources": []
+}
+```
+
+## 27. Phase 5 한계와 다음 개선 방향
+
+현재 한계:
+
+- 동일 피규어명 추출은 별도 NLP 추출기가 아니라 metadata 문자열 포함 여부에 의존한다.
+- 가격대 추정은 제목/본문의 숫자를 간단히 해석하는 heuristic이다.
+- “캐릭터명”은 별도 구조화 필드가 없어서 태그 공유를 보조 신호로 사용한다.
+- LLM 응답은 자유 텍스트이며 장점/단점 JSON 구조화 출력은 아직 없다.
+- worker queue가 없어 긴 AI 작업은 FastAPI background task에서 처리한다.
+
+다음 개선:
+
+- 구매 고민 글에서 피규어명, 제조사, 예산을 LLM 또는 규칙 기반 extractor로 구조화한다.
+- 동일 피규어, 같은 캐릭터, 같은 제조사, 유사 가격대별로 검색을 여러 번 나누고 병합한다.
+- reranker 또는 hybrid search를 추가해 후기 근거 품질을 높인다.
+- 구매 요약 응답을 `summary`, `pros`, `cons`, `recommendations`, `evidence_note` 같은 JSON으로 구조화한다.
+- Phase 6에서 세 AI 기능의 통합 테스트와 문서 정리를 진행한다.
