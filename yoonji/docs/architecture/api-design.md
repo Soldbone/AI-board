@@ -968,6 +968,19 @@ Response `202 Accepted`: AiOutput
 - 자주 언급된 장점과 단점
 - 근거 게시글 링크
 
+### 11.5 개발용 RAG 통합 smoke check
+
+Phase 6에서는 별도 테스트 프레임워크를 추가하지 않고, 개발 DB와 실행 중인 FastAPI 서버를 확인하는 스크립트를 둔다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\seed_dev_data.py --reset
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+이 스크립트는 저장된 `ContentChunk`, `AiOutput`, `AiOutputSource`와 public read API를 확인한다.
+실제 OpenAI API는 호출하지 않는다.
+실시간 생성 API까지 검증하려면 `OPENAI_API_KEY`가 설정된 환경에서 11.2~11.4 API를 직접 호출한다.
+
 ## 12. 신고 및 운영자 API
 
 신고 기능은 MVP 선택 기능이지만 운영자 확장을 고려해 API 경계를 미리 둔다.
@@ -1076,14 +1089,17 @@ Response `202 Accepted`
 1. `POST /api/v1/posts`
 2. `POST /api/v1/posts/{post_id}/ai/reference-answer`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
-4. `GET /api/v1/posts/{post_id}?include=comments,ai_outputs`
+4. `GET /api/v1/posts/{post_id}`로 게시글 본문 조회
+5. `GET /api/v1/posts/{post_id}/comments`로 사용자 댓글 조회
+6. AI 참고 답변은 `GET /api/v1/ai/outputs/{ai_output_id}` 응답을 별도 AI 영역에 표시
 
 ### 14.4 구매 고민 작성
 
 1. `POST /api/v1/posts`
 2. `POST /api/v1/posts/{post_id}/ai/purchase-summary`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
-4. `GET /api/v1/posts/{post_id}/similar-posts?limit=3`
+4. `GET /api/v1/posts/{post_id}`로 구매 고민 본문 조회
+5. 구매 요약의 `sources`에 포함된 후기 게시글 근거를 화면에 표시
 
 ## 15. MVP 우선 구현 범위
 
@@ -1124,7 +1140,7 @@ Response `202 Accepted`
 
 1. `AiOutput.status`에는 비동기 처리를 위해 `REQUESTED`, `PROCESSING`을 추가하는 것이 좋다.
 2. `Post` 목록 응답에는 `summary`, `thumbnail_url`, `figure_info` 일부를 denormalized 형태로 내려주는 것이 프론트 구현에 편하다.
-3. 게시글 상세 API에서 모든 부가 정보를 항상 내려주면 응답이 무거워질 수 있으므로 `include` 파라미터로 제어한다.
+3. 게시글 상세 API에서 모든 부가 정보를 항상 내려주면 응답이 무거워질 수 있으므로 댓글과 AI 결과는 별도 조회 API로 분리한다.
 4. 유사 게시글 추천은 MVP에서 저장하지 않고 실시간 계산으로 처리한다.
 5. AI 답변은 항상 `AiOutputSource`를 함께 제공해 사용자 작성 콘텐츠와 AI 생성 콘텐츠를 명확히 구분한다.
 6. 이미지 업로드는 게시글 작성 전 임시 업로드 후 `image_ids`로 연결하는 방식이 React 작성 폼에 적합하다.

@@ -320,13 +320,17 @@ AI Q&A, 질문 참고 답변, 구매 고민 요약, 유사 게시글 검색의 �
 | `source_type` | 원본 유형 |
 | `post_id` | 게시글 ID |
 | `comment_id` | 댓글 ID |
+| `board_code` | 원본 게시글의 게시판 코드 |
+| `chunk_index` | 같은 원본 안에서의 청크 순서 |
 | `chunk_text` | 청크 텍스트 |
 | `embedding_model` | 임베딩 모델명 |
 | `embedding_vector` | 임베딩 벡터 |
 | `token_count` | 토큰 수 |
 | `index_status` | 인덱싱 상태 |
+| `metadata_json` | 피규어명, 제조사, 가격대, 태그, seed 정보 등 검색 보조 메타데이터 |
 | `indexed_at` | 인덱싱 시각 |
 | `created_at` | 생성 시각 |
+| `updated_at` | 수정 시각 |
 
 상태값 후보:
 
@@ -417,6 +421,9 @@ RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 
 - `source_post_id`는 `content_chunk_id`를 통해 유추할 수 있지만, 조회 성능과 화면 표시 편의를 위해 중복 저장해도 좋다.
 - `rank_order`는 RAG 근거의 우선순위를 표현하기 위해 필요하다.
+- 개발용 seed 데이터는 `ContentChunk.metadata_json.seed="dev"`와 `embedding_model="dev-deterministic-embedding-v1"`로 구분한다.
+- Phase 6 smoke check는 이 값을 이용해 실제 OpenAI API 호출 없이도 RAG chunk, AI 결과, AI 근거가 연결되어 있는지 확인한다.
+- 저장된 AI 결과 예시는 `AiOutput`에 있고, 화면은 `AiOutputSource`를 통해 참고한 게시글/댓글/chunk 근거를 보여준다.
 
 ---
 
@@ -668,10 +675,17 @@ erDiagram
       string source_type
       bigint post_id
       bigint comment_id
+      string board_code
+      int chunk_index
       text chunk_text
       string embedding_model
       vector embedding_vector
+      int token_count
       string index_status
+      json metadata_json
+      datetime indexed_at
+      datetime created_at
+      datetime updated_at
     }
 
     AI_OUTPUT {

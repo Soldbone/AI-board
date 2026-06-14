@@ -431,7 +431,7 @@
 1. `QUESTION` 게시판에 `피규어 먼지 관리는 어떻게 하나요?` 질문을 작성한다.
 2. 해당 게시글에 AI 참고 답변 생성을 요청한다.
 3. AI 결과를 폴링한다.
-4. 게시글 상세를 `include=ai_outputs`로 조회한다.
+4. 게시글 상세와 AI 결과 조회 응답을 화면의 서로 다른 영역에 표시한다.
 
 기대 결과:
 
@@ -539,18 +539,21 @@
 | --- | --- |
 | 목적 | AI 생성 콘텐츠와 사용자 콘텐츠 구분 확인 |
 | 사전 조건 | 질문 게시글에 사용자 댓글과 AI 참고 답변이 모두 존재 |
-| 주요 API | `GET /posts/{post_id}?include=comments,ai_outputs` |
+| 주요 API | `GET /posts/{post_id}`, `GET /posts/{post_id}/comments`, `GET /ai/outputs/{ai_output_id}` |
 
 절차:
 
 1. 질문 게시글 상세를 조회한다.
-2. 댓글 영역과 AI 참고 답변 영역을 확인한다.
+2. 댓글 목록 API를 조회한다.
+3. AI output 조회 API를 조회한다.
+4. 댓글 영역과 AI 참고 답변 영역을 확인한다.
 
 기대 결과:
 
 - 사용자 댓글은 댓글 목록에 표시된다.
 - AI 참고 답변은 별도 AI 영역에 표시된다.
 - AI 답변에는 근거 출처와 참고용 안내가 표시된다.
+- 게시글의 `comment_count`는 사용자 댓글만 반영하고 AI output 수를 더하지 않는다.
 
 ### AI-10. 게시글 수정 후 RAG 검색 결과가 최신 내용으로 반영된다
 
@@ -570,6 +573,40 @@
 
 - AI 답변은 수정 전 내용이 아니라 수정 후 내용을 근거로 한다.
 - `sources.excerpt`도 최신 본문에서 가져온다.
+
+### AI-11. 개발용 seed 기반 RAG 통합 smoke check를 실행한다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | Phase 1~5에서 만든 RAG 저장/조회 흐름을 한 번에 확인 |
+| 사전 조건 | 백엔드 서버 실행, 개발 DB 연결 가능 |
+| 주요 파일 | `scripts/seed_dev_data.py`, `scripts/ai_phase6_check.py` |
+
+절차:
+
+1. 개발용 seed 데이터를 초기화해서 넣는다.
+2. Phase 6 smoke check 스크립트를 실행한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\seed_dev_data.py --reset
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+백엔드 서버 없이 DB 상태만 확인할 때:
+
+```powershell
+$env:AI_PHASE6_SKIP_API="1"
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+기대 결과:
+
+- `REVIEW`, `QUESTION`, `PURCHASE_HELP` seed 게시글이 확인된다.
+- `ContentChunk`에 게시글/댓글 청크와 deterministic mock vector가 들어 있다.
+- 질문 참고 답변과 구매 고민 요약 `AiOutput`이 사용자 댓글과 분리되어 있다.
+- `AiOutputSource`가 게시글/댓글/chunk 근거를 가리킨다.
+- `GET /ai/outputs/{ai_output_id}` 응답에 `sources`가 포함된다.
+- 스크립트는 실제 OpenAI API를 호출하지 않는다.
 
 ## 5. 우선순위별 실행 묶음
 
@@ -596,6 +633,7 @@
 - AI-07 유사 가격대 구매 추천
 - AI-09 AI/사용자 콘텐츠 구분
 - AI-10 재인덱싱 최신성
+- AI-11 개발용 RAG seed 통합 smoke check
 
 ### 5.3 운영자/확장 기능 테스트
 

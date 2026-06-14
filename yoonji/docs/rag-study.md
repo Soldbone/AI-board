@@ -1658,7 +1658,87 @@ dev_collector / devpass1234!
 - 구매 고민 상세에서 저장된 구매 요약 조회 또는 새 생성 요청
 - AI 결과의 sources 표시
 
-## 28. Phase 5 한계와 다음 개선 방향
+## 28. Phase 6 통합 테스트와 문서 정리
+
+Phase 6에서는 세 RAG 기능을 하나씩 따로 보는 것이 아니라, 같은 개발 DB seed 위에서 함께 검증할 수 있는 기준을 만들었다.
+
+추가한 파일:
+
+- `scripts/ai_phase6_check.py`
+
+수정한 문서:
+
+- `docs/rag-study.md`
+- `docs/testing/test-scenarios.md`
+- `docs/architecture/api-design.md`
+- `docs/database/schema-design.md`
+
+### 통합 검증 기준
+
+`scripts/ai_phase6_check.py`는 `scripts/seed_dev_data.py`가 넣은 개발용 RAG 데이터를 읽어서 다음을 확인한다.
+
+- `REVIEW`, `QUESTION`, `PURCHASE_HELP` 게시글이 모두 존재하는지
+- 게시글과 질문 댓글이 `ContentChunk`로 인덱싱되어 있는지
+- chunk가 OpenAI 호출 없이 만든 `dev-deterministic-embedding-v1` embedding을 갖는지
+- 후기 추천을 테스트할 수 있을 만큼 REVIEW chunk가 준비되어 있는지
+- 질문 참고 답변 `AiOutput`이 `QUESTION_REFERENCE_ANSWER`로 저장되어 있고 source에 댓글 근거가 포함되는지
+- 구매 고민 `AiOutput`이 동일 피규어 근거, 유사 가격대 fallback, 근거 없음 fallback을 모두 포함하는지
+- AI 답변 내용이 사용자 댓글로 저장되지 않고 `AiOutput`으로 분리되어 있는지
+- `GET /api/v1/ai/outputs/{ai_output_id}` 응답에 sources가 포함되는지
+
+이 스크립트는 기본적으로 읽기 전용이다.
+실제 OpenAI API를 호출하지 않고, 새 AI 결과도 생성하지 않는다.
+실시간 생성 API인 `POST /posts/{post_id}/ai/reference-answer`와 `POST /posts/{post_id}/ai/purchase-summary`, 그리고 `GET /posts/{post_id}/similar-posts`는 현재 query embedding 생성 경로에서 OpenAI embedding client를 사용하므로, 실제 생성 흐름 통합 테스트에서는 `OPENAI_API_KEY`가 필요하다.
+
+### 실행 순서
+
+개발용 데이터를 다시 넣는다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\seed_dev_data.py --reset
+```
+
+백엔드가 실행 중인 상태에서 Phase 6 smoke check를 실행한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+백엔드 서버 없이 DB 상태만 확인하고 싶다면 API 검증을 끈다.
+
+```powershell
+$env:AI_PHASE6_SKIP_API="1"
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+다른 백엔드 주소를 쓰는 경우:
+
+```powershell
+$env:AI_API_BASE_URL="http://127.0.0.1:8000/api/v1"
+backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
+```
+
+### 세 기능을 함께 보는 방법
+
+후기 추천은 `REVIEW` 게시글 chunk를 검색해 현재 후기와 비슷한 후기를 반환한다.
+결과는 저장하지 않고 화면 요청 때마다 계산한다.
+
+질문 참고 답변은 `QUESTION` 게시글과 댓글 chunk를 검색해 LLM prompt의 context로 넣고, 결과를 `AiOutput`에 저장한다.
+사용자 댓글과 섞이지 않도록 댓글 테이블에는 저장하지 않는다.
+
+구매 고민 요약은 `PURCHASE_HELP` 게시글을 query로 삼고, 주로 `REVIEW` 게시글 chunk를 검색한다.
+동일 피규어 후기를 우선하고, 부족하면 유사 가격대와 높은 만족도 후기를 보조 근거로 쓴다.
+근거가 없으면 `grounding_status=NO_EVIDENCE`와 fallback 문장을 저장한다.
+
+### Phase 6에서 정리한 설계 차이
+
+문서에 남아 있던 오래된 상세 조회 흐름을 실제 구현 기준으로 정리했다.
+
+- AI 결과는 게시글 상세 API의 `include=ai_outputs`가 아니라 `GET /api/v1/ai/outputs/{ai_output_id}`로 조회한다.
+- 사용자 댓글은 `GET /api/v1/posts/{post_id}/comments`로 조회하고, AI 답변은 별도 AI 영역에서 보여준다.
+- `GET /api/v1/posts/{post_id}/similar-posts`는 REVIEW 게시글 전용이다. 구매 고민 게시글에서는 구매 요약 생성 후 `AiOutput.sources`의 후기 근거를 보여준다.
+
+## 29. Phase 5 한계와 다음 개선 방향
 
 현재 한계:
 
@@ -1674,4 +1754,4 @@ dev_collector / devpass1234!
 - 동일 피규어, 같은 캐릭터, 같은 제조사, 유사 가격대별로 검색을 여러 번 나누고 병합한다.
 - reranker 또는 hybrid search를 추가해 후기 근거 품질을 높인다.
 - 구매 요약 응답을 `summary`, `pros`, `cons`, `recommendations`, `evidence_note` 같은 JSON으로 구조화한다.
-- Phase 6에서 세 AI 기능의 통합 테스트와 문서 정리를 진행한다.
+- 생성 API까지 OpenAI 호출 없이 반복 검증하려면 dev 전용 deterministic embedding/query mock client를 별도 provider로 분리할 수 있다.
