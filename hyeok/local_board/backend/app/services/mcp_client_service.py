@@ -33,6 +33,17 @@ def _get_mcp_python_path() -> str:
     raise McpClientError("MCP server python executable was not found.")
 
 
+def get_mcp_stdio_server_config() -> dict[str, Any]:
+    if not MCP_SERVER_SCRIPT.exists():
+        raise McpClientError("MCP server.py was not found.")
+
+    return {
+        "transport": "stdio",
+        "command": _get_mcp_python_path(),
+        "args": [str(MCP_SERVER_SCRIPT)],
+    }
+
+
 def _extract_tool_payload(result: Any) -> dict[str, Any]:
     structured_content = getattr(result, "structuredContent", None)
     if structured_content is None:
@@ -62,12 +73,10 @@ def _extract_tool_payload(result: Any) -> dict[str, Any]:
 
 
 async def call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if not MCP_SERVER_SCRIPT.exists():
-        raise McpClientError("MCP server.py was not found.")
-
+    mcp_server_config = get_mcp_stdio_server_config()
     server_params = StdioServerParameters(
-        command=_get_mcp_python_path(),
-        args=[str(MCP_SERVER_SCRIPT)],
+        command=mcp_server_config["command"],
+        args=mcp_server_config["args"],
     )
 
     try:
