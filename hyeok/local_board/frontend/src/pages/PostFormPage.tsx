@@ -172,11 +172,12 @@ export function PostFormPage({
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
-              <span className="text-sm font-semibold text-slate-700">동네</span>
+              <span className="text-sm font-semibold text-slate-700">지역 *</span>
               <input
                 className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 onChange={(event) => onChange('region', event.target.value)}
-                placeholder="예: 역삼동"
+                placeholder="예: 둔전역, 처인구"
+                required
                 type="text"
                 value={form.region}
               />

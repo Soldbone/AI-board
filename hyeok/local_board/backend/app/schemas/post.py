@@ -1,14 +1,24 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 class PostCreate(BaseModel):
     title: str
     content: str
-    region: str | None = None
+    region: str
     store_name: str | None = None
     category: str | None = None
     tag_names: list[str] = []
+
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, value: str) -> str:
+        cleaned_region = value.strip()
+
+        if not cleaned_region:
+            raise ValueError("지역은 필수입니다.")
+
+        return cleaned_region
 
 class PostUpdate(BaseModel):
     title: str | None = None
@@ -17,6 +27,19 @@ class PostUpdate(BaseModel):
     store_name: str | None = None
     category: str | None = None
     tag_names: list[str] | None = None
+
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        cleaned_region = value.strip()
+
+        if not cleaned_region:
+            raise ValueError("지역은 비워둘 수 없습니다.")
+
+        return cleaned_region
 
 
 class PostRead(BaseModel):

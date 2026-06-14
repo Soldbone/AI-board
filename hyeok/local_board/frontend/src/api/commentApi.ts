@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiDelete, apiGet, apiPost } from './client'
 
 export type CommentRead = {
   id: number
@@ -8,6 +8,7 @@ export type CommentRead = {
   parent_id: number | null
   content: string
   is_anonymous: boolean
+  is_deleted: boolean
   created_at: string
   updated_at: string
 }
@@ -28,4 +29,8 @@ export function createComment(
   token: string,
 ) {
   return apiPost<CommentRead>(`/posts/${postId}/comments`, data, token)
+}
+
+export function deleteComment(commentId: number, token: string) {
+  return apiDelete<void>(`/comments/${commentId}`, token)
 }

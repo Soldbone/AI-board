@@ -1,9 +1,10 @@
 ﻿/* eslint-disable react-hooks/set-state-in-effect */
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { getMe, login, signup, type UserResponse } from './api/authApi'
-import { createComment, getComments, type CommentRead } from './api/commentApi'
+import { createComment, deleteComment, getComments, type CommentRead } from './api/commentApi'
 import {
   createPost,
+  deletePost,
   getPost,
   getPosts,
   updatePost,
@@ -66,7 +67,7 @@ function buildPostPayload(form: PostFormState): PostFormPayload {
   return {
     title: form.title.trim(),
     content: form.content.trim(),
-    region: toNullable(form.region),
+    region: form.region.trim(),
     store_name: toNullable(form.store_name),
     category: toNullable(form.category),
     tag_names: parseTagNames(form.tag_names),
@@ -345,6 +346,11 @@ function App() {
       return
     }
 
+    if (!payload.region) {
+      setMessage('지역을 입력해주세요.')
+      return
+    }
+
     setIsLoading(true)
     setMessage('게시글을 등록하는 중입니다.')
 
@@ -374,6 +380,11 @@ function App() {
     const payload = buildPostPayload(postForm)
     if (!payload.title || !payload.content) {
       setMessage('제목과 내용을 입력해주세요.')
+      return
+    }
+
+    if (!payload.region) {
+      setMessage('지역을 입력해주세요.')
       return
     }
 
@@ -423,6 +434,63 @@ function App() {
       setMessage('댓글을 등록했습니다.')
     } catch (error) {
       setMessage(getErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleDeletePost() {
+    if (!accessToken || !selectedPost) {
+      setViewMode('login')
+      setMessage('게시글 삭제는 로그인이 필요합니다.')
+      return
+    }
+
+    if (!window.confirm('게시글을 삭제할까요?')) {
+      return
+    }
+
+    setIsLoading(true)
+    setMessage('게시글을 삭제하는 중입니다.')
+
+    try {
+      await deletePost(selectedPost.id, accessToken)
+      await loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadTags()
+      goList()
+      setMessage('게시글을 삭제했습니다.')
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      window.alert(errorMessage)
+      setMessage(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleDeleteComment(commentId: number) {
+    if (!accessToken || !selectedPost) {
+      setViewMode('login')
+      setMessage('댓글 삭제는 로그인이 필요합니다.')
+      return
+    }
+
+    if (!window.confirm('댓글을 삭제할까요?')) {
+      return
+    }
+
+    setIsLoading(true)
+    setMessage('댓글을 삭제하는 중입니다.')
+
+    try {
+      await deleteComment(commentId, accessToken)
+      const nextComments = await getComments(selectedPost.id)
+      setComments(nextComments)
+      setMessage('댓글을 삭제했습니다.')
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      window.alert(errorMessage)
+      setMessage(errorMessage)
     } finally {
       setIsLoading(false)
     }
@@ -573,11 +641,14 @@ function App() {
             hasAccessToken={hasAccessToken}
             isAnonymous={isAnonymous}
             isLoading={isLoading}
+            currentUserId={currentUser?.id ?? null}
             onAnonymousChange={setIsAnonymous}
             onBack={goList}
             onCancelReply={() => setReplyTargetId(null)}
             onCommentContentChange={setCommentContent}
             onCreateComment={handleCreateComment}
+            onDeleteComment={handleDeleteComment}
+            onDeletePost={handleDeletePost}
             onEdit={openEditForm}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
             post={selectedPost}

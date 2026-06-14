@@ -1,5 +1,4 @@
-from sqlalchemy import func, or_
-from datetime import datetime
+from sqlalchemy import func, or_, text
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -24,6 +23,40 @@ def normalize_tag_names(tag_names: list[str]) -> list[str]:
             normalized_names.append(cleaned_name)
 
     return normalized_names
+
+
+def delete_post_embedding_if_exists(db: Session, post_id: int) -> None:
+    table_name = db.execute(text("SELECT to_regclass('public.post_embeddings')")).scalar()
+
+    if table_name:
+        db.execute(
+            text("DELETE FROM post_embeddings WHERE post_id = :post_id"),
+            {"post_id": post_id},
+        )
+
+
+def delete_post_comments(db: Session, post_id: int) -> None:
+    reply_comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id, Comment.parent_id.isnot(None))
+        .all()
+    )
+
+    for comment in reply_comments:
+        db.delete(comment)
+
+    db.flush()
+
+    parent_comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id)
+        .all()
+    )
+
+    for comment in parent_comments:
+        db.delete(comment)
+
+    db.flush()
 
 
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
@@ -293,7 +326,10 @@ def delete_post(
             detail="게시글을 삭제할 권한이 없습니다.",
         )
 
-    post.deleted_at = datetime.utcnow()
+    delete_post_embedding_if_exists(db, post.id)
+    db.execute(post_tags.delete().where(post_tags.c.post_id == post.id))
+    delete_post_comments(db, post.id)
+    db.delete(post)
 
     db.commit()
 

@@ -10,8 +10,11 @@ type PostDetailPageProps = {
   replyTargetId: number | null
   isLoading: boolean
   hasAccessToken: boolean
+  currentUserId: number | null
   onBack: () => void
   onEdit: () => void
+  onDeletePost: () => void
+  onDeleteComment: (commentId: number) => void
   onReplyTargetChange: (commentId: number) => void
   onCancelReply: () => void
   onCommentContentChange: (value: string) => void
@@ -28,8 +31,11 @@ export function PostDetailPage({
   replyTargetId,
   isLoading,
   hasAccessToken,
+  currentUserId,
   onBack,
   onEdit,
+  onDeletePost,
+  onDeleteComment,
   onReplyTargetChange,
   onCancelReply,
   onCommentContentChange,
@@ -39,6 +45,7 @@ export function PostDetailPage({
 }: PostDetailPageProps) {
   const replyTargetComment = comments.find((comment) => comment.id === replyTargetId)
   const replyTargetNickname = replyTargetComment?.author_nickname ?? '알 수 없음'
+  const visibleCommentCount = comments.filter((comment) => !comment.is_deleted).length
 
   if (!post) {
     return (
@@ -47,6 +54,8 @@ export function PostDetailPage({
       </section>
     )
   }
+
+  const canManagePost = currentUserId === post.author_id
 
   return (
     <section className="space-y-5">
@@ -88,14 +97,24 @@ export function PostDetailPage({
               >
                 목록
               </button>
-              <button
-                className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                disabled={!hasAccessToken}
-                onClick={onEdit}
-                type="button"
-              >
-                수정
-              </button>
+              {canManagePost && (
+                <>
+                  <button
+                    className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    onClick={onEdit}
+                    type="button"
+                  >
+                    수정
+                  </button>
+                  <button
+                    className="rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                    onClick={onDeletePost}
+                    type="button"
+                  >
+                    삭제
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -109,7 +128,7 @@ export function PostDetailPage({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-emerald-700">대화</p>
-            <h3 className="mt-1 text-xl font-bold text-slate-950">댓글 {comments.length}개</h3>
+            <h3 className="mt-1 text-xl font-bold text-slate-950">댓글 {visibleCommentCount}개</h3>
           </div>
         </div>
 
@@ -130,26 +149,45 @@ export function PostDetailPage({
               key={comment.id}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <strong className="text-sm text-slate-900">{comment.author_nickname}</strong>
-                  <span className="ml-2 text-xs text-slate-400">
-                    {formatDate(comment.created_at)}
-                  </span>
-                  {comment.is_anonymous && (
-                    <span className="ml-2 rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
-                      익명
+                {comment.is_deleted ? (
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-slate-400">삭제된 댓글</span>
+                  </div>
+                ) : (
+                  <div className="min-w-0">
+                    <strong className="text-sm text-slate-900">{comment.author_nickname}</strong>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {formatDate(comment.created_at)}
                     </span>
-                  )}
-                </div>
+                    {comment.is_anonymous && (
+                      <span className="ml-2 rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
+                        익명
+                      </span>
+                    )}
+                  </div>
+                )}
 
-                {comment.parent_id === null && (
-                  <button
-                    className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                    onClick={() => onReplyTargetChange(comment.id)}
-                    type="button"
-                  >
-                    답글
-                  </button>
+                {!comment.is_deleted && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    {comment.parent_id === null && (
+                      <button
+                        className="rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                        onClick={() => onReplyTargetChange(comment.id)}
+                        type="button"
+                      >
+                        답글
+                      </button>
+                    )}
+                    {hasAccessToken && (
+                      <button
+                        className="rounded-md px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                        onClick={() => onDeleteComment(comment.id)}
+                        type="button"
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">

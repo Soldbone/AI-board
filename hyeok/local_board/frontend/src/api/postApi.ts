@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost } from './client'
 
 export type PostListItem = {
   id: number
@@ -28,7 +28,7 @@ export type PostListResponse = {
 export type PostFormPayload = {
   title: string
   content: string
-  region: string | null
+  region: string
   store_name: string | null
   category: string | null
   tag_names?: string[]
@@ -75,4 +75,8 @@ export function createPost(data: PostFormPayload, token: string) {
 
 export function updatePost(postId: number, data: PostFormPayload, token: string) {
   return apiPatch<PostRead>(`/posts/${postId}`, data, token)
+}
+
+export function deletePost(postId: number, token: string) {
+  return apiDelete<void>(`/posts/${postId}`, token)
 }
