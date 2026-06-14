@@ -167,12 +167,25 @@ pnpm.cmd format:check
 
 ## 7. 다음 단계
 
-다음은 Phase 10 `AI Agent 추론 루프 구현`이다.
+다음 구현 권장 순서는 Phase 9.5 `MCP Protocol Alignment` 이후 Phase 10 `AI Agent 추론 루프 구현`이다.
+
+Phase 9.5에서 이어받을 핵심:
+
+- JSON-RPC envelope은 유지한다. envelope은 Agent와 tool 사이의 표준 호출 외피이며, 일반 domain service 호출을 전부 대체하려는 구조가 아니다.
+- 현재 `tools/list`는 배열을 직접 반환하므로 `{ tools: [...] }` 형태로 감싼다.
+- 현재 `tools/call`은 raw result를 직접 반환하므로 `content`, `structuredContent`, `isError`를 포함한 MCP tool result 형태로 감싼다.
+- tool 실행 실패는 가능하면 `isError: true` tool result로 반환하고, malformed request나 unknown method 같은 protocol 오류만 JSON-RPC error로 반환한다.
+- request id는 string 또는 number만 허용하도록 정리한다.
+
+세부 계획은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
 
 Phase 10에서 이어받을 핵심:
 
 - Agent는 `tools/list`로 사용할 수 있는 tool을 확인한다.
-- Agent는 Function Calling 또는 유사한 tool selection 로직으로 `tools/call`을 호출한다.
+- Agent는 domain service를 직접 호출하지 않고 `McpServerService.handleRequest()`에 JSON-RPC envelope을 넘겨 `tools/call`을 호출한다.
 - Agent run에는 tool call 결과와 실패를 step 단위로 저장한다.
-- Agent가 write tool을 자동 남용하지 않도록 최대 step 수, timeout, 반복 호출 방지 정책을 둔다.
+- Phase 10 자동 Agent loop는 읽기 tool 중심으로 시작하고, `video.retryProcessing` 같은 write tool은 별도 사용자 승인 흐름이 생기기 전까지 기본 allowlist에서 제외한다.
+- Agent가 tool을 반복 호출하지 않도록 최대 step 수, timeout, 반복 호출 방지 정책을 둔다.
 - Agent 답변은 MCP/RAG 결과를 근거 후보로 설명하되 참/거짓 단정처럼 표현하지 않는다.
+
+세부 계획은 `phase10_ai_agent_loop_plan.md`를 따른다.

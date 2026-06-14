@@ -46,8 +46,8 @@ Post 생성
 사용자 Agent 요청
 → AgentService
 → LLM Function Calling
-→ MCP tool 선택
-→ McpModule
+→ JSON-RPC envelope 기반 MCP tool 선택
+→ McpModule tools/call
 → 기존 service / provider adapter
 → DB 또는 외부 API
 ```
@@ -58,6 +58,26 @@ Post 생성
 - MCP는 과제 요구사항의 “LLM이 외부 시스템을 호출하는 도구 계층”으로 명확히 설명할 수 있다.
 - Phase 6의 provider adapter를 재사용할 수 있어 중복 구현을 줄인다.
 - 나중에 외부 tool을 늘려도 Agent와 domain service의 경계가 무너지지 않는다.
+
+여기서 JSON-RPC envelope은 tool 호출 내용을 감싸는 표준 외피다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "run-step-1",
+  "method": "tools/call",
+  "params": {
+    "name": "transcript.searchChunks",
+    "arguments": {
+      "postId": "01J00000000000000000000000",
+      "query": "이 주장이 영상에서 언급되나요?",
+      "limit": 5
+    }
+  }
+}
+```
+
+이 envelope은 모든 내부 service 호출을 복잡하게 만들기 위한 구조가 아니다. 일반 제품 흐름은 기존 service를 직접 호출하고, Agent가 tool을 사용할 때만 MCP envelope을 사용한다. 이렇게 해야 tool allowlist, argument validation, 권한 context, error sanitation, tool trace 저장을 같은 경계에서 처리할 수 있다.
 
 ---
 
@@ -119,6 +139,17 @@ youtube.fetchMetadata
 
 초기 Agent는 게시글 작성, 댓글 작성, 삭제 같은 write action을 자동 수행하지 않는다. `video.retryProcessing` 같은 write 성격의 tool은 명시적 사용자 요청과 권한 확인이 있을 때만 허용한다.
 
+Phase 10 MVP의 자동 Agent loop에서는 다음 읽기 tool만 기본 allowlist에 둔다.
+
+```text
+post.getContext
+video.getProcessingStatus
+transcript.searchChunks
+youtube.fetchMetadata
+```
+
+`video.retryProcessing`은 tool server에는 존재하지만, 별도 확인 UI나 사용자 승인 흐름이 생기기 전까지 Agent 자동 loop의 기본 allowlist에 포함하지 않는다.
+
 ---
 
 ## 5. 보안과 권한 관리
@@ -178,9 +209,14 @@ Agent loop 제한:
 Phase 7: AI 댓글 분석
 Phase 8: RAG 근거 후보
 Phase 9: MCP Agent Tool Server
+Phase 9.5: MCP Protocol Alignment
 Phase 10: AI Agent 추론 루프
 Phase 11: 댓글 스레드 요약
 Phase 12: 관리자 기능
 ```
 
 MCP와 Agent는 RAG 이후에 붙인다. Agent가 의미 있는 tool 선택을 하려면 게시글 context, 영상 처리 상태, transcript chunk, RAG 검색 기반이 먼저 필요하기 때문이다.
+
+Phase 9.5에서는 현재 구현된 MCP endpoint의 응답 shape를 공식 MCP tools 구조에 더 가깝게 맞춘다. `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함하는 tool result를 반환한다. 자세한 구현 계획은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
+
+Phase 10에서는 Agent run 생성/조회 API, AgentRun/AgentStep 저장, LLM function calling, MCP tool caller, max step/timeout/retry guard를 구현한다. 자세한 구현 계획은 `phase10_ai_agent_loop_plan.md`를 따른다.

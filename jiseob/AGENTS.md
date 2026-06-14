@@ -196,7 +196,53 @@ POST /api/v1/mcp
 - `video.retryProcessing`은 `metadataStatus`, `transcriptStatus`, `embeddingStatus` 중 하나라도 `FAILED`일 때만 허용한다.
 - `NOT_AVAILABLE`은 자막 부재가 확정된 상태이므로 retry 허용 조건에는 포함하지 않는다.
 
-### 3-9. 댓글 스레드 요약 정책
+Agent가 MCP tool을 호출할 때는 JSON-RPC envelope을 사용한다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "run-step-1",
+  "method": "tools/call",
+  "params": {
+    "name": "transcript.searchChunks",
+    "arguments": {
+      "postId": "01J00000000000000000000000",
+      "query": "이 주장이 영상에서 언급되나요?",
+      "limit": 5
+    }
+  }
+}
+```
+
+이 envelope은 일반 domain service 호출을 모두 대체하는 구조가 아니다. 일반 제품 흐름은 기존 service를 직접 호출하고, Agent가 tool을 사용할 때만 `McpServerService.handleRequest()`를 통해 MCP boundary를 지난다.
+
+Phase 10 전에 MCP 응답 shape를 공식 MCP tools 구조에 더 가깝게 정렬한다.
+
+- `tools/list` result는 `{ tools: [...] }` 형태로 반환한다.
+- `tools/call` result는 `content`, `structuredContent`, `isError`를 포함한다.
+- protocol 오류는 JSON-RPC error envelope로 반환한다.
+- provider/business failure는 정제된 `isError: true` tool result로 반환한다.
+
+### 3-9. AI Agent 정책
+
+MVP Agent는 게시글 상세 화면의 토론 보조자다.
+
+- Agent는 사용자 대신 게시글이나 댓글을 작성하지 않는다.
+- Agent는 참/거짓 최종 판정자가 아니다.
+- Agent는 게시글 맥락, 영상 처리 상태, 자막 검색 결과를 바탕으로 근거 후보와 한계를 설명한다.
+- Agent run 생성 API는 `POST /api/v1/posts/:postId/agent/runs`로 둔다.
+- 요청 body는 우선 `{ "question": "..." }`로 시작한다.
+- Agent run 조회 API는 `GET /api/v1/agent/runs/:runId`로 둔다.
+- 생성 API는 로그인 사용자와 CSRF를 요구한다.
+- Phase 10 MVP에서 run 조회는 생성자 본인만 허용한다.
+- Agent는 domain service를 직접 호출하지 않고 MCP envelope으로 tool을 호출한다.
+- 자동 Agent loop의 기본 allowlist는 `post.getContext`, `video.getProcessingStatus`, `transcript.searchChunks`, `youtube.fetchMetadata`로 시작한다.
+- `video.retryProcessing`은 별도 확인 UI나 사용자 승인 흐름이 생기기 전까지 자동 Agent loop allowlist에 넣지 않는다.
+- Agent run은 `PENDING`, `RUNNING`, `SUCCESS`, `FAILED` 상태를 가진다.
+- Agent step은 tool call과 tool result를 저장하되 API key, token, cookie, raw provider error, stack trace를 저장하지 않는다.
+- 초기 loop 제한은 `maxSteps=4`, 전체 timeout 30초, tool timeout 10초로 시작한다.
+
+### 3-10. 댓글 스레드 요약 정책
 
 - 댓글 스레드 요약은 자동 생성하지 않는다.
 - 로그인 사용자가 “AI 요약” 버튼을 눌렀을 때만 생성한다.
@@ -206,7 +252,7 @@ POST /api/v1/mcp
 - 댓글 수가 10개 미만이면 요약을 생성하지 않고 “요약할 댓글이 충분하지 않습니다”라고 안내한다.
 - 요약 생성 이후 새 댓글이 추가되면 기존 요약은 유지하되 최신 상태가 아닐 수 있음을 표시한다.
 
-### 3-9. 삭제 정책
+### 3-11. 삭제 정책
 
 - 게시글 삭제는 soft delete를 우선한다.
 - 게시글이 삭제되면 연결된 댓글과 AI 결과는 사용자에게 노출하지 않는다.
@@ -216,7 +262,7 @@ POST /api/v1/mcp
 - 관리자가 삭제한 댓글은 “관리자에 의해 삭제된 댓글입니다”로 표시한다.
 - 회원 탈퇴 시 게시글과 댓글은 유지하고 작성자는 “탈퇴한 회원”으로 표시한다.
 
-### 3-10. 파생 카운터 정책
+### 3-12. 파생 카운터 정책
 
 게시글 목록과 상세 화면에서 반복적으로 필요한 카운터는 `posts` 테이블에 denormalized column으로 둔다.
 
@@ -410,11 +456,12 @@ id: string;
 10. AI 댓글 분석 상태 구현
 11. RAG 근거 후보 구현
 12. MCP Agent Tool Server 구현
-13. AI Agent 추론 루프 구현
-14. Summary 구현
-15. Admin 기능 구현
-16. E2E 테스트 정리
-17. README / 실행 문서 정리
+13. MCP Protocol Alignment
+14. AI Agent 추론 루프 구현
+15. Summary 구현
+16. Admin 기능 구현
+17. E2E 테스트 정리
+18. README / 실행 문서 정리
 
 ---
 
@@ -433,6 +480,7 @@ id: string;
 → AI 분석 상태
 → RAG 근거 후보
 → MCP Agent Tool Server
+→ MCP Protocol Alignment
 → AI Agent 추론 루프
 → 요약
 → 관리자 기능

@@ -19,6 +19,7 @@ Arena는 처음부터 AI 기능을 구현하려고 하면 복잡해진다. 따�
 → AI 댓글 분석
 → RAG 근거 후보
 → MCP Agent Tool Server
+→ MCP Protocol Alignment
 → AI Agent 추론 루프
 → 댓글 스레드 요약
 → 관리자 기능
@@ -41,6 +42,7 @@ RAG
 MCP
 → Agent가 호출할 수 있는 tool server로 제공
 → 최소 1개 이상의 실제 외부 서비스는 YouTube Data API 기반 metadata tool로 충족
+→ Phase 10 전에는 MCP tools 응답 shape를 공식 구조에 더 가깝게 정렬
 
 AI Agent
 → LLM이 MCP tool을 선택하고 실행하는 제한된 추론 루프 구현
@@ -499,6 +501,8 @@ Phase 6 provider adapter를 McpModule로 옮기지 않는다. 기존 제품 흐�
 
 ## Phase 10. AI Agent 추론 루프 구현
 
+> 권장 선행 작업: Phase 9.5 `MCP Protocol Alignment`
+
 ### 목표
 
 LLM이 MCP tool을 선택하고 실행하는 제한된 Agent를 구현한다.
@@ -536,12 +540,22 @@ GET  /api/v1/agent/runs/:runId
 
 처음에는 LangGraph 같은 무거운 프레임워크를 바로 도입하지 않고, `plan -> tool call -> observe -> answer` 형태의 작은 상태 머신으로 시작한다. 상태 머신으로 한계가 보이면 LangGraph 또는 유사 구조로 교체한다.
 
+Agent는 domain service를 직접 호출하지 않고, `McpServerService.handleRequest()`에 JSON-RPC envelope을 넘겨 tool을 호출한다. HTTP self-call은 하지 않는다. 내부 메서드 호출이어도 JSON-RPC envelope, tool registry, argument validation, 권한 context, error sanitation 경계를 통과하므로 MCP 검증 목적을 충족한다.
+
+Phase 10 MVP Agent는 게시글 상세 화면의 토론 보조자다. 요청 body는 우선 `{ "question": "..." }`로 시작하고, 생성 API는 `202 Accepted`와 `runId/status`를 반환한다. 결과는 `GET /api/v1/agent/runs/:runId`에서 `answer`, `usedTools`, `evidenceCandidates`, `limitations`와 함께 조회한다.
+
 ### 유의사항
 
 - Agent가 사용자 대신 게시글, 댓글, 삭제 같은 write action을 자동 수행하지 않도록 한다.
-- write tool 실행은 명시적 사용자 요청과 권한 확인이 있을 때만 허용한다.
+- Phase 10 자동 loop의 기본 allowlist는 `post.getContext`, `video.getProcessingStatus`, `transcript.searchChunks`, `youtube.fetchMetadata`로 시작한다.
+- `video.retryProcessing` 같은 write tool 실행은 명시적 사용자 요청, 권한 확인, 사용자 승인 UI가 준비된 뒤에 허용한다.
 - Agent memory에는 API key나 refresh token 같은 credential을 저장하지 않는다.
 - Agent 답변은 RAG 근거 후보를 인용할 수 있지만, AI가 사실 판정자처럼 보이면 안 된다.
+
+### 상세 문서
+
+- `phase9_5_mcp_protocol_alignment.md`
+- `phase10_ai_agent_loop_plan.md`
 
 ---
 
