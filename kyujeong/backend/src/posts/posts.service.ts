@@ -18,7 +18,8 @@ export class PostsService {
     const pageSize = Math.max(size, 1);
     const keyword = search?.trim();
     const tagName = tag?.trim();
-    const where: Prisma.PostWhereInput | undefined = keyword || tagName
+    const where: Prisma.PostWhereInput | undefined =
+      keyword || tagName
         ? {
             ...(keyword
               ? {

@@ -43,7 +43,9 @@ export class EmbeddingService {
       return 0;
     }
 
-    return dotProduct / (Math.sqrt(firstMagnitude) * Math.sqrt(secondMagnitude));
+    return (
+      dotProduct / (Math.sqrt(firstMagnitude) * Math.sqrt(secondMagnitude))
+    );
   }
 
   private async createOpenAiEmbedding(text: string, openAiApiKey: string) {

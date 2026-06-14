@@ -115,7 +115,9 @@ describe('CommentsService', () => {
     };
 
     jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({ id: 1 });
-    jest.spyOn(prismaService.comment, 'create').mockResolvedValue(createdComment);
+    jest
+      .spyOn(prismaService.comment, 'create')
+      .mockResolvedValue(createdComment);
 
     await expect(service.create(1, createCommentDto, 2)).resolves.toBe(
       createdComment,
