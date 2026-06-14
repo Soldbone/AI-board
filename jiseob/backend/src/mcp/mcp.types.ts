@@ -1,6 +1,7 @@
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
-export type JsonRpcId = string | number | null;
+export type JsonRpcId = string | number;
+export type JsonRpcErrorId = JsonRpcId | null;
 
 export type JsonRpcSuccessResponse = {
   jsonrpc: '2.0';
@@ -10,7 +11,7 @@ export type JsonRpcSuccessResponse = {
 
 export type JsonRpcErrorResponse = {
   jsonrpc: '2.0';
-  id: JsonRpcId;
+  id: JsonRpcErrorId;
   error: {
     code: number;
     message: string;
@@ -36,10 +37,41 @@ export type JsonSchemaObject = {
 
 export type McpToolDefinition = {
   name: string;
+  title?: string;
   description: string;
   inputSchema: JsonSchemaObject;
   outputSchema?: JsonSchemaObject;
   readOnly: boolean;
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+};
+
+export type McpToolListDefinition = McpToolDefinition & {
+  annotations: {
+    readOnlyHint: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+};
+
+export type McpToolsListResult = {
+  tools: McpToolListDefinition[];
+};
+
+export type McpTextContent = {
+  type: 'text';
+  text: string;
+};
+
+export type McpToolCallResult = {
+  content: McpTextContent[];
+  structuredContent: unknown;
+  isError: boolean;
 };
 
 export interface McpTool {

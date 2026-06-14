@@ -7,6 +7,11 @@ export const JSON_RPC_INVALID_PARAMS = -32602;
 export const JSON_RPC_INTERNAL_ERROR = -32603;
 export const JSON_RPC_TOOL_ERROR = -32000;
 
+export type McpToolErrorContent = {
+  errorCode: string;
+  errorMessage: string;
+};
+
 export class McpInvalidParamsError extends Error {
   readonly errorCode = 'INVALID_TOOL_ARGUMENTS';
 
@@ -24,46 +29,25 @@ export class McpToolError extends Error {
   }
 }
 
-export const toJsonRpcToolError = (
-  error: unknown,
-): {
-  code: number;
-  message: string;
-  data?: {
-    errorCode: string;
-    errorMessage: string;
-  };
-} => {
+export const toMcpToolErrorContent = (error: unknown): McpToolErrorContent => {
   if (error instanceof McpInvalidParamsError) {
     return {
-      code: JSON_RPC_INVALID_PARAMS,
-      message: 'Invalid params',
-      data: {
-        errorCode: error.errorCode,
-        errorMessage: error.message,
-      },
+      errorCode: error.errorCode,
+      errorMessage: error.message,
     };
   }
 
   if (error instanceof McpToolError) {
     return {
-      code: JSON_RPC_TOOL_ERROR,
-      message: error.userMessage,
-      data: {
-        errorCode: error.errorCode,
-        errorMessage: error.userMessage,
-      },
+      errorCode: error.errorCode,
+      errorMessage: error.userMessage,
     };
   }
 
   if (error instanceof ProviderError) {
     return {
-      code: JSON_RPC_TOOL_ERROR,
-      message: error.userMessage,
-      data: {
-        errorCode: error.code,
-        errorMessage: error.userMessage,
-      },
+      errorCode: error.code,
+      errorMessage: error.userMessage,
     };
   }
 
@@ -71,22 +55,14 @@ export const toJsonRpcToolError = (
     const errorMessage = getHttpExceptionMessage(error);
 
     return {
-      code: JSON_RPC_TOOL_ERROR,
-      message: errorMessage,
-      data: {
-        errorCode: getHttpErrorCode(error.getStatus()),
-        errorMessage,
-      },
+      errorCode: getHttpErrorCode(error.getStatus()),
+      errorMessage,
     };
   }
 
   return {
-    code: JSON_RPC_INTERNAL_ERROR,
-    message: 'Internal error',
-    data: {
-      errorCode: 'INTERNAL_ERROR',
-      errorMessage: '도구 실행 중 오류가 발생했습니다.',
-    },
+    errorCode: 'INTERNAL_ERROR',
+    errorMessage: '도구 실행 중 오류가 발생했습니다.',
   };
 };
 

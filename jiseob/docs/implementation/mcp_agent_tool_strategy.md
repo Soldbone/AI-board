@@ -217,6 +217,6 @@ Phase 12: 관리자 기능
 
 MCP와 Agent는 RAG 이후에 붙인다. Agent가 의미 있는 tool 선택을 하려면 게시글 context, 영상 처리 상태, transcript chunk, RAG 검색 기반이 먼저 필요하기 때문이다.
 
-Phase 9.5에서는 현재 구현된 MCP endpoint의 응답 shape를 공식 MCP tools 구조에 더 가깝게 맞춘다. `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함하는 tool result를 반환한다. 자세한 구현 계획은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
+Phase 9.5에서 MCP endpoint의 응답 shape를 공식 MCP tools 구조에 더 가깝게 맞췄다. `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함하는 tool result를 반환한다. 자세한 구현 내용은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
 
 Phase 10에서는 Agent run 생성/조회 API, AgentRun/AgentStep 저장, LLM function calling, MCP tool caller, max step/timeout/retry guard를 구현한다. 자세한 구현 계획은 `phase10_ai_agent_loop_plan.md`를 따른다.

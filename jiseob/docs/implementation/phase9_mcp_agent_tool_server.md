@@ -59,7 +59,7 @@ POST /api/v1/mcp
 - `tools/list`: 등록된 tool 목록과 input/output schema를 반환한다.
 - `tools/call`: tool name과 arguments로 allowlist에 등록된 tool만 실행한다.
 
-프로토콜 오류와 tool 실행 오류는 JSON-RPC error envelope로 반환한다. provider raw error, stack trace, API key, token, cookie 값은 응답에 포함하지 않는다.
+Phase 9 구현 시점에는 프로토콜 오류와 tool 실행 오류를 모두 JSON-RPC error envelope로 반환했다. Phase 9.5 이후에는 malformed request, unknown method, unknown tool처럼 protocol 자체가 잘못된 경우만 JSON-RPC error를 사용하고, provider 실패나 권한 실패처럼 선택된 tool 실행 중 발생한 실패는 `result.isError=true` tool result로 반환한다. provider raw error, stack trace, API key, token, cookie 값은 응답에 포함하지 않는다.
 
 ---
 
@@ -178,6 +178,14 @@ Phase 9.5에서 이어받을 핵심:
 - request id는 string 또는 number만 허용하도록 정리한다.
 
 세부 계획은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
+
+Phase 9.5 구현 이후 변경된 핵심:
+
+- `tools/list`는 `{ tools: [...] }` 형태로 반환한다.
+- `tools/call` 성공 결과는 `content`, `structuredContent`, `isError: false`를 포함한다.
+- 선택된 tool 실행 실패는 JSON-RPC error가 아니라 `isError: true` tool result로 반환한다.
+- request id는 string 또는 number만 허용한다.
+- tool list 응답에는 `annotations.readOnlyHint`를 포함한다.
 
 Phase 10에서 이어받을 핵심:
 

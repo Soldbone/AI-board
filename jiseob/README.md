@@ -2,6 +2,8 @@
 
 AI 기반 유튜브 이슈 토론 게시판 MVP입니다.
 
+현재 백엔드는 Phase 9.5까지 구현되어 있습니다. 게시글/댓글/영상 처리/RAG 근거 후보/MCP Agent Tool Server가 준비되어 있고, 다음 단계는 Phase 10 AI Agent 추론 루프입니다.
+
 ## 기술 스택
 
 - 런타임: Node.js 24.16.0
@@ -24,6 +26,17 @@ jiseob/
 ```
 
 shadcn/ui 컴포넌트는 `frontend/src/components/ui`에 둡니다. 별도 UI 패키지로 분리하지 않고 프론트엔드가 직접 소유합니다.
+
+## 현재 구현 상태
+
+- Phase 1~5: 백엔드 초기 설정, 공통 기반, 인증/CSRF, 게시글/태그/영상 기본 API, 댓글/대댓글 API
+- Phase 6: YouTube metadata, transcript CLI, OpenAI embedding 기반 영상 처리와 retry 정책
+- Phase 7: 댓글 작성/수정 후 AI 댓글 유형 분석과 moderation 상태 흐름
+- Phase 8: FACT_CLAIM 댓글에 대한 pgvector 기반 RAG 근거 후보 검색 API
+- Phase 9: Agent가 호출할 MCP JSON-RPC tool server
+- Phase 9.5: MCP `tools/list`, `tools/call` 응답 shape를 `content`, `structuredContent`, `isError` 구조로 정렬
+
+Phase 10 구현자는 `AGENTS.md`와 `docs/implementation/phase10_ai_agent_loop_plan.md`의 구현 하네스를 먼저 읽으면 됩니다.
 
 ## 로컬 개발환경 요구사항
 
@@ -85,6 +98,8 @@ YOUTUBE_API_KEY=
 OPENAI_API_KEY=
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSION=1536
+COMMENT_ANALYSIS_MODEL=gpt-4.1-mini
+COMMENT_ANALYSIS_TIMEOUT_MS=8000
 
 YOUTUBE_TRANSCRIPT_COMMAND=youtube_transcript_api
 TRANSCRIPT_LANGUAGES=ko,en
@@ -92,9 +107,9 @@ TRANSCRIPT_CHUNK_SIZE=1000
 TRANSCRIPT_CHUNK_OVERLAP=200
 ```
 
-`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 Phase 1 health check에는 필요하지 않고, 영상 처리나 AI 기능을 붙일 때 설정하면 됩니다.
+`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 health check에는 필요하지 않지만 영상 metadata, embedding, 댓글 분석, RAG, MCP tool smoke test에는 필요합니다.
 
-Phase 6 영상 처리에서는 `youtube-transcript-api` Python CLI를 transcript provider로 사용할 계획입니다. 로컬에서 직접 backend를 실행한다면 Python 환경에 CLI를 설치해야 하고, Docker 실행 환경에서는 backend 이미지에 Python과 `youtube-transcript-api`를 설치해 컨테이너 안에서 `youtube_transcript_api` 명령을 실행할 수 있게 합니다.
+영상 처리에서는 `youtube-transcript-api` Python CLI를 transcript provider로 사용합니다. 로컬에서 직접 backend를 실행한다면 Python 환경에 CLI를 설치해야 하고, Docker 실행 환경에서는 backend 이미지에 Python과 `youtube-transcript-api`를 설치해 컨테이너 안에서 `youtube_transcript_api` 명령을 실행할 수 있게 합니다.
 
 ## 초기 설정
 
@@ -183,19 +198,44 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ```powershell
 pnpm.cmd typecheck
+pnpm.cmd --filter @arena/backend test --runInBand
 pnpm.cmd lint
 pnpm.cmd format:check
 ```
 
+## MCP Agent Tool Server
+
+MCP endpoint는 일반 사용자 공개 REST API가 아니라 AI Agent가 호출할 tool boundary입니다.
+
+```http
+POST /api/v1/mcp
+Authorization: Bearer <accessToken>
+```
+
+지원 method:
+
+- `tools/list`
+- `tools/call`
+
+등록된 tool:
+
+- `post.getContext`
+- `video.getProcessingStatus`
+- `video.retryProcessing`
+- `transcript.searchChunks`
+- `youtube.fetchMetadata`
+
+Phase 9.5 이후 `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함한 MCP tool result를 반환합니다. malformed request, unknown method, unknown tool 같은 protocol 오류만 JSON-RPC error envelope로 반환하고, provider/business failure는 정제된 `isError: true` tool result로 반환합니다.
+
 ## 다음 구현 순서
 
-`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 5까지 완료되었고, 다음 단계는 Phase 6 영상 메타데이터 / 자막 / 임베딩 처리입니다.
+`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 9 MCP Agent Tool Server까지 구현되었고, Phase 9.5 MCP Protocol Alignment까지 진행했습니다.
 
-1. Phase 5 브랜치 push 및 Phase 6 작업 브랜치 생성
-2. backend Docker 구성에 Python과 `youtube-transcript-api` CLI 설치 추가
-3. YouTube Data API v3 metadata adapter 구현
-4. `youtube-transcript-api` CLI transcript adapter 구현
-5. TranscriptChunk / pgvector migration 추가
-6. OpenAI embeddings adapter 구현
-7. 게시글 작성 직후 video processing 자동 트리거 연결
-8. 영상 처리 retry API와 실패 상태 문서화
+다음 단계는 Phase 10 AI Agent 추론 루프 구현입니다.
+
+1. Agent enum과 `AgentRun` / `AgentStep` entity migration 추가
+2. `AgentModule`, Agent run 생성/조회 API 구현
+3. `McpServerService.handleRequest()` 기반 내부 MCP caller 작성
+4. LLM function calling adapter와 작은 `plan -> tool call -> observe -> final` loop 구현
+5. max step, timeout, 반복 tool call 방지, 실패 정제 정책 추가
+6. Agent 답변의 근거 후보와 한계 표현 테스트/문서화

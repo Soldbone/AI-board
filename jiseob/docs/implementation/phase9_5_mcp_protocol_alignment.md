@@ -1,7 +1,7 @@
-# Phase 9.5. MCP Protocol Alignment 계획
+# Phase 9.5. MCP Protocol Alignment 구현 정리
 
 > 기준 브랜치: `feature/jiseob/phase9-mcp-agent-tool-server`  
-> 목표: Phase 10 Agent 구현 전에 현재 MCP JSON-RPC tool boundary를 공식 MCP tools 응답 형태에 더 가깝게 정렬한다.
+> 목표: Phase 10 Agent 구현 전에 MCP JSON-RPC tool boundary를 공식 MCP tools 응답 형태에 더 가깝게 정렬한다.
 
 ---
 
@@ -55,9 +55,9 @@ MCP JSON-RPC envelope 호출:
 
 ---
 
-## 3. 현재 구현 상태
+## 3. Phase 9 기준 구현 상태
 
-현재 구현:
+Phase 9 구현:
 
 ```text
 POST /api/v1/mcp
@@ -68,7 +68,7 @@ POST /api/v1/mcp
 → 기존 domain service/provider/pgvector query
 ```
 
-현재 `tools/list` 응답:
+Phase 9의 `tools/list` 응답:
 
 ```json
 {
@@ -85,7 +85,7 @@ POST /api/v1/mcp
 }
 ```
 
-현재 `tools/call` 성공 응답:
+Phase 9의 `tools/call` 성공 응답:
 
 ```json
 {
@@ -98,7 +98,7 @@ POST /api/v1/mcp
 }
 ```
 
-현재 한계:
+Phase 9 기준 한계:
 
 - `tools/list` result가 `{ "tools": [...] }`가 아니라 배열을 직접 반환한다.
 - `tools/call` result가 MCP tool result wrapper 없이 raw object를 직접 반환한다.
@@ -109,7 +109,7 @@ POST /api/v1/mcp
 
 ## 4. 목표 응답 Shape
 
-공식 MCP tools 문서 기준으로 Phase 9.5에서는 다음 형태를 목표로 한다.
+공식 MCP tools 문서 기준으로 Phase 9.5 구현 결과는 다음 형태다.
 
 ### `tools/list`
 
@@ -193,10 +193,11 @@ unknown method, malformed JSON-RPC request, unknown tool name처럼 protocol 자
 
 ---
 
-## 5. 구현 작업 목록
+## 5. 구현 내용
 
 1. `mcp.types.ts`
    - `JsonRpcId`를 `string | number`로 좁힌다.
+   - JSON-RPC error 응답 id에는 `null`을 허용하는 별도 타입을 둔다.
    - `McpToolsListResult`를 추가한다.
    - `McpTextContent`, `McpToolCallResult`를 추가한다.
    - `McpToolDefinition`에는 `title`, `annotations`를 optional로 둘 수 있다.
@@ -207,20 +208,19 @@ unknown method, malformed JSON-RPC request, unknown tool name처럼 protocol 자
    - tool 실행 실패를 JSON-RPC error 대신 `isError: true` tool result로 반환한다.
    - request id가 없거나 `null`이면 invalid request로 처리한다.
    - notification은 Phase 9.5 범위에서 지원하지 않는다.
+   - tool list 응답에는 `annotations.readOnlyHint`를 포함한다.
 
 3. `mcp-server.service.spec.ts`
    - `tools/list` shape 변경 테스트를 수정한다.
    - `tools/call` 성공 shape 변경 테스트를 수정한다.
    - provider failure가 `result.isError=true`로 반환되고 raw stack이 노출되지 않는지 확인한다.
    - `id=null` 또는 id 누락 요청의 처리 정책을 테스트한다.
+   - 선택된 tool의 argument validation 실패가 `isError=true`로 반환되는지 확인한다.
 
 4. HTTP endpoint 검증
-   - 가능하면 `POST /api/v1/mcp`에 대한 controller 수준 테스트를 추가한다.
-   - 최소 검증 대상:
-     - Bearer JWT 없으면 401
-     - `tools/list` 성공
-     - `tools/call` 성공
-     - raw provider error 미노출
+   - `POST /api/v1/mcp`에 대한 controller 수준 테스트를 추가한다.
+   - Bearer JWT 없으면 401을 반환한다.
+   - 인증 context에서 `tools/list`, `tools/call` 성공 shape를 검증한다.
 
 5. 문서 갱신
    - `phase9_mcp_agent_tool_server.md`
@@ -256,7 +256,7 @@ HTTP self-call은 하지 않는다. 같은 서버 안에서 자기 자신에게 
 
 ---
 
-## 7. 검증 기준
+## 7. 완료 기준
 
 Phase 9.5 완료 기준:
 
@@ -288,5 +288,5 @@ Arena MVP에서는 우선 tools 기능을 Agent boundary로 안정화하고, lif
 
 ## 9. 참고 문서
 
-- MCP Base Protocol 2025-06-18: `https://modelcontextprotocol.io/specification/2025-06-18/basic`
-- MCP Tools 2025-06-18: `https://modelcontextprotocol.io/specification/2025-06-18/server/tools`
+- MCP Base Protocol 2025-11-25: `https://modelcontextprotocol.io/specification/2025-11-25/basic`
+- MCP Tools 2025-11-25: `https://modelcontextprotocol.io/specification/2025-11-25/server/tools`

@@ -3,15 +3,20 @@ import {
   JSON_RPC_INVALID_PARAMS,
   JSON_RPC_INVALID_REQUEST,
   JSON_RPC_METHOD_NOT_FOUND,
-  toJsonRpcToolError,
+  McpToolErrorContent,
+  toMcpToolErrorContent,
 } from './mcp.errors';
 import {
+  JsonRpcErrorId,
   JsonRpcId,
   JsonRpcResponse,
   MCP_TOOLS,
+  McpToolCallResult,
   McpTool,
   McpToolContext,
   McpToolDefinition,
+  McpToolListDefinition,
+  McpToolsListResult,
 } from './mcp.types';
 
 type JsonRpcRequestRecord = {
@@ -40,6 +45,13 @@ export class McpServerService {
     const request = body as JsonRpcRequestRecord;
     const id = this.extractId(request.id);
 
+    if (id === null) {
+      return this.error(null, JSON_RPC_INVALID_REQUEST, 'Invalid Request', {
+        errorCode: 'INVALID_JSON_RPC_ID',
+        errorMessage: 'JSON-RPC id는 string 또는 number여야 합니다.',
+      });
+    }
+
     if (request.jsonrpc !== '2.0' || typeof request.method !== 'string') {
       return this.error(id, JSON_RPC_INVALID_REQUEST, 'Invalid Request', {
         errorCode: 'INVALID_JSON_RPC_REQUEST',
@@ -60,8 +72,10 @@ export class McpServerService {
     }
   }
 
-  listTools(): McpToolDefinition[] {
-    return [...this.toolsByName.values()].map((tool) => tool.definition);
+  listTools(): McpToolsListResult {
+    return {
+      tools: this.getToolDefinitions().map((tool) => this.toListToolDefinition(tool)),
+    };
   }
 
   private async callTool(
@@ -98,11 +112,9 @@ export class McpServerService {
     try {
       const result = await tool.execute(toolArguments, context);
 
-      return this.success(id, result);
+      return this.success(id, this.wrapToolResult(result));
     } catch (error) {
-      const jsonRpcError = toJsonRpcToolError(error);
-
-      return this.error(id, jsonRpcError.code, jsonRpcError.message, jsonRpcError.data);
+      return this.success(id, this.wrapToolErrorResult(toMcpToolErrorContent(error)));
     }
   }
 
@@ -115,7 +127,7 @@ export class McpServerService {
   }
 
   private error(
-    id: JsonRpcId,
+    id: JsonRpcErrorId,
     code: number,
     message: string,
     data?: {
@@ -134,8 +146,73 @@ export class McpServerService {
     };
   }
 
-  private extractId(id: unknown): JsonRpcId {
-    return typeof id === 'string' || typeof id === 'number' || id === null ? id : null;
+  private wrapToolResult(structuredContent: unknown): McpToolCallResult {
+    const text = this.stringifyStructuredContent(structuredContent);
+
+    if (text === null) {
+      return this.wrapToolErrorResult({
+        errorCode: 'TOOL_RESULT_SERIALIZATION_FAILED',
+        errorMessage: '도구 실행 결과를 직렬화하지 못했습니다.',
+      });
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text,
+        },
+      ],
+      structuredContent,
+      isError: false,
+    };
+  }
+
+  private wrapToolErrorResult(errorContent: McpToolErrorContent): McpToolCallResult {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: errorContent.errorMessage,
+        },
+      ],
+      structuredContent: errorContent,
+      isError: true,
+    };
+  }
+
+  private stringifyStructuredContent(structuredContent: unknown): string | null {
+    try {
+      return JSON.stringify(structuredContent) ?? 'null';
+    } catch {
+      return null;
+    }
+  }
+
+  private toListToolDefinition(tool: McpToolDefinition): McpToolListDefinition {
+    return {
+      ...tool,
+      annotations: {
+        ...tool.annotations,
+        readOnlyHint: tool.annotations?.readOnlyHint ?? tool.readOnly,
+      },
+    };
+  }
+
+  private getToolDefinitions(): McpToolDefinition[] {
+    return [...this.toolsByName.values()].map((tool) => tool.definition);
+  }
+
+  private extractId(id: unknown): JsonRpcId | null {
+    if (typeof id === 'string') {
+      return id;
+    }
+
+    if (typeof id === 'number' && Number.isFinite(id)) {
+      return id;
+    }
+
+    return null;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

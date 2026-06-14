@@ -216,7 +216,7 @@ Agent가 MCP tool을 호출할 때는 JSON-RPC envelope을 사용한다.
 
 이 envelope은 일반 domain service 호출을 모두 대체하는 구조가 아니다. 일반 제품 흐름은 기존 service를 직접 호출하고, Agent가 tool을 사용할 때만 `McpServerService.handleRequest()`를 통해 MCP boundary를 지난다.
 
-Phase 10 전에 MCP 응답 shape를 공식 MCP tools 구조에 더 가깝게 정렬한다.
+Phase 9.5 이후 MCP 응답 shape는 공식 MCP tools 구조에 더 가깝게 정렬되어 있다.
 
 - `tools/list` result는 `{ tools: [...] }` 형태로 반환한다.
 - `tools/call` result는 `content`, `structuredContent`, `isError`를 포함한다.
@@ -227,6 +227,7 @@ Phase 10 전에 MCP 응답 shape를 공식 MCP tools 구조에 더 가깝게 정
 
 MVP Agent는 게시글 상세 화면의 토론 보조자다.
 
+- Phase 10 구현자는 `docs/implementation/phase10_ai_agent_loop_plan.md`의 구현 하네스를 기준으로 작업한다.
 - Agent는 사용자 대신 게시글이나 댓글을 작성하지 않는다.
 - Agent는 참/거짓 최종 판정자가 아니다.
 - Agent는 게시글 맥락, 영상 처리 상태, 자막 검색 결과를 바탕으로 근거 후보와 한계를 설명한다.
