@@ -33,6 +33,7 @@ describe('VideoProcessingService', () => {
     transcriptProvider?: unknown;
     embeddingProvider?: unknown;
     transcriptChunkingService?: unknown;
+    ragService?: unknown;
     videosRepository?: unknown;
     transcriptChunksRepository?: unknown;
     postsRepository?: unknown;
@@ -43,6 +44,11 @@ describe('VideoProcessingService', () => {
       (overrides.transcriptProvider ?? {}) as never,
       (overrides.embeddingProvider ?? {}) as never,
       (overrides.transcriptChunkingService ?? {}) as never,
+      (overrides.ragService ?? {
+        resetForVideo: jest.fn(),
+        failForVideo: jest.fn(),
+        enqueuePendingForVideo: jest.fn(),
+      }) as never,
       (overrides.videosRepository ?? {}) as never,
       (overrides.transcriptChunksRepository ?? {}) as never,
       (overrides.postsRepository ?? {}) as never,
@@ -127,6 +133,11 @@ describe('VideoProcessingService', () => {
       },
       transcriptChunkingService: {
         createChunks: jest.fn(),
+      },
+      ragService: {
+        resetForVideo: jest.fn(),
+        failForVideo: jest.fn(),
+        enqueuePendingForVideo: jest.fn(),
       },
       videosRepository: videoRepository,
       transcriptChunksRepository: {

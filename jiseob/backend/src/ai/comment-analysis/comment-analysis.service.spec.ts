@@ -6,6 +6,7 @@ import { ModerationStatus } from '../../common/enums/comment-status.enum';
 import { CommentAnalyzerError } from './comment-analyzer.provider';
 import { CommentAnalysisService } from './comment-analysis.service';
 import { CommentAnalysis } from './entities/comment-analysis.entity';
+import { RagEvidence } from '../rag/entities/rag-evidence.entity';
 
 describe('CommentAnalysisService', () => {
   const comment = {
@@ -18,12 +19,14 @@ describe('CommentAnalysisService', () => {
   const createService = (overrides: {
     dataSource?: unknown;
     analyzerProvider?: unknown;
+    ragService?: unknown;
     analysesRepository?: unknown;
     commentsRepository?: unknown;
   }) =>
     new CommentAnalysisService(
       (overrides.dataSource ?? {}) as never,
       (overrides.analyzerProvider ?? {}) as never,
+      (overrides.ragService ?? { enqueueForComment: jest.fn() }) as never,
       (overrides.analysesRepository ?? {}) as never,
       (overrides.commentsRepository ?? {}) as never,
     );
@@ -63,6 +66,9 @@ describe('CommentAnalysisService', () => {
       commentsRepository: {
         findOne: jest.fn().mockResolvedValue(comment),
       },
+      ragService: {
+        enqueueForComment: jest.fn(),
+      },
       analysesRepository: {
         update: jest.fn(),
       },
@@ -83,6 +89,84 @@ describe('CommentAnalysisService', () => {
         evidenceCount: 0,
       }),
     ]);
+  });
+
+  it('clears existing RAG evidence when preparing a pending analysis', async () => {
+    const evidenceRepository = {
+      delete: jest.fn(),
+    };
+    const analysisRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: '01J00000000000000000000009',
+        commentId: comment.id,
+      }),
+      update: jest.fn(),
+      manager: {
+        getRepository: jest.fn((entity: typeof RagEvidence) => {
+          if (entity === RagEvidence) {
+            return evidenceRepository;
+          }
+
+          return {};
+        }),
+      },
+    };
+    const service = createService({
+      analysesRepository: analysisRepository,
+    });
+
+    await service.preparePendingAnalysis(comment.id);
+
+    expect(evidenceRepository.delete).toHaveBeenCalledWith({ commentId: comment.id });
+    expect(analysisRepository.update).toHaveBeenCalledWith(
+      '01J00000000000000000000009',
+      expect.objectContaining({
+        ragStatus: RagStatus.NOT_REQUIRED,
+        evidenceCount: 0,
+        ragErrorCode: null,
+        ragErrorMessage: null,
+      }),
+    );
+  });
+
+  it('enqueues RAG after fact claim analysis succeeds', async () => {
+    const ragService = {
+      enqueueForComment: jest.fn(),
+    };
+    const manager = {
+      getRepository: jest.fn((entity: typeof Comment | typeof CommentAnalysis) => {
+        if (entity === Comment) {
+          return {
+            update: jest.fn(),
+          };
+        }
+
+        return {
+          update: jest.fn(),
+        };
+      }),
+    } as unknown as EntityManager;
+    const service = createService({
+      dataSource: {
+        transaction: jest.fn(async (callback: (manager: EntityManager) => Promise<void>) =>
+          callback(manager),
+        ),
+      },
+      analyzerProvider: {
+        analyze: jest.fn().mockResolvedValue({
+          commentType: CommentType.FACT_CLAIM,
+          moderationStatus: ModerationStatus.NORMAL,
+        }),
+      },
+      commentsRepository: {
+        findOne: jest.fn().mockResolvedValue(comment),
+      },
+      ragService,
+    });
+
+    await service.analyzeComment(comment.id);
+
+    expect(ragService.enqueueForComment).toHaveBeenCalledWith(comment.id);
   });
 
   it('marks toxic comments as needs review without deleting them', async () => {
