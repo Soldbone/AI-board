@@ -893,3 +893,380 @@ GET /api/v1/posts/10/similar-posts?limit=3
 - figure metadata match와 vector score를 섞은 reranking을 추가한다.
 - 사용자가 보고 있는 게시글의 이미지, 태그, 만족도까지 더 정교하게 반영한다.
 - Phase 4에서 질문 참고 답변 생성으로 넘어간다.
+
+---
+
+## 18. Phase 4 구현 요약
+
+AI Phase 4에서는 질문 게시판 글에서 과거 질문/댓글 근거를 찾아 AI 참고 답변을 생성하는 기능을 구현했다.
+
+추가된 API는 다음과 같다.
+
+```text
+POST /api/v1/posts/{post_id}/ai/reference-answer
+GET /api/v1/ai/outputs/{ai_output_id}
+```
+
+사용 흐름은 다음과 같다.
+
+```text
+질문 게시글 상세 화면
+-> 사용자가 AI Reference Answer 생성 요청
+-> AiOutput을 REQUESTED 상태로 먼저 저장
+-> 백그라운드 작업에서 PROCESSING 상태로 변경
+-> QUESTION 게시글/댓글 chunk 검색
+-> 검색된 context를 prompt에 넣어 LLM 호출
+-> 답변과 source를 AiOutput / AiOutputSource에 저장
+-> 프론트가 GET /ai/outputs/{id}로 polling
+-> GENERATED 또는 FAILED 결과를 화면에 표시
+```
+
+이 Phase에서 중요한 점은 AI 답변을 댓글로 저장하지 않는다는 것이다.
+사용자가 직접 작성한 댓글과 AI 생성 결과를 DB에서도 분리하기 위해 `AiOutput`에 결과를 저장하고, 참고 근거는 `AiOutputSource`에 따로 저장한다.
+
+근거가 없거나 생성에 실패하면 다음 fallback을 저장하거나 반환한다.
+
+```json
+{
+  "answer": "관련 게시글이나 댓글 근거가 부족해 답변을 생성할 수 없습니다.",
+  "sources": []
+}
+```
+
+## 19. Phase 4 수정 파일별 설명
+
+### `backend/app/ai/rag/retriever.py`
+
+`RetrievedChunk`와 `retrieve_question_reference_chunks`를 추가했다.
+
+질문 참고 답변은 새 질문과 비슷한 과거 `QUESTION` 게시글과 그 댓글을 찾아야 한다.
+그래서 검색 조건을 `board_code=QUESTION`, `source_types=[POST, COMMENT]`로 제한했다.
+현재 질문 글 자체는 근거로 쓰면 안 되기 때문에 `exclude_post_id`로 제외한다.
+
+### `backend/app/ai/llm/llm_client.py`
+
+LangChain의 `ChatOpenAI` 초기화를 감춘 작은 client를 만들었다.
+
+route나 service가 직접 `ChatOpenAI`를 알게 되면 나중에 모델 교체, 테스트 double, 에러 처리가 어려워진다.
+그래서 `get_chat_client().invoke(messages)` 형태로만 LLM을 호출하게 만들었다.
+`OPENAI_API_KEY`와 `OPENAI_CHAT_MODEL`은 `settings`에서 읽는다.
+
+### `backend/app/ai/llm/prompts.py`
+
+질문 참고 답변용 system prompt와 user prompt template을 분리했다.
+
+프롬프트에는 다음 내용이 들어간다.
+
+- 현재 질문 제목과 본문
+- retriever가 찾은 과거 질문/댓글 context
+- 근거가 부족하면 추측하지 말라는 지시
+- 한국어로 간결하게 답하라는 지시
+
+### `backend/app/ai/rag/rag_chain.py`
+
+retriever 결과를 prompt context로 포맷하고 LLM을 호출하는 chain 역할을 담당한다.
+
+이번 구현은 복잡한 LCEL 체인을 만들기보다 초보자가 흐름을 읽기 쉽도록 다음 단계를 함수 안에 명시했다.
+
+```text
+RetrievedChunk 목록
+-> context 문자열 생성
+-> ChatPrompt 메시지 구성
+-> ChatOpenAI 호출
+-> RagAnswer 반환
+```
+
+### `backend/app/ai/usecases/question_reference_answer.py`
+
+질문 참고 답변 usecase를 구현했다.
+
+역할은 다음과 같다.
+
+- 질문 글과 비슷한 chunk 검색
+- 검색 결과가 없으면 `NO_EVIDENCE` fallback 저장
+- 검색 결과가 있으면 RAG chain 호출
+- 답변을 `AiOutput`에 저장
+- 참고한 chunk를 `AiOutputSource`로 저장
+- 검색 개수에 따라 `GROUNDED` 또는 `PARTIALLY_GROUNDED` 상태 결정
+
+### `backend/app/services/ai_service.py`
+
+route와 usecase 사이의 service 계층이다.
+
+여기서는 다음 검증과 조율을 담당한다.
+
+- 게시글 존재 여부 확인
+- `QUESTION` 게시판인지 확인
+- 본문이 비어 있지 않은지 확인
+- 요청자를 `requester_id`로 저장
+- `AiOutput`을 먼저 `REQUESTED` 상태로 생성
+- 백그라운드 작업에서 실제 RAG 생성을 실행
+- 저장된 AI 결과 조회
+
+`AiOutput`을 먼저 저장하는 이유는 LLM 호출이 오래 걸릴 수 있기 때문이다.
+프론트는 즉시 `202 Accepted`와 `ai_output_id`를 받고, 이후 조회 API로 상태를 확인한다.
+
+### `backend/app/api/routes/posts.py`
+
+질문 게시글 맥락 안에서 호출되는 API를 추가했다.
+
+```text
+POST /posts/{post_id}/ai/reference-answer
+```
+
+이 API는 로그인 사용자가 호출해야 한다.
+AI 참고 답변은 비용이 드는 생성 작업이므로 비회원 자동 호출보다 명시적인 사용자 요청으로 제한했다.
+
+### `backend/app/api/routes/ai.py`
+
+저장된 AI 결과 조회 API를 추가했다.
+
+```text
+GET /ai/outputs/{ai_output_id}
+```
+
+프론트 polling과 결과 재조회에서 사용한다.
+응답에는 `content`, `status`, `grounding_status`, `sources`가 함께 포함된다.
+
+### `backend/app/main.py`
+
+`ai_router`를 FastAPI 앱에 연결했다.
+이 파일은 라우터 등록 지점이기 때문에 `/api/v1/ai/outputs/{id}`가 실제로 노출되려면 여기에 include가 필요하다.
+
+### `frontend/src/api/aiApi.js`
+
+AI 관련 API 호출 함수를 추가했다.
+
+- `requestQuestionReferenceAnswer(postId, payload)`
+- `getAiOutput(aiOutputId)`
+
+프론트 컴포넌트가 axios 경로를 직접 알지 않도록 API 호출을 분리했다.
+
+### `frontend/src/hooks/useAiAnswer.js`
+
+AI 답변 요청과 polling 상태를 관리하는 hook을 추가했다.
+
+상태는 다음과 같이 분리했다.
+
+- `isRequesting`: 생성 요청 API 호출 중
+- `isPolling`: 생성 결과 조회 중
+- `aiOutput`: 현재 저장된 AI 결과
+- `errorMessage`: 요청 또는 polling 오류
+
+`REQUESTED`, `PROCESSING` 상태에서는 계속 조회하고, `GENERATED`, `FAILED` 상태가 되면 polling을 멈춘다.
+
+### `frontend/src/components/ai/AiAnswerBox.jsx`
+
+질문 상세 화면에서 AI 참고 답변을 생성하고 보여주는 패널이다.
+
+로그인하지 않은 사용자는 생성 버튼을 누를 수 없다.
+답변 생성 중에는 진행 상태를 보여주고, 완료되면 `content`와 sources를 함께 표시한다.
+
+### `frontend/src/components/ai/AiSourceList.jsx`
+
+AI 답변이 참고한 근거 목록을 보여준다.
+
+각 source에는 rank, relevance score, post id, comment id, excerpt가 표시된다.
+post id 버튼을 누르면 해당 게시글 상세로 이동할 수 있게 `onSelectPost`를 받는다.
+
+### `frontend/src/pages/PostDetailPage.jsx`
+
+현재 게시글이 `QUESTION`일 때만 `AiAnswerBox`를 렌더링하도록 연결했다.
+
+### `frontend/src/App.css`
+
+AI 답변 패널, 답변 본문, source 목록, 모바일 반응형 스타일을 추가했다.
+
+## 20. Phase 4 핵심 코드 설명
+
+### 질문 글을 검색 query로 변환
+
+```python
+document = document_loader.build_post_document(post)
+query_vector = _embed_query(document.page_content)
+```
+
+새 질문의 제목과 본문을 그대로 LLM에게 보내는 것만으로는 과거 커뮤니티 지식을 찾을 수 없다.
+먼저 질문 글을 검색용 문서로 만들고 embedding vector로 바꿔야 Vector DB에서 비슷한 과거 질문/댓글을 찾을 수 있다.
+
+### QUESTION 게시글과 댓글만 검색
+
+```python
+search_results = get_vector_store().similarity_search(
+    db,
+    query_vector=query_vector,
+    board_code=BoardCode.QUESTION,
+    source_types=[ContentSourceType.POST, ContentSourceType.COMMENT],
+    exclude_post_id=post.id,
+)
+```
+
+질문 참고 답변의 근거는 질문 게시판의 과거 질문과 댓글이다.
+후기 게시글이나 구매 고민 글까지 섞이면 답변의 근거 성격이 흐려진다.
+그래서 board와 source type을 명확히 제한한다.
+
+### 검색된 chunk를 prompt context로 변환
+
+```python
+context = _format_context(retrieved_chunks)
+user_prompt = QUESTION_REFERENCE_USER_TEMPLATE.format(
+    question_title=question_title,
+    question_content=question_content,
+    context=context,
+)
+```
+
+RAG에서 LLM은 Vector DB를 직접 조회하지 않는다.
+retriever가 찾은 근거를 사람이 읽을 수 있는 context 문자열로 만들어 prompt에 넣어야 한다.
+이 context가 있어야 LLM이 과거 게시글/댓글에 기반한 답변을 생성할 수 있다.
+
+### LLM 호출
+
+```python
+content = get_chat_client().invoke(
+    [
+        ("system", QUESTION_REFERENCE_SYSTEM_PROMPT),
+        ("user", user_prompt),
+    ]
+)
+```
+
+system prompt는 답변 원칙을 정하고, user prompt는 현재 질문과 검색된 근거를 전달한다.
+근거가 부족하면 추측하지 말라는 지시도 여기서 들어간다.
+
+### AiOutput과 AiOutputSource 저장
+
+```python
+ai_output_repository.mark_ai_output_generated(
+    ai_output,
+    content=answer.content,
+    grounding_status=grounding_status,
+    confidence_score=_estimate_confidence(retrieved_chunks),
+    model_name=answer.model_name,
+)
+```
+
+```python
+ai_output_repository.replace_ai_output_sources(
+    db,
+    ai_output=ai_output,
+    source_values=[...],
+)
+```
+
+AI 답변 본문은 `AiOutput`에 저장하고, 어떤 근거를 참고했는지는 `AiOutputSource`에 저장한다.
+이렇게 분리하면 화면에서 “AI가 참고한 게시글/댓글”을 따로 보여줄 수 있고, 나중에 근거 품질을 평가하기도 쉽다.
+
+### API route에서 service 호출
+
+```python
+return ai_service.request_question_reference_answer(
+    db,
+    post_id=post_id,
+    payload=payload,
+    current_user=current_user,
+    background_tasks=background_tasks,
+)
+```
+
+route는 요청을 받고 service를 호출하는 얇은 계층으로 유지한다.
+게시판 검증, output 생성, 백그라운드 작업 등록은 service가 담당한다.
+
+## 21. Phase 4 실행 방법
+
+먼저 Phase 2 인덱싱으로 QUESTION 게시글/댓글 chunk가 만들어져 있어야 한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\reindex_content_chunks.py
+```
+
+필요한 환경변수:
+
+```env
+OPENAI_API_KEY=...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_CHAT_MODEL=gpt-4o-mini
+VECTOR_STORE_PROVIDER=pgvector
+```
+
+서버 실행 후 질문 게시글에 대해 생성 요청을 보낸다.
+
+```text
+POST /api/v1/posts/20/ai/reference-answer
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "top_k": 5
+}
+```
+
+예상 응답:
+
+```json
+{
+  "id": 7,
+  "output_type": "QUESTION_REFERENCE_ANSWER",
+  "target_post_id": 20,
+  "title": "AI 참고 답변",
+  "content": null,
+  "status": "REQUESTED",
+  "grounding_status": "NO_EVIDENCE",
+  "sources": []
+}
+```
+
+결과 조회:
+
+```text
+GET /api/v1/ai/outputs/7
+```
+
+생성 완료 예시:
+
+```json
+{
+  "id": 7,
+  "status": "GENERATED",
+  "grounding_status": "GROUNDED",
+  "content": "과거 답변들을 보면 ...",
+  "sources": [
+    {
+      "source_post_id": 12,
+      "source_comment_id": 34,
+      "relevance_score": 0.88,
+      "rank_order": 1,
+      "excerpt": "..."
+    }
+  ]
+}
+```
+
+근거가 없을 때:
+
+```json
+{
+  "status": "GENERATED",
+  "grounding_status": "NO_EVIDENCE",
+  "content": "관련 게시글이나 댓글 근거가 부족해 답변을 생성할 수 없습니다.",
+  "sources": []
+}
+```
+
+## 22. Phase 4 한계와 다음 개선 방향
+
+현재 한계:
+
+- 질문 참고 답변은 단순 top-k vector search 결과를 그대로 prompt에 넣는다.
+- 댓글의 품질이나 작성자 신뢰도를 별도로 평가하지 않는다.
+- 생성 요청은 백그라운드 작업이지만, 별도 worker queue는 아직 없다.
+- LLM 응답 형식은 자유 텍스트이며 JSON 구조화 출력은 사용하지 않는다.
+- 같은 질문에 대해 여러 번 생성 요청을 보내면 여러 `AiOutput`이 생긴다.
+
+다음 개선:
+
+- 같은 게시글의 최신 AI 결과 재사용 또는 재생성 정책을 추가한다.
+- reranker로 근거 chunk 품질을 높인다.
+- 답변을 요약, 주의점, 참고 근거 섹션으로 구조화한다.
+- Celery/RQ 같은 worker queue로 긴 AI 작업을 분리한다.
+- Phase 5에서 구매 고민 요약/추천 usecase를 같은 구조로 확장한다.

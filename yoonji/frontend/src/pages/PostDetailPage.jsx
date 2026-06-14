@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { API_BASE_URL } from "../api/client";
 import { deletePost } from "../api/postApi";
+import AiAnswerBox from "../components/ai/AiAnswerBox";
 import CommentForm from "../components/comment/CommentForm";
 import CommentList from "../components/comment/CommentList";
 import Button from "../components/common/Button";
@@ -212,6 +213,14 @@ function PostDetailPage({
 
       {post.board.code === "REVIEW" && (
         <SimilarPostList
+          onSelectPost={onOpenPost}
+          postId={post.id}
+        />
+      )}
+
+      {post.board.code === "QUESTION" && (
+        <AiAnswerBox
+          currentUser={currentUser}
           onSelectPost={onOpenPost}
           postId={post.id}
         />

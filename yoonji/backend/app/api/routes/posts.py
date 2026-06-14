@@ -6,7 +6,11 @@ from app.api.deps import CurrentUser, DbSession
 from app.ai.rag import indexing_service
 from app.ai.usecases import similar_posts
 from app.models.enums import BoardCode
-from app.schemas.ai_schema import SimilarPostListResponse
+from app.schemas.ai_schema import (
+    AiOutputResponse,
+    ReferenceAnswerRequest,
+    SimilarPostListResponse,
+)
 from app.schemas.post_schema import (
     PostCreateRequest,
     PostCreateResponse,
@@ -15,6 +19,7 @@ from app.schemas.post_schema import (
     PostUpdateRequest,
 )
 from app.services import post_service
+from app.services import ai_service
 
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -76,6 +81,27 @@ def get_similar_posts(
         db,
         post_id=post_id,
         limit=limit,
+    )
+
+
+@router.post(
+    "/{post_id}/ai/reference-answer",
+    response_model=AiOutputResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_question_reference_answer(
+    post_id: Annotated[int, Path(gt=0)],
+    payload: ReferenceAnswerRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
+) -> AiOutputResponse:
+    return ai_service.request_question_reference_answer(
+        db,
+        post_id=post_id,
+        payload=payload,
+        current_user=current_user,
+        background_tasks=background_tasks,
     )
 
 

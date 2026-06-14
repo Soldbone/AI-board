@@ -820,6 +820,106 @@ button:disabled {
   min-width: 0;
 }
 
+.ai-answer-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ai-answer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(208, 224, 225, 0.78);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 8px 22px rgba(35, 45, 65, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.ai-answer-heading h3 {
+  margin: 0;
+  color: #101828;
+  font-size: 24px;
+}
+
+.ai-answer-content {
+  padding: 18px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202733;
+  line-height: 1.75;
+}
+
+.ai-answer-content.failed {
+  border-color: #f4c7d3;
+  background: #fff7f9;
+}
+
+.ai-answer-content p {
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+
+.ai-answer-content p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-source-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.ai-source-list h4 {
+  margin: 0;
+  color: #101828;
+  font-size: 18px;
+}
+
+.ai-source-list ol {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.ai-source-list li {
+  min-width: 0;
+}
+
+.ai-source-list p {
+  margin: 8px 0 0;
+  color: #475467;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ai-source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ai-source-link {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #cdd6e2;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 13px;
+}
+
 .similar-posts-heading {
   display: flex;
   align-items: center;
@@ -1062,7 +1162,9 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .section-heading {
+  .section-heading,
+  .ai-answer-heading,
+  .similar-posts-heading {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1081,6 +1183,7 @@ button:disabled {
   .form-actions,
   .image-uploader-heading,
   .tag-input-controls,
+  .ai-answer-heading,
   .comment-card-header {
     justify-content: stretch;
   }
@@ -1091,6 +1194,7 @@ button:disabled {
   .form-actions button,
   .file-button,
   .tag-input-controls button,
+  .ai-answer-heading button,
   .comment-form-actions button,
   .comment-card-actions button,
   .comment-pagination button {
