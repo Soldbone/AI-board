@@ -5,7 +5,6 @@ import Input from "../components/common/Input";
 
 
 const INITIAL_FORM = {
-  email: "",
   login_id: "",
   password: "",
   nickname: "",
@@ -44,16 +43,6 @@ function SignupPage({ onSignup }) {
     <section className="auth-panel" aria-labelledby="signup-title">
       <h2 id="signup-title">회원가입</h2>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <Input
-          autoComplete="email"
-          label="이메일"
-          name="email"
-          onChange={handleChange}
-          required
-          type="email"
-          value={form.email}
-        />
-
         <Input
           autoComplete="username"
           label="로그인 ID"

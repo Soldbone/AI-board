@@ -24,10 +24,10 @@ def get_user_by_login_id(db: Session, login_id: str) -> User | None:
 def create_user(
     db: Session,
     *,
-    email: str,
     login_id: str,
     password_hash: str,
     nickname: str,
+    email: str | None = None,
 ) -> User:
     user = User(
         email=email,

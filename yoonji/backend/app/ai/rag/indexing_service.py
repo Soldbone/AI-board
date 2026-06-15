@@ -7,7 +7,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ai.rag import document_loader
-from app.ai.rag.embedding_client import EmbeddingClientError, get_embedding_client
+from app.ai.rag.embedding_client import (
+    EmbeddingClientError,
+    build_embedding_error_details,
+    get_embedding_client,
+)
 from app.ai.rag.text_splitter import estimate_token_count, split_document
 from app.ai.rag.vector_store import VectorStoreError, get_vector_store
 from app.core.config import settings
@@ -279,10 +283,10 @@ def _embed_chunk_texts(texts: list[str]) -> list[list[float]]:
         return get_embedding_client().embed_documents(texts)
     except EmbeddingClientError as exc:
         raise AppException(
-            "Embedding generation failed.",
+            str(exc) or "Embedding generation failed.",
             code="EMBEDDING_GENERATION_FAILED",
             status_code=503,
-            details={"model": settings.openai_embedding_model},
+            details=build_embedding_error_details(exc),
         ) from exc
     except Exception as exc:
         raise AppException(

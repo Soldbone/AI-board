@@ -62,7 +62,7 @@
 | `401 Unauthorized` | 인증 필요 |
 | `403 Forbidden` | 권한 없음 |
 | `404 Not Found` | 리소스 없음 |
-| `409 Conflict` | 중복 이메일, 중복 아이디 등 |
+| `409 Conflict` | 중복 로그인 ID 등 |
 | `422 Unprocessable Entity` | 유효성 검증 실패 |
 | `500 Internal Server Error` | 서버 오류 |
 
@@ -222,7 +222,6 @@ Request:
 
 ```json
 {
-  "email": "user@example.com",
   "login_id": "figurefan",
   "password": "password1234!",
   "nickname": "피규어팬"
@@ -234,7 +233,7 @@ Response `201 Created`:
 ```json
 {
   "id": 1,
-  "email": "user@example.com",
+  "email": null,
   "login_id": "figurefan",
   "nickname": "피규어팬",
   "role": "USER",

@@ -19,7 +19,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    email: EmailStr | None = None
     login_id: str
     nickname: str
     profile_image_url: str | None = None

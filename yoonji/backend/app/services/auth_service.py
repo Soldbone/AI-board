@@ -28,13 +28,6 @@ from app.schemas.user_schema import UserSummary
 
 
 def signup(db: Session, payload: SignupRequest) -> SignupResponse:
-    if user_repository.get_user_by_email(db, payload.email):
-        raise AppException(
-            "이미 사용 중인 이메일입니다.",
-            code="EMAIL_ALREADY_EXISTS",
-            status_code=409,
-        )
-
     if user_repository.get_user_by_login_id(db, payload.login_id):
         raise AppException(
             "이미 사용 중인 로그인 ID입니다.",
@@ -44,7 +37,6 @@ def signup(db: Session, payload: SignupRequest) -> SignupResponse:
 
     user = user_repository.create_user(
         db,
-        email=str(payload.email),
         login_id=payload.login_id,
         password_hash=hash_password(payload.password),
         nickname=payload.nickname,

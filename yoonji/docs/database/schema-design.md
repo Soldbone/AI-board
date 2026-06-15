@@ -20,7 +20,7 @@
 | 필드 | 설명 |
 | --- | --- |
 | `id` | 사용자 ID |
-| `email` | 이메일 |
+| `email` | 이메일, 선택값 |
 | `login_id` | 로그인 ID |
 | `password_hash` | 암호화된 비밀번호 |
 | `nickname` | 닉네임 |
@@ -586,7 +586,7 @@ erDiagram
 
     USER {
       bigint id
-      string email
+      string email nullable
       string login_id
       string nickname
       string role

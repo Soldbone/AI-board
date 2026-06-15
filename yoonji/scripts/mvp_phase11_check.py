@@ -43,7 +43,6 @@ class CheckFailure(AssertionError):
 @dataclass(frozen=True)
 class Actor:
     login_id: str
-    email: str
     nickname: str
     access_token: str
     refresh_token: str
@@ -127,11 +126,9 @@ def check_boards(client: httpx.Client) -> None:
 
 def signup_and_login(client: httpx.Client, marker: str, suffix: str) -> Actor:
     login_id = f"phase11_{marker}_{suffix}"
-    email = f"{login_id}@example.com"
     nickname = f"Phase11 {suffix.upper()} {marker}"
 
     signup_payload = {
-        "email": email,
         "login_id": login_id,
         "password": PASSWORD,
         "nickname": nickname,
@@ -155,7 +152,6 @@ def signup_and_login(client: httpx.Client, marker: str, suffix: str) -> Actor:
     print(f"[PASS] BOARD-02 signup and login for actor {suffix}")
     return Actor(
         login_id=login_id,
-        email=email,
         nickname=nickname,
         access_token=tokens["access_token"],
         refresh_token=tokens["refresh_token"],
