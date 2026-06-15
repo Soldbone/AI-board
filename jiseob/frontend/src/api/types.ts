@@ -28,6 +28,8 @@ export type AgentRunStatus = 'FAILED' | 'PENDING' | 'RUNNING' | 'SUCCESS';
 
 export type SummaryStatus = 'FAILED' | 'PENDING' | 'PROCESSING' | 'SUCCESS';
 
+export type PostSort = 'latest' | 'comments' | 'likes' | 'views';
+
 export type PaginationMeta = {
   page: number;
   limit: number;
@@ -122,6 +124,7 @@ export type PostListItemResponse = {
   commentCount: number;
   viewCount: number;
   likeCount: number;
+  likedByMe: boolean | null;
   author: PostAuthor;
   video: VideoSummaryResponse;
   tags: TagResponse[];
@@ -138,6 +141,7 @@ export type ListPostsQuery = {
   limit?: number;
   q?: string;
   tag?: string;
+  sort?: PostSort;
 };
 
 export type CreatePostRequest = {
@@ -198,8 +202,8 @@ export type EvidenceResponse = {
   transcriptChunkId: Ulid;
   evidenceText: string;
   similarityScore: number;
-  startTime: number;
-  endTime: number;
+  startTime: number | null;
+  endTime: number | null;
   createdAt: IsoDateString;
 };
 
@@ -253,8 +257,8 @@ export type AgentToolUseResponse = {
 
 export type AgentEvidenceCandidateResponse = {
   chunkId: Ulid;
-  startSec: number;
-  endSec: number;
+  startSec: number | null;
+  endSec: number | null;
   text: string;
   similarityScore: number;
 };

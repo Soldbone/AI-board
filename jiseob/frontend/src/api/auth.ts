@@ -1,4 +1,11 @@
-import { apiRequest, clearApiSession, getCsrfToken, setAccessToken, setCsrfToken } from './client';
+import {
+  apiRequest,
+  clearApiSession,
+  getCsrfToken,
+  setAccessToken,
+  setAuthRefreshHandler,
+  setCsrfToken,
+} from './client';
 import type {
   CsrfResponse,
   LoginRequest,
@@ -39,6 +46,7 @@ export async function refresh() {
   const response = await apiRequest<RefreshResponse>('/auth/refresh', {
     method: 'POST',
     csrf: true,
+    authRefresh: false,
   });
 
   setAccessToken(response.accessToken);
@@ -70,6 +78,18 @@ export function getMe() {
   });
 }
 
+export async function deleteMe() {
+  await prepareCsrfToken({ force: true });
+
+  await apiRequest<void>('/users/me', {
+    method: 'DELETE',
+    auth: true,
+    csrf: true,
+  });
+
+  clearApiSession();
+}
+
 export async function prepareCsrfToken(options: { force?: boolean } = {}) {
   const currentToken = getCsrfToken();
 
@@ -91,3 +111,7 @@ export async function restoreSession() {
     throw error;
   }
 }
+
+setAuthRefreshHandler(async () => {
+  await refresh();
+});

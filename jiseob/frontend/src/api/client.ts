@@ -10,6 +10,8 @@ export type ApiRequestOptions = {
   method?: ApiMethod;
   body?: unknown;
   auth?: boolean;
+  authRefresh?: boolean;
+  optionalAuth?: boolean;
   csrf?: boolean;
   headers?: HeadersInit;
   query?: Record<string, boolean | number | string | null | undefined>;
@@ -32,6 +34,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000
 
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
+let authRefreshHandler: (() => Promise<void>) | null = null;
+
+export const AUTH_EXPIRED_EVENT = 'arena-auth-expired';
 
 export function getApiBaseUrl() {
   return API_BASE_URL;
@@ -66,11 +71,31 @@ export function clearApiSession() {
   clearCsrfToken();
 }
 
+export function setAuthRefreshHandler(handler: (() => Promise<void>) | null) {
+  authRefreshHandler = handler;
+}
+
+export function notifyAuthExpired() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+}
+
 export async function apiRequest<TResponse = unknown>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<TResponse> {
-  const { method = 'GET', body, auth = false, csrf = false, headers, query, signal } = options;
+  const {
+    method = 'GET',
+    body,
+    auth = false,
+    authRefresh = true,
+    optionalAuth = false,
+    csrf = false,
+    headers,
+    query,
+    signal,
+  } = options;
   const requestHeaders = new Headers(headers);
 
   if (!requestHeaders.has('Accept')) {
@@ -99,7 +124,31 @@ export async function apiRequest<TResponse = unknown>(
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(await normalizeApiError(response));
+    const normalizedError = await normalizeApiError(response);
+
+    if (auth && authRefresh && normalizedError.status === 401 && authRefreshHandler) {
+      try {
+        await authRefreshHandler();
+        return apiRequest<TResponse>(path, {
+          ...options,
+          authRefresh: false,
+        });
+      } catch {
+        clearApiSession();
+        notifyAuthExpired();
+
+        if (optionalAuth) {
+          return apiRequest<TResponse>(path, {
+            ...options,
+            auth: false,
+            authRefresh: false,
+            optionalAuth: false,
+          });
+        }
+      }
+    }
+
+    throw new ApiRequestError(normalizedError);
   }
 
   if (response.status === 204) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Eye,
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
+  deleteMe as deleteCurrentUser,
   login as loginUser,
   logout as logoutUser,
   restoreSession,
@@ -28,7 +29,12 @@ import {
 } from '@/api/auth';
 import { createAgentRun, getAgentRun } from '@/api/agent';
 import { deleteAdminComment, listAdminComments, retryCommentAnalysis } from '@/api/admin';
-import { ApiRequestError, clearApiSession } from '@/api/client';
+import {
+  AUTH_EXPIRED_EVENT,
+  ApiRequestError,
+  clearApiSession,
+  notifyAuthExpired,
+} from '@/api/client';
 import {
   createSummary,
   createComment,
@@ -68,6 +74,7 @@ import type {
   PaginationMeta,
   PostListItemResponse,
   PostResponse,
+  PostSort,
   RagStatus,
   SummaryResponse,
   SummaryStatus,
@@ -91,6 +98,7 @@ type Route =
   | { name: 'post-edit'; postId: string }
   | { name: 'login' }
   | { name: 'signup' }
+  | { name: 'me' }
   | { name: 'new-post' }
   | { name: 'admin-comments' }
   | { name: 'not-found' };
@@ -103,6 +111,7 @@ type PostsQueryState = {
   limit: number;
   q: string;
   tag: string;
+  sort: PostSort;
 };
 
 type AsyncState<TData> =
@@ -157,11 +166,18 @@ const POSTS_LIMIT = 20;
 const ADMIN_COMMENTS_LIMIT = 20;
 const ADMIN_COMMENTS_MODERATION_STATUS: ModerationStatus = 'NEEDS_REVIEW';
 const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
+const POST_SORT_OPTIONS: Array<{ value: PostSort; label: string }> = [
+  { value: 'latest', label: '최신순' },
+  { value: 'comments', label: '댓글순' },
+  { value: 'likes', label: '좋아요순' },
+  { value: 'views', label: '조회순' },
+];
 
 function parseRoute(pathname: string): Route {
   if (pathname === '/') return { name: 'posts' };
   if (pathname === '/login') return { name: 'login' };
   if (pathname === '/signup') return { name: 'signup' };
+  if (pathname === '/me') return { name: 'me' };
   if (pathname === '/posts/new') return { name: 'new-post' };
   if (pathname === '/admin/comments') return { name: 'admin-comments' };
 
@@ -196,12 +212,12 @@ function useRoute() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigate = (nextPath: string) => {
+  const navigate = useCallback((nextPath: string) => {
     if (getCurrentPath() === nextPath) return;
     window.history.pushState(null, '', nextPath);
     setPath(getCurrentPath());
     window.scrollTo({ top: 0 });
-  };
+  }, []);
 
   return {
     locationSearch: getSearchFromPath(path),
@@ -244,6 +260,16 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      clearApiSession();
+      setSession({ status: 'anonymous', user: null, error: null });
+    };
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  }, []);
+
   const handleAuthenticated = (user: UserResponse) => {
     setLogoutError(null);
     setSession({ status: 'authenticated', user, error: null });
@@ -272,6 +298,12 @@ export default function App() {
     }
   };
 
+  const handleAccountDeleted = () => {
+    clearApiSession();
+    setSession({ status: 'anonymous', user: null, error: null });
+    navigate(DEFAULT_AUTH_REDIRECT);
+  };
+
   return (
     <div className="min-h-svh bg-background text-foreground">
       <TopNav
@@ -283,7 +315,15 @@ export default function App() {
       />
       {logoutError && <AppNotice message={logoutError} tone="destructive" />}
       <main className="mx-auto grid w-[min(1240px,calc(100%-28px))] grid-cols-1 gap-6 py-6 lg:w-[min(1240px,calc(100%-48px))] lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8 lg:py-8">
-        {renderRoute(route, navigate, locationSearch, session, handleAuthenticated)}
+        {renderRoute(
+          route,
+          navigate,
+          locationSearch,
+          session,
+          handleAuthenticated,
+          handleLogout,
+          handleAccountDeleted,
+        )}
       </main>
     </div>
   );
@@ -295,10 +335,12 @@ function renderRoute(
   locationSearch: string,
   session: SessionState,
   onAuthenticated: (user: UserResponse) => void,
+  onLogout: () => void,
+  onAccountDeleted: () => void,
 ) {
   switch (route.name) {
     case 'posts':
-      return <PostsIndex locationSearch={locationSearch} navigate={navigate} />;
+      return <PostsIndex locationSearch={locationSearch} navigate={navigate} session={session} />;
     case 'post-detail':
       return (
         <PostDetail
@@ -327,6 +369,15 @@ function renderRoute(
           mode="signup"
           navigate={navigate}
           onAuthenticated={onAuthenticated}
+          session={session}
+        />
+      );
+    case 'me':
+      return (
+        <MyPage
+          navigate={navigate}
+          onAccountDeleted={onAccountDeleted}
+          onLogout={onLogout}
           session={session}
         />
       );
@@ -417,9 +468,14 @@ function TopNav({
 
           {session.status === 'authenticated' && (
             <>
-              <Badge className="max-w-[160px] truncate" variant="outline">
-                {session.user.nickname}
-              </Badge>
+              <Button
+                className={cn(isActive('me') && 'bg-accent')}
+                onClick={() => navigate('/me')}
+                variant="outline"
+              >
+                <User className="size-4" aria-hidden="true" />
+                <span className="max-w-[120px] truncate">{session.user.nickname}</span>
+              </Button>
               {session.user.role === 'ADMIN' && (
                 <Button
                   className={cn(isActive('admin-comments') && 'bg-accent')}
@@ -446,7 +502,15 @@ function TopNav({
   );
 }
 
-function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navigate: Navigate }) {
+function PostsIndex({
+  locationSearch,
+  navigate,
+  session,
+}: {
+  locationSearch: string;
+  navigate: Navigate;
+  session: SessionState;
+}) {
   const query = useMemo(() => parsePostsQuery(locationSearch), [locationSearch]);
   const [searchValue, setSearchValue] = useState(query.q);
   const [postsState, setPostsState] = useState<AsyncState<PaginatedResponse<PostListItemResponse>>>(
@@ -477,6 +541,7 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
       page: query.page,
       limit: query.limit,
       q: query.q || undefined,
+      sort: query.sort,
       tag: query.tag || undefined,
     })
       .then((data) => {
@@ -497,7 +562,7 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
     return () => {
       ignore = true;
     };
-  }, [postsReloadKey, query.limit, query.page, query.q, query.tag]);
+  }, [postsReloadKey, query.limit, query.page, query.q, query.sort, query.tag, session.status]);
 
   useEffect(() => {
     let ignore = false;
@@ -527,7 +592,7 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
 
   const posts = postsState.data?.items ?? [];
   const meta = postsState.data?.meta ?? createEmptyMeta(query);
-  const hasActiveFilters = query.q.length > 0 || query.tag.length > 0;
+  const hasActiveFilters = query.q.length > 0 || query.tag.length > 0 || query.sort !== 'latest';
 
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -538,9 +603,13 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
     navigate(buildPostsPath(query, { page: 1, tag }));
   };
 
+  const handleSelectSort = (sort: PostSort) => {
+    navigate(buildPostsPath(query, { page: 1, sort }));
+  };
+
   const handleClearFilters = () => {
     setSearchValue('');
-    navigate(buildPostsPath(query, { page: 1, q: '', tag: '' }));
+    navigate(buildPostsPath(query, { page: 1, q: '', sort: 'latest', tag: '' }));
   };
 
   return (
@@ -550,7 +619,6 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
           eyebrow="Discussion board"
           title="게시글 목록"
           description="최신 토론, 태그, 영상 처리 상태를 먼저 확인합니다."
-          badge={<Badge variant="info">Harness 3</Badge>}
         />
 
         <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleSearch}>
@@ -585,6 +653,8 @@ function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navi
           onSelectTag={handleSelectTag}
           state={tagsState}
         />
+
+        <PostSortFilters activeSort={query.sort} onSelectSort={handleSelectSort} />
 
         <PostsList
           navigate={navigate}
@@ -663,6 +733,32 @@ function TagFilters({
           </Button>
         </div>
       )}
+    </section>
+  );
+}
+
+function PostSortFilters({
+  activeSort,
+  onSelectSort,
+}: {
+  activeSort: PostSort;
+  onSelectSort: (sort: PostSort) => void;
+}) {
+  return (
+    <section className="flex flex-wrap items-center gap-2" aria-label="Post sort filters">
+      <span className="text-sm font-medium text-muted-foreground">정렬</span>
+      <div className="flex flex-wrap gap-2">
+        {POST_SORT_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            onClick={() => onSelectSort(option.value)}
+            size="sm"
+            variant={activeSort === option.value ? 'default' : 'outline'}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
     </section>
   );
 }
@@ -866,7 +962,6 @@ function PostDetail({
     'idle' | 'deleting' | 'liking' | 'unliking'
   >('idle');
   const [postActionNotice, setPostActionNotice] = useState<WriteNotice | null>(null);
-  const [sessionLikedPostIds, setSessionLikedPostIds] = useState<string[]>([]);
   const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
   const [evidenceState, setEvidenceState] = useState<AsyncState<CommentEvidencesResponse>>({
     status: 'idle',
@@ -900,7 +995,7 @@ function PostDetail({
     return () => {
       ignore = true;
     };
-  }, [postId, postReloadKey]);
+  }, [postId, postReloadKey, session.status]);
 
   useEffect(() => {
     let ignore = false;
@@ -982,13 +1077,7 @@ function PostDetail({
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [
-    videoForPolling?.embeddingStatus,
-    videoForPolling?.id,
-    videoForPolling?.isProcessing,
-    videoForPolling?.metadataStatus,
-    videoForPolling?.transcriptStatus,
-  ]);
+  }, [videoForPolling]);
 
   useEffect(() => {
     setVideoRetryStatus('idle');
@@ -1082,7 +1171,7 @@ function PostDetail({
 
   const canManagePost = session.status === 'authenticated' && session.user.id === post.author.id;
   const routeNotice = getPostRouteNotice(locationSearch);
-  const isSessionLiked = sessionLikedPostIds.includes(post.id);
+  const isSessionLiked = post.likedByMe === true;
   const isLikeBusy = postActionStatus === 'liking' || postActionStatus === 'unliking';
 
   const handleDeletePost = async () => {
@@ -1120,27 +1209,30 @@ function PostDetail({
     try {
       const response = await likePost(post.id);
 
-      setSessionLikedPostIds((current) =>
-        current.includes(post.id) ? current : [...current, post.id],
-      );
       setPostState((current) => {
         if (current.status !== 'success' || current.data.id !== post.id) return current;
 
         return {
           status: 'success',
-          data: { ...current.data, likeCount: response.likeCount },
+          data: { ...current.data, likeCount: response.likeCount, likedByMe: true },
           error: null,
         };
       });
       setPostActionNotice({ tone: 'success', message: '좋아요를 반영했습니다.' });
     } catch (error: unknown) {
       if (error instanceof ApiRequestError && error.status === 409) {
-        setSessionLikedPostIds((current) =>
-          current.includes(post.id) ? current : [...current, post.id],
-        );
+        setPostState((current) => {
+          if (current.status !== 'success' || current.data.id !== post.id) return current;
+
+          return {
+            status: 'success',
+            data: { ...current.data, likedByMe: true },
+            error: null,
+          };
+        });
         setPostActionNotice({
           tone: 'info',
-          message: '이미 좋아요한 게시글입니다. 현재 세션에서는 취소할 수 있습니다.',
+          message: '이미 좋아요한 게시글입니다.',
         });
         setPostReloadKey((key) => key + 1);
       } else {
@@ -1164,7 +1256,19 @@ function PostDetail({
 
     try {
       await unlikePost(post.id);
-      setSessionLikedPostIds((current) => current.filter((postId) => postId !== post.id));
+      setPostState((current) => {
+        if (current.status !== 'success' || current.data.id !== post.id) return current;
+
+        return {
+          status: 'success',
+          data: {
+            ...current.data,
+            likedByMe: false,
+            likeCount: Math.max(current.data.likeCount - 1, 0),
+          },
+          error: null,
+        };
+      });
       setPostActionNotice({ tone: 'success', message: '좋아요를 취소했습니다.' });
       setPostReloadKey((key) => key + 1);
     } catch (error: unknown) {
@@ -1187,6 +1291,40 @@ function PostDetail({
 
     try {
       await retryVideoProcessing(videoId);
+      const optimisticVideoStatus = {
+        embeddingStatus: 'PENDING' as VideoProcessingStatus,
+        isProcessing: true,
+        metadataStatus: 'PENDING' as VideoProcessingStatus,
+        transcriptStatus: 'PENDING' as VideoProcessingStatus,
+      };
+
+      setVideoState((current) => {
+        if (!current.data || current.data.id !== videoId) return current;
+
+        return {
+          status: 'success',
+          data: {
+            ...current.data,
+            ...optimisticVideoStatus,
+          },
+          error: null,
+        };
+      });
+      setPostState((current) => {
+        if (current.status !== 'success' || current.data.video.id !== videoId) return current;
+
+        return {
+          status: 'success',
+          data: {
+            ...current.data,
+            video: {
+              ...current.data.video,
+              ...optimisticVideoStatus,
+            },
+          },
+          error: null,
+        };
+      });
       setVideoRetryNotice({
         tone: 'success',
         message: '영상 처리 재시도를 요청했습니다.',
@@ -1564,25 +1702,55 @@ function PostVideoSection({
 }
 
 function VideoFrame({ video }: { video: VideoResponse | null }) {
+  const [isEmbedded, setIsEmbedded] = useState(false);
   const thumbnailUrl = video?.thumbnailUrl;
   const title = video?.title ?? 'YouTube video';
+  const embedUrl = video
+    ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(
+        video.youtubeVideoId,
+      )}?autoplay=1&rel=0`
+    : null;
+
+  useEffect(() => {
+    setIsEmbedded(false);
+  }, [video?.id]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-neutral-950">
       <div className="relative aspect-video">
-        {thumbnailUrl ? (
-          <img
-            alt={title}
-            className="h-full w-full object-cover"
-            referrerPolicy="no-referrer"
-            src={thumbnailUrl}
+        {isEmbedded && embedUrl ? (
+          <iframe
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            className="h-full w-full"
+            referrerPolicy="strict-origin-when-cross-origin"
+            src={embedUrl}
+            title={title}
           />
         ) : (
-          <div className="grid h-full place-items-center bg-[linear-gradient(135deg,rgba(23,23,23,1),rgba(64,64,64,1))] text-white">
-            <span className="grid size-16 place-items-center rounded-full border border-white/30 bg-white/10">
-              <Play className="ml-1 size-7 fill-white" aria-hidden="true" />
-            </span>
-          </div>
+          <>
+            {thumbnailUrl ? (
+              <img
+                alt={title}
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                src={thumbnailUrl}
+              />
+            ) : (
+              <div className="grid h-full place-items-center bg-neutral-900 text-white" />
+            )}
+            <button
+              className="absolute inset-0 grid cursor-pointer place-items-center bg-black/20 text-white transition hover:bg-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={!embedUrl}
+              onClick={() => setIsEmbedded(true)}
+              type="button"
+            >
+              <span className="grid size-16 place-items-center rounded-full border border-white/40 bg-black/55 shadow-sm backdrop-blur">
+                <Play className="ml-1 size-7 fill-white" aria-hidden="true" />
+              </span>
+              <span className="sr-only">YouTube 영상 재생</span>
+            </button>
+          </>
         )}
       </div>
       {video?.youtubeUrl && (
@@ -1601,6 +1769,12 @@ function VideoFrame({ video }: { video: VideoResponse | null }) {
 }
 
 function VideoMetadata({ video }: { video: VideoResponse | null }) {
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+
+  useEffect(() => {
+    setIsDescriptionExpanded(false);
+  }, [video?.id]);
+
   if (!video) {
     return (
       <p className="rounded-md bg-muted p-3 text-sm leading-6 text-muted-foreground">
@@ -1609,13 +1783,28 @@ function VideoMetadata({ video }: { video: VideoResponse | null }) {
     );
   }
 
+  const description = video.description || '영상 설명을 아직 사용할 수 없습니다.';
+  const shouldCollapseDescription = description.length > 260;
+  const visibleDescription =
+    shouldCollapseDescription && !isDescriptionExpanded
+      ? `${description.slice(0, 260).trimEnd()}...`
+      : description;
+
   return (
     <div className="grid gap-4">
       <div className="grid gap-2">
         <h3 className="text-sm font-semibold">{video.title ?? '제목 수집 대기 중'}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">
-          {video.description || '영상 설명을 아직 사용할 수 없습니다.'}
-        </p>
+        <p className="text-sm leading-6 text-muted-foreground">{visibleDescription}</p>
+        {shouldCollapseDescription && (
+          <Button
+            className="w-fit px-0"
+            onClick={() => setIsDescriptionExpanded((current) => !current)}
+            size="sm"
+            variant="ghost"
+          >
+            {isDescriptionExpanded ? '접기' : '더보기'}
+          </Button>
+        )}
       </div>
       <div className="grid gap-2 text-sm sm:grid-cols-2">
         <DetailMetaLine label="채널" value={video.channelName ?? '수집 대기'} />
@@ -1646,7 +1835,7 @@ function VideoStatusItem({ label, status }: { label: string; status: VideoProces
 
 function PostBody({ post }: { post: PostResponse }) {
   return (
-    <article className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5">
+    <article className="grid gap-4 rounded-lg border border-neutral-300 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold">토론 본문</h2>
@@ -1654,9 +1843,8 @@ function PostBody({ post }: { post: PostResponse }) {
             작성자가 영상과 함께 남긴 맥락입니다.
           </p>
         </div>
-        <Badge variant="outline">read-only</Badge>
       </div>
-      <p className="whitespace-pre-wrap break-words text-sm leading-7 text-neutral-800">
+      <p className="border-l-2 border-neutral-300 pl-4 whitespace-pre-wrap break-words text-[15px] leading-7 text-neutral-900">
         {post.content}
       </p>
     </article>
@@ -1722,12 +1910,12 @@ function CommentsSection({
 
   return (
     <section
-      className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+      className="grid gap-4 rounded-lg border border-neutral-300 bg-white p-4 shadow-sm sm:p-5"
       aria-label="Comments"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold">댓글 thread</h2>
+          <h2 className="text-base font-semibold">댓글 스레드</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             루트 댓글과 대댓글을 최대 2단계로 표시합니다.
           </p>
@@ -1748,7 +1936,7 @@ function CommentsSection({
 
       {canWrite && (
         <form
-          className="grid gap-3 rounded-lg border border-border bg-muted/40 p-3"
+          className="grid gap-3 rounded-lg border border-neutral-300 bg-neutral-50 p-3"
           onSubmit={handleCreateComment}
         >
           <label className="grid gap-2 text-sm font-medium">
@@ -1999,8 +2187,8 @@ function CommentItem({
   return (
     <article
       className={cn(
-        'grid gap-3 rounded-lg border border-border p-4',
-        isReply ? 'ml-0 bg-neutral-50 sm:ml-7' : 'bg-card',
+        'grid gap-3 rounded-lg border p-4',
+        isReply ? 'ml-0 border-neutral-200 bg-neutral-50 sm:ml-7' : 'border-neutral-300 bg-white',
         isDeleted && 'border-dashed bg-muted/60',
       )}
     >
@@ -2584,9 +2772,9 @@ function EvidenceItem({ evidence, index }: { evidence: EvidenceResponse; index: 
         <h3 className="text-sm font-semibold">관련 있을 수 있는 자막 구간 {index + 1}</h3>
         <Badge variant="secondary">{formatSimilarityScore(evidence.similarityScore)}</Badge>
       </div>
-      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
-        {evidence.evidenceText}
-      </p>
+      <blockquote className="border-l-2 border-neutral-300 pl-3 text-sm leading-6 text-neutral-800">
+        <p className="whitespace-pre-wrap break-words">{evidence.evidenceText}</p>
+      </blockquote>
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         <span>
           {formatTranscriptTime(evidence.startTime)} - {formatTranscriptTime(evidence.endTime)}
@@ -2665,47 +2853,36 @@ function AuthScreen({
   };
 
   if (session.status === 'checking') {
-    return (
-      <>
-        <SessionChecking title={isLogin ? '로그인' : '회원가입'} />
-        <AuthSidePanel session={session} />
-      </>
-    );
+    return <SessionChecking title={isLogin ? '로그인' : '회원가입'} />;
   }
 
   if (session.status === 'authenticated') {
     return (
-      <>
-        <section
-          className="flex min-w-0 flex-col gap-5"
-          aria-label={isLogin ? 'Already logged in' : 'Authenticated account'}
-        >
-          <PageHeading
-            eyebrow="Session ready"
-            title="이미 로그인되어 있습니다"
-            description={`${session.user.nickname} 계정으로 Arena를 사용 중입니다.`}
-            badge={
-              <Badge variant={session.user.role === 'ADMIN' ? 'warning' : 'success'}>
-                {session.user.role}
-              </Badge>
-            }
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)}>
-              <User className="size-4" aria-hidden="true" />
-              게시글 목록으로 이동
+      <section
+        className="flex min-w-0 flex-col gap-5"
+        aria-label={isLogin ? 'Already logged in' : 'Authenticated account'}
+      >
+        <PageHeading
+          eyebrow="Account"
+          title="이미 로그인되어 있습니다"
+          description={`${session.user.nickname} 계정으로 Arena를 사용 중입니다.`}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)}>
+            <User className="size-4" aria-hidden="true" />
+            게시글 목록으로 이동
+          </Button>
+          <Button onClick={() => navigate('/me')} variant="outline">
+            내 정보 보기
+          </Button>
+          {session.user.role === 'ADMIN' && (
+            <Button onClick={() => navigate('/admin/comments')} variant="outline">
+              <Shield className="size-4" aria-hidden="true" />
+              관리자 댓글 검토
             </Button>
-            {session.user.role === 'ADMIN' && (
-              <Button onClick={() => navigate('/admin/comments')} variant="outline">
-                <Shield className="size-4" aria-hidden="true" />
-                관리자 댓글 검토
-              </Button>
-            )}
-          </div>
-        </section>
-
-        <AuthSidePanel session={session} />
-      </>
+          )}
+        </div>
+      </section>
     );
   }
 
@@ -2719,11 +2896,6 @@ function AuthScreen({
             isLogin
               ? '토론 작성과 관리자 작업에 필요한 세션을 준비합니다.'
               : 'Arena에서 사용할 계정을 생성합니다. 가입 후 로그인해 주세요.'
-          }
-          badge={
-            <Badge variant={isLogin ? 'info' : 'secondary'}>
-              {isLogin ? 'session' : 'new user'}
-            </Badge>
           }
         />
 
@@ -2808,20 +2980,119 @@ function AuthScreen({
           >
             {isLogin ? '회원가입 화면 보기' : '로그인 화면 보기'}
           </Button>
-          {!isLogin && successMessage && (
-            <Button
-              className="w-fit"
-              onClick={() => navigate(`/login${locationSearch}`)}
-              variant="outline"
-            >
-              로그인으로 이동
+        </div>
+      </section>
+    </>
+  );
+}
+
+function MyPage({
+  navigate,
+  onAccountDeleted,
+  onLogout,
+  session,
+}: {
+  navigate: Navigate;
+  onAccountDeleted: () => void;
+  onLogout: () => void;
+  session: SessionState;
+}) {
+  const [deleteStatus, setDeleteStatus] = useState<'idle' | 'submitting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+
+  if (session.status === 'checking') {
+    return <SessionChecking title="마이페이지" />;
+  }
+
+  if (session.status === 'anonymous') {
+    return (
+      <AuthRequired
+        actionLabel="로그인하고 내 정보 보기"
+        description="마이페이지는 로그인 후 사용할 수 있습니다."
+        navigate={navigate}
+        nextPath="/me"
+        title="로그인이 필요함"
+      />
+    );
+  }
+
+  const handleDeleteAccount = async () => {
+    if (deleteStatus === 'submitting') return;
+    if (
+      !window.confirm(
+        '회원탈퇴를 진행할까요? 기존 게시글과 댓글은 유지되고 작성자는 탈퇴한 회원으로 표시됩니다.',
+      )
+    ) {
+      return;
+    }
+
+    setDeleteStatus('submitting');
+    setNotice(null);
+
+    try {
+      await deleteCurrentUser();
+      onAccountDeleted();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setDeleteStatus('idle');
+    }
+  };
+
+  return (
+    <section className="flex min-w-0 flex-col gap-6" aria-label="My page">
+      <PageHeading
+        eyebrow="My page"
+        title="마이페이지"
+        description="계정 정보와 현재 권한을 확인합니다."
+      />
+
+      {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+
+      <section className="grid max-w-2xl gap-4 rounded-lg border border-border bg-card p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">계정 정보</h2>
+          <Badge variant={session.user.role === 'ADMIN' ? 'warning' : 'secondary'}>
+            {session.user.role}
+          </Badge>
+        </div>
+        <div className="grid gap-2 text-sm">
+          <DetailMetaLine label="닉네임" value={session.user.nickname} />
+          <DetailMetaLine label="이메일" value={session.user.email} />
+          <DetailMetaLine label="가입일" value={formatDateTime(session.user.createdAt)} />
+          <DetailMetaLine label="수정일" value={formatDateTime(session.user.updatedAt)} />
+        </div>
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button onClick={onLogout} variant="outline">
+            <LogOut className="size-4" aria-hidden="true" />
+            로그아웃
+          </Button>
+          {session.user.role === 'ADMIN' && (
+            <Button onClick={() => navigate('/admin/comments')} variant="outline">
+              <Shield className="size-4" aria-hidden="true" />
+              관리자 댓글 검토
             </Button>
           )}
         </div>
       </section>
 
-      <AuthSidePanel session={session} />
-    </>
+      <section className="grid max-w-2xl gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4 sm:p-5">
+        <h2 className="text-base font-semibold text-destructive">회원탈퇴</h2>
+        <p className="text-sm leading-6 text-destructive/80">
+          탈퇴하면 현재 세션이 종료됩니다. 기존 게시글과 댓글은 유지되며 작성자는 탈퇴한 회원으로
+          표시됩니다.
+        </p>
+        <Button
+          className="w-fit"
+          disabled={deleteStatus === 'submitting'}
+          onClick={handleDeleteAccount}
+          variant="destructive"
+        >
+          <Trash2 className="size-4" aria-hidden="true" />
+          {deleteStatus === 'submitting' ? '탈퇴 처리 중' : '회원탈퇴'}
+        </Button>
+      </section>
+    </section>
   );
 }
 
@@ -2888,15 +3159,7 @@ function PostEditor({
   }, [editReloadKey, isEdit, postId, session.status]);
 
   if (session.status === 'checking') {
-    return (
-      <>
-        <SessionChecking title={isEdit ? '게시글 수정' : '게시글 작성'} />
-        <PlaceholderSide
-          title="Write scope"
-          items={['post create/update/delete', 'comment write', 'reply write', 'like toggle']}
-        />
-      </>
-    );
+    return <SessionChecking title={isEdit ? '게시글 수정' : '게시글 작성'} />;
   }
 
   if (session.status === 'anonymous') {
@@ -3027,7 +3290,6 @@ function PostEditor({
               ? '제목, 본문, 태그를 수정합니다. YouTube URL은 생성 후 변경하지 않습니다.'
               : 'YouTube URL과 토론 맥락을 입력하면 영상 처리는 비동기로 진행됩니다.'
           }
-          badge={<Badge variant={isEdit ? 'outline' : 'info'}>{isEdit ? 'PATCH' : 'POST'}</Badge>}
         />
 
         <form
@@ -3106,11 +3368,6 @@ function PostEditor({
           </div>
         </form>
       </section>
-
-      <PlaceholderSide
-        title="Write scope"
-        items={['post create/update/delete', 'comment write', 'reply write', 'like toggle']}
-      />
     </>
   );
 }
@@ -3219,7 +3476,7 @@ function AdminCommentsAdminView({
     return () => {
       ignore = true;
     };
-  }, [query.limit, query.moderationStatus, query.page, reloadKey]);
+  }, [navigate, query.limit, query.moderationStatus, query.page, reloadKey]);
 
   if (apiForbidden) {
     return (
@@ -3285,7 +3542,6 @@ function AdminCommentsAdminView({
           eyebrow="Admin comments"
           title="관리자 댓글 검토"
           description="검토가 필요한 댓글을 확인하고 관리자 삭제 또는 분석 재시도를 처리합니다."
-          badge={<Badge variant="warning">Harness 9</Badge>}
         />
 
         <AdminCommentsFilters query={query} navigate={navigate} />
@@ -3374,11 +3630,11 @@ function AdminCommentsList({
 
   return (
     <section
-      className="overflow-hidden rounded-lg border border-border bg-card"
+      className="overflow-x-auto rounded-lg border border-border bg-card"
       aria-busy={state.status === 'loading'}
       aria-label="Admin comments queue"
     >
-      <div className="hidden grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(150px,0.7fr)_minmax(150px,auto)] gap-3 border-b border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+      <div className="hidden min-w-[1040px] grid-cols-[minmax(320px,1.5fr)_minmax(190px,0.75fr)_minmax(220px,0.9fr)_minmax(170px,0.7fr)_minmax(150px,auto)] gap-3 border-b border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
         <span>댓글</span>
         <span>작성자 / 게시글</span>
         <span>AI 상태</span>
@@ -3398,7 +3654,7 @@ function AdminCommentsList({
         </div>
       )}
 
-      <div className="divide-y divide-border">
+      <div className="min-w-full divide-y divide-border md:min-w-[1040px]">
         {comments.map((comment) => (
           <AdminCommentRow
             actionState={actionState}
@@ -3488,13 +3744,13 @@ function AdminCommentRow({
   const ragStatusLabel = comment.analysis ? getRagStatusLabel(comment.analysis.ragStatus) : null;
 
   return (
-    <article className="grid gap-3 p-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(150px,0.7fr)_minmax(150px,auto)] md:items-center">
+    <article className="grid gap-3 p-3 md:grid-cols-[minmax(320px,1.5fr)_minmax(190px,0.75fr)_minmax(220px,0.9fr)_minmax(170px,0.7fr)_minmax(150px,auto)] md:items-start">
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Badge variant={moderationLabel.variant}>{moderationLabel.label}</Badge>
           <Badge variant={kindLabel.variant}>{kindLabel.label}</Badge>
         </div>
-        <p className="line-clamp-3 break-words text-sm leading-6 text-neutral-800">
+        <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
           {comment.content}
         </p>
         <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
@@ -3625,7 +3881,7 @@ function SessionChecking({ title }: { title: string }) {
   return (
     <section className="flex min-w-0 flex-col gap-5" aria-label={`${title} session check`}>
       <PageHeading
-        eyebrow="Session"
+        eyebrow="Account"
         title={title}
         description="현재 로그인 상태를 확인하는 중입니다."
         badge={<Badge variant="secondary">확인 중</Badge>}
@@ -3653,34 +3909,23 @@ function AuthRequired({
   title: string;
 }) {
   return (
-    <>
-      <section className="flex min-w-0 flex-col gap-5" aria-label="Login required">
-        <PageHeading
-          eyebrow="Unauthorized"
-          title={title}
-          description={description}
-          badge={<Badge variant="destructive">401</Badge>}
-        />
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate(buildLoginPath(nextPath))}>
-            <LogIn className="size-4" aria-hidden="true" />
-            {actionLabel}
-          </Button>
-          <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)} variant="outline">
-            게시글 목록으로 이동
-          </Button>
-        </div>
-      </section>
-
-      <PlaceholderSide
-        title="Auth required"
-        items={[
-          '로그인 후 access token을 memory에 저장합니다.',
-          'refresh token은 httpOnly cookie로 유지합니다.',
-          'write 요청 전 CSRF token을 준비합니다.',
-        ]}
+    <section className="flex min-w-0 flex-col gap-5" aria-label="Login required">
+      <PageHeading
+        eyebrow="Unauthorized"
+        title={title}
+        description={description}
+        badge={<Badge variant="destructive">401</Badge>}
       />
-    </>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => navigate(buildLoginPath(nextPath))}>
+          <LogIn className="size-4" aria-hidden="true" />
+          {actionLabel}
+        </Button>
+        <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)} variant="outline">
+          게시글 목록으로 이동
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -3715,43 +3960,6 @@ function ForbiddenState({
         ]}
       />
     </>
-  );
-}
-
-function AuthSidePanel({ session }: { session: SessionState }) {
-  const statusLabel =
-    session.status === 'authenticated'
-      ? { label: '로그인됨', variant: 'success' as BadgeVariant }
-      : session.status === 'checking'
-        ? { label: '확인 중', variant: 'secondary' as BadgeVariant }
-        : { label: '비회원', variant: 'muted' as BadgeVariant };
-
-  return (
-    <aside className="flex min-w-0 flex-col gap-5" aria-label="Auth session">
-      <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">세션 상태</h2>
-          <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
-        </div>
-        <StatusLine
-          badge={session.status === 'authenticated' ? 'memory ready' : '없음'}
-          label="Access token"
-          tone={session.status === 'authenticated' ? 'success' : 'secondary'}
-        />
-        <StatusLine
-          badge={session.status === 'authenticated' ? session.user.role : '없음'}
-          label="Role"
-          tone={
-            session.status === 'authenticated' && session.user.role === 'ADMIN'
-              ? 'warning'
-              : 'secondary'
-          }
-        />
-        <p className="text-sm leading-6 text-muted-foreground">
-          refresh token과 CSRF cookie 값은 화면에 표시하지 않습니다.
-        </p>
-      </section>
-    </aside>
   );
 }
 
@@ -3795,6 +4003,8 @@ function BoardSidePanel({
         </div>
         <p className="text-sm leading-6 text-muted-foreground">
           검색어: {query.q || '없음'}
+          <br />
+          정렬: {getPostSortLabel(query.sort)}
           <br />
           태그: {query.tag || '전체'}
           <br />
@@ -3888,8 +4098,39 @@ function AgentPanel({
   const [pollStartedAt, setPollStartedAt] = useState<number | null>(null);
   const [pollExpired, setPollExpired] = useState(false);
   const run = runState.data;
-  const isRunning = run ? isAgentRunRunning(run.status) : false;
   const canAsk = session.status === 'authenticated';
+
+  const refreshAgentRun = useCallback(
+    async (runId: string) => {
+      setRunState((current) => ({
+        status: 'loading',
+        data: current.data,
+        error: null,
+      }));
+
+      try {
+        const data = await getAgentRun(runId);
+        setRunState({ status: 'success', data, error: null });
+
+        if (!isAgentRunRunning(data.status)) {
+          setPollStartedAt(null);
+          setPollExpired(false);
+        }
+      } catch (error: unknown) {
+        if (error instanceof ApiRequestError && error.status === 401) {
+          navigate(buildLoginPath(getCurrentPath()));
+          return;
+        }
+
+        setRunState((current) => ({
+          status: 'error',
+          data: current.data,
+          error: formatApiError(error),
+        }));
+      }
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     setRunState({ status: 'idle', data: null, error: null });
@@ -3931,7 +4172,7 @@ function AgentPanel({
     }, delay);
 
     return () => window.clearTimeout(timeoutId);
-  }, [pollExpired, pollStartedAt, run]);
+  }, [pollExpired, pollStartedAt, refreshAgentRun, run]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -3947,36 +4188,7 @@ function AgentPanel({
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [pollExpired, run]);
-
-  const refreshAgentRun = async (runId: string) => {
-    setRunState((current) => ({
-      status: 'loading',
-      data: current.data,
-      error: null,
-    }));
-
-    try {
-      const data = await getAgentRun(runId);
-      setRunState({ status: 'success', data, error: null });
-
-      if (!isAgentRunRunning(data.status)) {
-        setPollStartedAt(null);
-        setPollExpired(false);
-      }
-    } catch (error: unknown) {
-      if (error instanceof ApiRequestError && error.status === 401) {
-        navigate(buildLoginPath(getCurrentPath()));
-        return;
-      }
-
-      setRunState((current) => ({
-        status: 'error',
-        data: current.data,
-        error: formatApiError(error),
-      }));
-    }
-  };
+  }, [pollExpired, refreshAgentRun, run]);
 
   const handleSubmitQuestion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4345,7 +4557,7 @@ function NotFound({ navigate }: { navigate: Navigate }) {
       </section>
       <PlaceholderSide
         title="Available routes"
-        items={['/', '/posts/:postId', '/login', '/signup', '/posts/new', '/admin/comments']}
+        items={['/', '/posts/:postId', '/login', '/signup', '/me', '/posts/new', '/admin/comments']}
       />
     </>
   );
@@ -4358,8 +4570,19 @@ function parsePostsQuery(search: string): PostsQueryState {
     page: parsePositiveInteger(params.get('page'), 1),
     limit: POSTS_LIMIT,
     q: (params.get('q') ?? '').trim(),
+    sort: parsePostSort(params.get('sort')),
     tag: (params.get('tag') ?? '').trim(),
   };
+}
+
+function parsePostSort(value: string | null): PostSort {
+  return POST_SORT_OPTIONS.some((option) => option.value === value)
+    ? (value as PostSort)
+    : 'latest';
+}
+
+function getPostSortLabel(sort: PostSort) {
+  return POST_SORT_OPTIONS.find((option) => option.value === sort)?.label ?? '최신순';
 }
 
 function parseAdminCommentsQuery(search: string): AdminCommentsQueryState {
@@ -4390,6 +4613,10 @@ function buildPostsPath(current: PostsQueryState, next: Partial<PostsQueryState>
 
   if (merged.q.trim()) {
     params.set('q', merged.q.trim());
+  }
+
+  if (merged.sort !== 'latest') {
+    params.set('sort', merged.sort);
   }
 
   if (merged.tag.trim()) {
@@ -4499,6 +4726,8 @@ function handleWriteError(
   setNotice: (notice: WriteNotice) => void,
 ) {
   if (error instanceof ApiRequestError && error.status === 401) {
+    clearApiSession();
+    notifyAuthExpired();
     navigate(buildLoginPath(getCurrentPath()));
     return;
   }
@@ -4597,8 +4826,8 @@ function formatSimilarityScore(value: number) {
   return `유사도 ${Math.round(value * 100)}%`;
 }
 
-function formatTranscriptTime(value: number) {
-  if (!Number.isFinite(value) || value < 0) return '0:00';
+function formatTranscriptTime(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value < 0) return '0:00';
 
   const totalSeconds = Math.floor(value);
   const minutes = Math.floor(totalSeconds / 60);

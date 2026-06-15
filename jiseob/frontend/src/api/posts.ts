@@ -14,6 +14,8 @@ import type {
 
 export function listPosts(query: ListPostsQuery = {}) {
   return apiRequest<PaginatedResponse<PostListItemResponse>>('/posts', {
+    auth: true,
+    optionalAuth: true,
     query,
   });
 }
@@ -23,7 +25,10 @@ export function listTags() {
 }
 
 export function getPost(postId: Ulid) {
-  return apiRequest<PostResponse>(`/posts/${postId}`);
+  return apiRequest<PostResponse>(`/posts/${postId}`, {
+    auth: true,
+    optionalAuth: true,
+  });
 }
 
 export function createPost(body: CreatePostRequest) {
