@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.comment import Comment
 from app.schemas.agent import (
     AgentPlaceRecommendationRequest,
     AgentPlaceRecommendationResponse,
@@ -34,7 +36,8 @@ SYSTEM_PROMPT = """
 사용자가 맛집, 카페, 미용실, 옷가게 등 실제 장소 추천을 원하면 search_local_places 도구를 사용한다.
 도구 호출은 한 요청에서 최대 1번만 사용한다.
 응답은 한국어로 짧고 실용적으로 작성한다.
-추천 장소가 있으면 장소명, 분류, 주소, 지도 링크를 함께 언급한다.
+추천 장소 목록은 별도 데이터로 화면에 표시되므로 최종 답변에는 장소 목록을 길게 반복하지 않는다.
+최종 답변에는 게시판 내부 RAG 참고 글과 댓글을 바탕으로 한 평가를 먼저 작성한다.
 확실하지 않은 정보는 단정하지 말고 검색 결과 기준이라고 설명한다.
 """.strip()
 
@@ -125,9 +128,11 @@ def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> s
 def build_agent_user_message_with_context(
     request_data: AgentPlaceRecommendationRequest,
     rag_context: str = "",
+    local_review_summary: str = "",
 ) -> str:
     keyword = build_fallback_keyword(request_data)
     rag_section = rag_context or "게시판 내부 RAG 참고 글: 없음"
+    local_review_section = local_review_summary or "DB 기반 사전 평가: 관련 후기 부족"
 
     return f"""
 지역: {request_data.region}
@@ -136,27 +141,31 @@ def build_agent_user_message_with_context(
 검색 키워드 힌트: {keyword}
 검색 결과 개수: {request_data.display}
 
+{local_review_section}
+
 {rag_section}
 
 위 정보를 바탕으로 사용자가 참고할 만한 장소를 추천해줘.
 게시판 내부 RAG 참고 글이 있으면 실제 동네 이용자 맥락으로 먼저 반영해줘.
+최종 답변에는 DB에 쌓인 게시글과 댓글을 근거로 한 평가를 2~4문장으로 작성해줘.
+장소 리스트는 화면에서 따로 표시하므로 최종 답변에 장소를 번호 목록으로 반복하지 마.
 정확한 가게 후기를 묻는 요청이면 가게명 중심으로 검색해줘.
 조건을 만족하는 가게 리스트 요청이면 검색 키워드를 '조건 + 업종' 형태로 만들어줘.
 필요하면 search_local_places 도구를 사용해줘.
 """.strip()
 
 
-def build_agent_rag_context(
+def find_agent_related_posts(
     db: Session | None,
     request_data: AgentPlaceRecommendationRequest,
-) -> str:
+) -> list[dict[str, Any]]:
     if db is None:
-        return ""
+        return []
 
     tag_names = [request_data.keyword] if request_data.keyword else []
 
     try:
-        similar_posts = find_similar_posts(
+        return find_similar_posts(
             db=db,
             title=request_data.title,
             content=request_data.content,
@@ -164,11 +173,114 @@ def build_agent_rag_context(
             limit=RAG_CONTEXT_LIMIT,
         )
     except Exception:
-        return ""
+        return []
+
+
+def get_comment_counts_by_post_id(
+    db: Session | None,
+    post_ids: list[int],
+) -> dict[int, int]:
+    if db is None or not post_ids:
+        return {}
+
+    rows = (
+        db.query(Comment.post_id, func.count(Comment.id))
+        .filter(
+            Comment.post_id.in_(post_ids),
+            Comment.deleted_at.is_(None),
+        )
+        .group_by(Comment.post_id)
+        .all()
+    )
+
+    return {post_id: count for post_id, count in rows}
+
+
+def get_comment_samples_by_post_id(
+    db: Session | None,
+    post_ids: list[int],
+    per_post_limit: int = 2,
+) -> dict[int, list[str]]:
+    if db is None or not post_ids:
+        return {}
+
+    samples: dict[int, list[str]] = {post_id: [] for post_id in post_ids}
+    rows = (
+        db.query(Comment.post_id, Comment.content)
+        .filter(
+            Comment.post_id.in_(post_ids),
+            Comment.deleted_at.is_(None),
+        )
+        .order_by(Comment.created_at.desc())
+        .all()
+    )
+
+    for post_id, content in rows:
+        if len(samples[post_id]) >= per_post_limit:
+            continue
+        cleaned_content = " ".join(content.split())
+        samples[post_id].append(cleaned_content[:80])
+
+    return samples
+
+
+def build_local_review_summary(
+    similar_posts: list[dict[str, Any]],
+    comment_counts: dict[int, int],
+) -> str:
+    if not similar_posts:
+        return (
+            "DB 기반 평가: 아직 우리 게시판에 관련 후기가 충분히 쌓이지 않았습니다. "
+            "아래 장소 추천은 외부 장소 검색 결과를 참고해 확인해주세요."
+        )
+
+    post_count = len(similar_posts)
+    total_comment_count = sum(comment_counts.get(post["id"], 0) for post in similar_posts)
+    store_names = [
+        post.get("store_name")
+        for post in similar_posts
+        if post.get("store_name")
+    ]
+    categories = [
+        post.get("category")
+        for post in similar_posts
+        if post.get("category")
+    ]
+    matched_keywords = []
+
+    for post in similar_posts:
+        for keyword in post.get("matched_keywords", []):
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
+
+    store_text = ", ".join(dict.fromkeys(store_names[:3])) or "특정 가게명 정보 부족"
+    category_text = ", ".join(dict.fromkeys(categories[:2])) or "분류 정보 부족"
+    keyword_text = ", ".join(matched_keywords[:5]) or "명확한 공통 키워드 부족"
+
+    if total_comment_count >= 5:
+        confidence_text = "댓글 반응도 어느 정도 있어 참고 가치가 있습니다."
+    elif total_comment_count > 0:
+        confidence_text = "댓글은 아직 많지 않아 보조 근거로만 보는 편이 좋습니다."
+    else:
+        confidence_text = "댓글 데이터는 거의 없어 게시글 내용 중심으로만 판단해야 합니다."
+
+    return (
+        f"DB 기반 평가: 관련 게시글 {post_count}개와 댓글 {total_comment_count}개를 찾았습니다. "
+        f"주요 가게/분류는 {store_text} / {category_text}이고, "
+        f"반복해서 잡힌 키워드는 {keyword_text}입니다. {confidence_text}"
+    )
+
+
+def build_agent_rag_context(
+    db: Session | None,
+    similar_posts: list[dict[str, Any]],
+) -> str:
 
     if not similar_posts:
         return ""
 
+    post_ids = [post["id"] for post in similar_posts]
+    comment_samples = get_comment_samples_by_post_id(db=db, post_ids=post_ids)
     lines = ["게시판 내부 RAG 참고 글:"]
 
     for index, post in enumerate(similar_posts, start=1):
@@ -183,11 +295,13 @@ def build_agent_rag_context(
         ]
         meta_text = " / ".join(meta_parts) if meta_parts else "추가 정보 없음"
         matched_keywords = ", ".join(post.get("matched_keywords", [])[:5]) or "없음"
+        comment_text = " | ".join(comment_samples.get(post["id"], [])) or "댓글 없음"
 
         lines.append(
             f"{index}. {post.get('title', '')} | {meta_text} | "
             f"매칭 키워드: {matched_keywords} | "
-            f"내용: {post.get('content_preview', '')}"
+            f"내용: {post.get('content_preview', '')} | "
+            f"댓글 예시: {comment_text}"
         )
 
     return "\n".join(lines)
@@ -240,6 +354,7 @@ def build_tool_status(prefix: str, raw_status: Any) -> str:
 
 async def recommend_places_with_mcp_fallback(
     request_data: AgentPlaceRecommendationRequest,
+    local_review_summary: str = "",
 ) -> AgentPlaceRecommendationResponse:
     keyword = build_fallback_keyword(request_data)
     try:
@@ -252,10 +367,11 @@ async def recommend_places_with_mcp_fallback(
         raise AgentServiceError("Failed to run MCP fallback place search.") from exc
 
     return AgentPlaceRecommendationResponse(
-        answer="MCP 장소 검색 결과를 표시합니다.",
+        answer=local_review_summary or "MCP 장소 검색 결과를 표시합니다.",
         used_mcp=bool(tool_payload),
         query=tool_payload.get("query", ""),
         places=tool_payload.get("places", []),
+        local_review_summary=local_review_summary,
         fallback_map_url=tool_payload.get("fallback_map_url", ""),
         reasoning_summary="Agent 응답이 비어 있거나 실패하여 MCP 직접 검색으로 대체했습니다.",
         tool_status=build_tool_status("fallback_direct_mcp", tool_payload.get("status")),
@@ -331,7 +447,14 @@ async def recommend_places_with_agent(
     request_data: AgentPlaceRecommendationRequest,
     db: Session | None = None,
 ) -> AgentPlaceRecommendationResponse:
-    rag_context = build_agent_rag_context(db=db, request_data=request_data)
+    similar_posts = find_agent_related_posts(db=db, request_data=request_data)
+    post_ids = [post["id"] for post in similar_posts]
+    comment_counts = get_comment_counts_by_post_id(db=db, post_ids=post_ids)
+    local_review_summary = build_local_review_summary(
+        similar_posts=similar_posts,
+        comment_counts=comment_counts,
+    )
+    rag_context = build_agent_rag_context(db=db, similar_posts=similar_posts)
 
     try:
         agent = await create_place_recommendation_agent()
@@ -344,6 +467,7 @@ async def recommend_places_with_agent(
                             "content": build_agent_user_message_with_context(
                                 request_data=request_data,
                                 rag_context=rag_context,
+                                local_review_summary=local_review_summary,
                             ),
                         }
                     ]
@@ -353,7 +477,10 @@ async def recommend_places_with_agent(
         )
     except Exception as exc:
         try:
-            return await recommend_places_with_mcp_fallback(request_data)
+            return await recommend_places_with_mcp_fallback(
+                request_data=request_data,
+                local_review_summary=local_review_summary,
+            )
         except AgentServiceError:
             raise AgentServiceError("Failed to run place recommendation Agent.") from exc
 
@@ -363,16 +490,20 @@ async def recommend_places_with_agent(
     used_mcp = bool(tool_payload)
 
     if not places:
-        return await recommend_places_with_mcp_fallback(request_data)
+        return await recommend_places_with_mcp_fallback(
+            request_data=request_data,
+            local_review_summary=local_review_summary,
+        )
 
     if not answer:
-        answer = "추천 결과를 생성하지 못했습니다."
+        answer = local_review_summary or "추천 결과를 생성하지 못했습니다."
 
     return AgentPlaceRecommendationResponse(
         answer=answer,
         used_mcp=used_mcp,
         query=tool_payload.get("query", ""),
         places=places,
+        local_review_summary=local_review_summary,
         fallback_map_url=tool_payload.get("fallback_map_url", ""),
         reasoning_summary=(
             "LangChain Agent가 RAG 참고 글과 MCP 장소 검색 도구를 함께 사용했습니다."

@@ -24,6 +24,7 @@ export type AgentPlaceRecommendationResponse = {
   used_mcp: boolean
   query: string
   places: AgentRecommendedPlace[]
+  local_review_summary: string
   fallback_map_url: string
   reasoning_summary: string
   tool_status: string

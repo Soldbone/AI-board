@@ -17,6 +17,7 @@ import {
   type PostListItem,
   type PostRead,
   type PostSort,
+  type PostTypeFilter,
 } from './api/postApi'
 import {
   getTagSuggestions,
@@ -32,6 +33,11 @@ import { SignupPage } from './pages/SignupPage'
 import { getAccessToken, removeAccessToken, saveAccessToken } from './utils/tokenStorage'
 
 type ViewMode = 'list' | 'login' | 'signup' | 'detail' | 'create' | 'edit' | 'profile'
+type HistoryMode = 'push' | 'replace' | 'none'
+type LocalBoardHistoryState = {
+  localBoardView?: ViewMode
+  postId?: number
+}
 
 type AuthFormState = { email: string; password: string; nickname: string }
 type ProfileFormState = { nickname: string; bio: string }
@@ -41,6 +47,7 @@ type PostFormState = {
   region: string
   store_name: string
   category: string
+  post_type: 'question' | 'review'
   tag_names: string
 }
 
@@ -52,7 +59,42 @@ const emptyPostForm: PostFormState = {
   region: '',
   store_name: '',
   category: '',
+  post_type: 'question',
   tag_names: '',
+}
+
+const viewModes: ViewMode[] = ['list', 'login', 'signup', 'detail', 'create', 'edit', 'profile']
+
+function isViewMode(value: unknown): value is ViewMode {
+  return typeof value === 'string' && viewModes.includes(value as ViewMode)
+}
+
+function readLocalBoardHistoryState(state: unknown): LocalBoardHistoryState {
+  if (!state || typeof state !== 'object') {
+    return { localBoardView: 'list' }
+  }
+
+  const historyState = state as LocalBoardHistoryState
+  return {
+    localBoardView: isViewMode(historyState.localBoardView)
+      ? historyState.localBoardView
+      : 'list',
+    postId: typeof historyState.postId === 'number' ? historyState.postId : undefined,
+  }
+}
+
+function updateBrowserHistory(view: ViewMode, mode: HistoryMode, postId?: number) {
+  if (mode === 'none' || typeof window === 'undefined') {
+    return
+  }
+
+  const state: LocalBoardHistoryState = { localBoardView: view, postId }
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', window.location.href)
+    return
+  }
+
+  window.history.pushState(state, '', window.location.href)
 }
 
 function getErrorMessage(error: unknown) {
@@ -75,6 +117,7 @@ function buildPostPayload(form: PostFormState): PostFormPayload {
     region: form.region.trim(),
     store_name: toNullable(form.store_name),
     category: toNullable(form.category),
+    post_type: form.post_type,
     tag_names: parseTagNames(form.tag_names),
   }
 }
@@ -113,6 +156,7 @@ function App() {
   const [keywordInput, setKeywordInput] = useState('')
   const [activeKeyword, setActiveKeyword] = useState('')
   const [activeTag, setActiveTag] = useState('')
+  const [activePostType, setActivePostType] = useState<PostTypeFilter>('all')
   const [activeSort, setActiveSort] = useState<PostSort>('latest')
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -146,9 +190,18 @@ function App() {
   }, [])
 
   const loadPosts = useCallback(
-    async (nextPage = 1, filters: { keyword?: string; tag?: string; sort?: PostSort } = {}) => {
+    async (
+      nextPage = 1,
+      filters: {
+        keyword?: string
+        tag?: string
+        postType?: PostTypeFilter
+        sort?: PostSort
+      } = {},
+    ) => {
       const keyword = filters.keyword ?? activeKeyword
       const tag = filters.tag ?? activeTag
+      const postType = filters.postType ?? activePostType
       const sort = filters.sort ?? activeSort
 
       setIsLoading(true)
@@ -160,6 +213,7 @@ function App() {
           size: 10,
           keyword: keyword || undefined,
           tag: tag || undefined,
+          post_type: postType === 'all' ? undefined : postType,
           sort,
         })
         setPosts(data.items)
@@ -173,7 +227,7 @@ function App() {
         setIsLoading(false)
       }
     },
-    [activeKeyword, activeTag, activeSort],
+    [activeKeyword, activeTag, activePostType, activeSort],
   )
 
   async function loadDetailSimilarPosts(post: PostRead) {
@@ -184,6 +238,7 @@ function App() {
       const data = await getSimilarPosts({
         title: post.title,
         content: post.content,
+        store_name: post.store_name,
         tag_names: buildDetailSimilarTagNames(post),
         limit: 5,
         exclude_post_id: post.id,
@@ -202,7 +257,7 @@ function App() {
   }
 
   useEffect(() => {
-    void loadPosts(1, { keyword: '', tag: '', sort: 'latest' })
+    void loadPosts(1, { keyword: '', tag: '', postType: 'all', sort: 'latest' })
     void loadTags()
   }, [loadPosts, loadTags])
 
@@ -240,7 +295,7 @@ function App() {
       saveAccessToken(tokenData.access_token)
       setAccessToken(tokenData.access_token)
       setAuthForm(emptyAuthForm)
-      setViewMode('list')
+      goList('replace')
       setMessage('로그인했습니다.')
     } catch (error) {
       setMessage(getErrorMessage(error))
@@ -269,7 +324,7 @@ function App() {
       saveAccessToken(tokenData.access_token)
       setAccessToken(tokenData.access_token)
       setAuthForm(emptyAuthForm)
-      setViewMode('list')
+      goList('replace')
       setMessage('회원가입 후 로그인했습니다.')
     } catch (error) {
       setMessage(getErrorMessage(error))
@@ -283,7 +338,7 @@ function App() {
     setAccessToken(null)
     setCurrentUser(null)
     setProfileForm(emptyProfileForm)
-    setViewMode('list')
+    goList('replace')
     setMessage('로그아웃했습니다.')
   }
 
@@ -315,7 +370,8 @@ function App() {
     }
   }
 
-  async function openDetail(postId: number) {
+  async function openDetail(postId: number, historyMode: HistoryMode = 'push') {
+    updateBrowserHistory('detail', historyMode, postId)
     setViewMode('detail')
     setSelectedPost(null)
     setComments([])
@@ -343,6 +399,7 @@ function App() {
 
   function openCreateForm() {
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('글쓰기는 로그인이 필요합니다.')
       return
@@ -357,6 +414,7 @@ function App() {
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
+    updateBrowserHistory('create', 'push')
     setViewMode('create')
     setMessage('')
   }
@@ -364,6 +422,7 @@ function App() {
   function openEditForm() {
     if (!selectedPost) return
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('게시글 수정은 로그인이 필요합니다.')
       return
@@ -375,8 +434,10 @@ function App() {
       region: selectedPost.region ?? '',
       store_name: selectedPost.store_name ?? '',
       category: selectedPost.category ?? '',
+      post_type: selectedPost.post_type,
       tag_names: '',
     })
+    updateBrowserHistory('edit', 'push', selectedPost.id)
     setViewMode('edit')
     setMessage('')
   }
@@ -384,6 +445,7 @@ function App() {
   async function handleCreatePost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('글쓰기는 로그인이 필요합니다.')
       return
@@ -405,7 +467,12 @@ function App() {
 
     try {
       const createdPost = await createPost(payload, accessToken)
-      await loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadPosts(1, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
       await loadTags()
       setSelectedPost(createdPost)
       setComments([])
@@ -413,6 +480,7 @@ function App() {
       setDetailSimilarPosts([])
       setDetailSimilarPostMessage('')
       void loadDetailSimilarPosts(createdPost)
+      updateBrowserHistory('detail', 'replace', createdPost.id)
       setViewMode('detail')
       setMessage('게시글을 등록했습니다.')
     } catch (error) {
@@ -425,6 +493,7 @@ function App() {
   async function handleUpdatePost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('게시글 수정은 로그인이 필요합니다.')
       return
@@ -446,12 +515,18 @@ function App() {
 
     try {
       const updatedPost = await updatePost(selectedPost.id, payload, accessToken)
-      await loadPosts(page, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadPosts(page, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
       setSelectedPost(updatedPost)
       setAgentRecommendation(null)
       setDetailSimilarPosts([])
       setDetailSimilarPostMessage('')
       void loadDetailSimilarPosts(updatedPost)
+      updateBrowserHistory('detail', 'replace', updatedPost.id)
       setViewMode('detail')
       setMessage('게시글을 수정했습니다.')
     } catch (error) {
@@ -464,6 +539,7 @@ function App() {
   async function handleCreateComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('댓글 작성은 로그인이 필요합니다.')
       return
@@ -498,6 +574,7 @@ function App() {
 
   async function handleDeletePost() {
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('게시글 삭제는 로그인이 필요합니다.')
       return
@@ -512,9 +589,14 @@ function App() {
 
     try {
       await deletePost(selectedPost.id, accessToken)
-      await loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadPosts(1, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
       await loadTags()
-      goList()
+      goList('replace')
       setMessage('게시글을 삭제했습니다.')
     } catch (error) {
       const errorMessage = getErrorMessage(error)
@@ -527,6 +609,7 @@ function App() {
 
   async function handleDeleteComment(commentId: number) {
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('댓글 삭제는 로그인이 필요합니다.')
       return
@@ -569,7 +652,7 @@ function App() {
         region: selectedPost.region,
         title: selectedPost.title,
         content: selectedPost.content,
-        keyword: selectedPost.category ?? selectedPost.store_name ?? null,
+        keyword: selectedPost.store_name ?? selectedPost.category ?? null,
         display: 3,
       })
       setAgentRecommendation(recommendation)
@@ -585,7 +668,12 @@ function App() {
     event.preventDefault()
     const nextKeyword = keywordInput.trim()
     setActiveKeyword(nextKeyword)
-    void loadPosts(1, { keyword: nextKeyword, tag: activeTag, sort: activeSort })
+    void loadPosts(1, {
+      keyword: nextKeyword,
+      tag: activeTag,
+      postType: activePostType,
+      sort: activeSort,
+    })
   }
 
   function selectSuggestion(suggestion: TagSuggestion) {
@@ -594,22 +682,44 @@ function App() {
     setActiveTag(nextTag)
     setActiveKeyword('')
     setKeywordInput('')
-    void loadPosts(1, { keyword: '', tag: nextTag, sort: activeSort })
+    void loadPosts(1, {
+      keyword: '',
+      tag: nextTag,
+      postType: activePostType,
+      sort: activeSort,
+    })
   }
 
   function changeSort(nextSort: PostSort) {
     setActiveSort(nextSort)
-    void loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: nextSort })
+    void loadPosts(1, {
+      keyword: activeKeyword,
+      tag: activeTag,
+      postType: activePostType,
+      sort: nextSort,
+    })
+  }
+
+  function changePostType(nextPostType: PostTypeFilter) {
+    setActivePostType(nextPostType)
+    void loadPosts(1, {
+      keyword: activeKeyword,
+      tag: activeTag,
+      postType: nextPostType,
+      sort: activeSort,
+    })
   }
 
   function clearFilters() {
     setKeywordInput('')
     setActiveKeyword('')
     setActiveTag('')
-    void loadPosts(1, { keyword: '', tag: '', sort: activeSort })
+    setActivePostType('all')
+    void loadPosts(1, { keyword: '', tag: '', postType: 'all', sort: activeSort })
   }
 
-  function goList() {
+  function goList(historyMode: HistoryMode = 'replace') {
+    updateBrowserHistory('list', historyMode)
     setViewMode('list')
     setSelectedPost(null)
     setComments([])
@@ -619,6 +729,30 @@ function App() {
     setMessage('')
   }
 
+  useEffect(() => {
+    updateBrowserHistory('list', 'replace')
+
+    function handlePopState(event: PopStateEvent) {
+      const historyState = readLocalBoardHistoryState(event.state)
+
+      if (historyState.localBoardView === 'detail' && historyState.postId) {
+        void openDetail(historyState.postId, 'none')
+        return
+      }
+
+      if (historyState.localBoardView === 'list' || !historyState.localBoardView) {
+        goList('none')
+        return
+      }
+
+      setViewMode(historyState.localBoardView)
+      setMessage('')
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   function renderHeaderActions() {
     if (currentUser) {
       return (
@@ -626,7 +760,7 @@ function App() {
           <span className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
             {currentUser.nickname}님
           </span>
-          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('profile'); setMessage('') }} type="button">
+          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('profile', 'push'); setViewMode('profile'); setMessage('') }} type="button">
             마이페이지
           </button>
           <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={handleLogout} type="button">
@@ -638,10 +772,10 @@ function App() {
 
     return (
       <>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('login'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('login', 'push'); setViewMode('login'); setMessage('') }} type="button">
           로그인
         </button>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('signup'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('signup', 'push'); setViewMode('signup'); setMessage('') }} type="button">
           회원가입
         </button>
       </>
@@ -654,7 +788,7 @@ function App() {
         <header className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur-md">
           <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <button className="text-left" onClick={goList} type="button">
+              <button className="text-left" onClick={() => goList('replace')} type="button">
                 <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                   Local Board
                 </span>
@@ -666,7 +800,7 @@ function App() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {renderHeaderActions()}
-                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page, { sort: activeSort }) }} type="button">
+                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { goList('replace'); void loadPosts(page, { postType: activePostType, sort: activeSort }) }} type="button">
                   목록
                 </button>
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!hasAccessToken} onClick={openCreateForm} type="button">
@@ -683,15 +817,17 @@ function App() {
           <PostListPage
             activeTag={activeTag}
             activeKeyword={activeKeyword}
+            activePostType={activePostType}
             formatDate={formatDate}
             isLoading={isLoading}
             keywordInput={keywordInput}
             onClearFilters={clearFilters}
             onKeywordInputChange={setKeywordInput}
-            onLoadPage={(nextPage) => void loadPosts(nextPage, { sort: activeSort })}
+            onLoadPage={(nextPage) => void loadPosts(nextPage, { postType: activePostType, sort: activeSort })}
             onOpenDetail={(postId) => void openDetail(postId)}
             onSearchSubmit={handleSearchSubmit}
             onSelectSuggestion={selectSuggestion}
+            onPostTypeChange={changePostType}
             onSortChange={changeSort}
             page={page}
             posts={posts}
@@ -706,7 +842,7 @@ function App() {
             form={{ email: authForm.email, password: authForm.password }}
             isLoading={isLoading}
             onChange={updateAuthForm}
-            onGoSignup={() => { setViewMode('signup'); setMessage('') }}
+            onGoSignup={() => { updateBrowserHistory('signup', 'replace'); setViewMode('signup'); setMessage('') }}
             onSubmit={handleLoginSubmit}
           />
         )}
@@ -716,7 +852,7 @@ function App() {
             form={authForm}
             isLoading={isLoading}
             onChange={updateAuthForm}
-            onGoLogin={() => { setViewMode('login'); setMessage('') }}
+            onGoLogin={() => { updateBrowserHistory('login', 'replace'); setViewMode('login'); setMessage('') }}
             onSubmit={handleSignupSubmit}
           />
         )}
@@ -756,7 +892,15 @@ function App() {
             form={postForm}
             isLoading={isLoading}
             mode={viewMode}
-            onCancel={() => { setViewMode(selectedPost ? 'detail' : 'list'); setMessage('') }}
+            onCancel={() => {
+              if (selectedPost) {
+                updateBrowserHistory('detail', 'replace', selectedPost.id)
+                setViewMode('detail')
+              } else {
+                goList('replace')
+              }
+              setMessage('')
+            }}
             onChange={updatePostForm}
             onOpenSimilarPost={(postId) => void openDetail(postId)}
             onSubmit={viewMode === 'create' ? handleCreatePost : handleUpdatePost}

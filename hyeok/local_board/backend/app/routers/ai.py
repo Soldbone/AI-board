@@ -26,6 +26,7 @@ def get_similar_posts(
         db=db,
         title=request_data.title,
         content=request_data.content,
+        store_name=request_data.store_name,
         tag_names=request_data.tag_names,
         limit=request_data.limit,
         exclude_post_id=request_data.exclude_post_id,

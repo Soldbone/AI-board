@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
+
+PostType = Literal["question", "review"]
 
 class PostCreate(BaseModel):
     title: str
@@ -8,6 +11,7 @@ class PostCreate(BaseModel):
     region: str
     store_name: str | None = None
     category: str | None = None
+    post_type: PostType = "question"
     tag_names: list[str] = []
 
     @field_validator("region")
@@ -26,6 +30,7 @@ class PostUpdate(BaseModel):
     region: str | None = None
     store_name: str | None = None
     category: str | None = None
+    post_type: PostType | None = None
     tag_names: list[str] | None = None
 
     @field_validator("region")
@@ -50,6 +55,7 @@ class PostRead(BaseModel):
     region: str | None
     store_name: str | None
     category: str | None
+    post_type: PostType
     view_count: int
     comment_count: int = 0
     created_at: datetime
@@ -67,6 +73,7 @@ class PostListItem(BaseModel):
     region: str | None
     store_name: str | None
     category: str | None
+    post_type: PostType
     view_count: int
     comment_count: int = 0
     created_at: datetime

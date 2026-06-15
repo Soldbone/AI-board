@@ -12,6 +12,8 @@ from app.models.tag import Tag, post_tags
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
+ALLOWED_POST_TYPES = {"question", "review"}
+
 
 def normalize_tag_names(tag_names: list[str]) -> list[str]:
     normalized_names = []
@@ -72,6 +74,7 @@ def create_post(
         region=post_data.region,
         store_name=post_data.store_name,
         category=post_data.category,
+        post_type=post_data.post_type,
     )
 
     db.add(new_post)
@@ -104,6 +107,7 @@ def create_post(
 def read_posts(
     keyword: str | None = None,
     tag: str | None = None,
+    post_type: str | None = None,
     sort: str = "latest",
     page: int = 1,
     size: int = 10,
@@ -118,6 +122,17 @@ def read_posts(
         )
 
     query = db.query(Post).filter(Post.deleted_at.is_(None))
+
+    if post_type and post_type.strip():
+        normalized_post_type = post_type.strip()
+
+        if normalized_post_type not in ALLOWED_POST_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="post_type은 question 또는 review 중 하나여야 합니다.",
+            )
+
+        query = query.filter(Post.post_type == normalized_post_type)
 
     if keyword and keyword.strip():
         search_keyword = f"%{keyword.strip()}%"
@@ -201,6 +216,7 @@ def read_posts(
             "region": post.region,
             "store_name": post.store_name,
             "category": post.category,
+            "post_type": post.post_type,
             "view_count": post.view_count,
             "comment_count": comment_count,
             "created_at": post.created_at,
@@ -249,6 +265,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         "region": post.region,
         "store_name": post.store_name,
         "category": post.category,
+        "post_type": post.post_type,
         "view_count": post.view_count,
         "comment_count": comment_count,
         "created_at": post.created_at,
@@ -295,6 +312,9 @@ def update_post(
 
     if post_data.category is not None:
         post.category = post_data.category
+
+    if post_data.post_type is not None:
+        post.post_type = post_data.post_type
 
     db.commit()
     db.refresh(post)

@@ -13,6 +13,10 @@ function buildFallbackMapUrl(place: AgentRecommendedPlace, region?: string | nul
   return `https://map.naver.com/p/search/${encodeURIComponent(query || place.title)}`
 }
 
+function getPostTypeLabel(postType: PostRead['post_type']) {
+  return postType === 'review' ? '실제후기' : '질문'
+}
+
 type PostDetailPageProps = {
   post: PostRead | null
   comments: CommentRead[]
@@ -89,6 +93,15 @@ export function PostDetailPage({
       <article>
         <header className="border-b border-slate-200 pb-8">
           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs">
+            <span
+              className={`rounded-full px-2.5 py-1 font-semibold ${
+                post.post_type === 'review'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-sky-100 text-sky-800'
+              }`}
+            >
+              {getPostTypeLabel(post.post_type)}
+            </span>
             {post.region && (
               <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">
                 {post.region}
@@ -154,7 +167,7 @@ export function PostDetailPage({
             <span className="h-5 w-1 rounded-full bg-slate-900" aria-hidden="true" />
             <h3 className="text-base font-bold text-slate-950">본문</h3>
           </div>
-          <p className="whitespace-pre-wrap break-words text-base leading-8 text-slate-800">
+          <p className="min-h-32 whitespace-pre-wrap break-words text-base leading-8 text-slate-800 md:min-h-40">
             {post.content}
           </p>
         </section>
@@ -242,7 +255,7 @@ export function PostDetailPage({
             <p className="text-xs font-bold uppercase text-emerald-700">
               AI 추천
             </p>
-            <h3 className="mt-1 text-xl font-bold text-slate-950">네이버 기반 장소 추천</h3>
+            <h3 className="mt-1 text-xl font-bold text-slate-950">AI 장소 추천</h3>
           </div>
 
           <button
@@ -257,8 +270,29 @@ export function PostDetailPage({
 
         {agentRecommendation && (
           <div className="mt-6">
+            {(agentRecommendation.answer || agentRecommendation.local_review_summary) && (
+              <section className="border-y border-slate-200 py-5">
+                <p className="text-xs font-bold uppercase text-emerald-700">
+                  DB 기반 평가
+                </p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                  {agentRecommendation.answer || agentRecommendation.local_review_summary}
+                </p>
+              </section>
+            )}
+
             {agentRecommendation.places.length > 0 && (
-              <div className="divide-y divide-slate-200 border-y border-slate-200">
+              <div className="mt-6">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-950">장소 추천</h4>
+                  {agentRecommendation.query && (
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+                      {agentRecommendation.query}
+                    </span>
+                  )}
+                </div>
+
+                <div className="divide-y divide-slate-200 border-y border-slate-200">
                 {agentRecommendation.places.map((place) => {
                   const mapUrl = place.naver_map_url || buildFallbackMapUrl(place, post.region)
 
@@ -324,6 +358,7 @@ export function PostDetailPage({
                     </article>
                   )
                 })}
+                </div>
               </div>
             )}
 

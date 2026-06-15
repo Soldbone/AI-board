@@ -1,5 +1,6 @@
 import re
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.comment import Comment
@@ -10,6 +11,15 @@ from app.models.tag import Tag, post_tags
 DEFAULT_SIMILAR_POST_LIMIT = 5
 MAX_SIMILAR_POST_LIMIT = 5
 SEARCH_CANDIDATE_LIMIT = 100
+MIN_KEYWORD_LENGTH = 2
+NOUN_TAGS = {"NNG", "NNP", "SL", "SN"}
+
+try:
+    from kiwipiepy import Kiwi
+except ImportError:
+    Kiwi = None
+
+_kiwi = Kiwi() if Kiwi is not None else None
 
 STOPWORDS = {
     "그리고",
@@ -78,6 +88,36 @@ STOPWORDS = {
     "괜찮은",
     "괜찮나요",
     "추천좀",
+    "기준",
+    "만족도",
+    "무난",
+    "기본",
+    "정말",
+    "먼저",
+    "후보",
+    "정보",
+    "확인",
+    "지도",
+    "링크",
+    "위치",
+    "접근성",
+    "분위기",
+    "직원",
+    "응대",
+    "친절",
+    "처음",
+    "피크",
+    "주말",
+    "평일",
+    "방문전",
+    "방문전에",
+    "가려는데",
+    "찾습니다",
+    "찾다가",
+    "보고",
+    "보입니다",
+    "같아요",
+    "좋아요",
 }
 
 STOPWORD_SUFFIXES = (
@@ -128,6 +168,14 @@ def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def compact_keyword(value: str) -> str:
+    return re.sub(r"\s+", "", normalize_keyword(value))
+
+
+def is_valid_keyword(value: str) -> bool:
+    return len(value) >= MIN_KEYWORD_LENGTH and not is_stopword(value)
+
+
 def is_stopword(value: str) -> bool:
     if value in STOPWORDS:
         return True
@@ -141,33 +189,94 @@ def is_stopword(value: str) -> bool:
     return False
 
 
-def extract_keywords(
-    title: str,
-    content: str,
-    tag_names: list[str] | None = None,
-    limit: int = 20,
-) -> list[str]:
-    raw_text = f"{title} {content}"
-    words = re.findall(r"[0-9a-zA-Z가-힣]+", raw_text.lower())
+def append_keyword(keywords: list[str], value: str) -> None:
+    cleaned_value = normalize_keyword(value)
+
+    if is_valid_keyword(cleaned_value) and cleaned_value not in keywords:
+        keywords.append(cleaned_value)
+
+
+def extract_regex_keywords(value: str) -> list[str]:
+    return re.findall(r"[0-9a-zA-Z가-힣]+", value.lower())
+
+
+def extract_noun_keywords(value: str) -> list[str]:
+    if _kiwi is None:
+        return extract_regex_keywords(value)
+
     keywords: list[str] = []
 
-    for word in words:
-        cleaned_word = normalize_keyword(word)
+    for token in _kiwi.tokenize(value.lower()):
+        if token.tag not in NOUN_TAGS:
+            continue
+        append_keyword(keywords, token.form)
 
-        if (
-            len(cleaned_word) >= 2
-            and not is_stopword(cleaned_word)
-            and cleaned_word not in keywords
-        ):
-            keywords.append(cleaned_word)
+    return keywords
+
+
+def extract_tag_keywords(tag_names: list[str] | None) -> list[str]:
+    keywords: list[str] = []
 
     for tag_name in tag_names or []:
         cleaned_tag = normalize_keyword(tag_name)
 
-        if len(cleaned_tag) >= 2 and cleaned_tag not in keywords:
-            keywords.append(cleaned_tag)
+        if not re.search(r"[>/,|]+", cleaned_tag):
+            append_keyword(keywords, cleaned_tag)
+
+        tag_parts = re.split(r"[\s>/,|]+", cleaned_tag)
+        for tag_part in tag_parts:
+            append_keyword(keywords, tag_part)
+
+        for noun_keyword in extract_noun_keywords(cleaned_tag):
+            append_keyword(keywords, noun_keyword)
+
+    return keywords
+
+
+def extract_keywords(
+    title: str,
+    content: str,
+    store_name: str | None = None,
+    tag_names: list[str] | None = None,
+    limit: int = 20,
+) -> list[str]:
+    raw_text = f"{title} {content} {store_name or ''}"
+    keywords: list[str] = []
+
+    for keyword in extract_noun_keywords(raw_text):
+        append_keyword(keywords, keyword)
+
+    if store_name:
+        append_keyword(keywords, store_name)
+
+    for keyword in extract_tag_keywords(tag_names):
+        append_keyword(keywords, keyword)
 
     return keywords[:limit]
+
+
+def contains_store_name(
+    store_name: str | None,
+    post: Post,
+    tag_names: list[str],
+    comment_text: str,
+) -> bool:
+    if not store_name:
+        return True
+
+    normalized_store_name = normalize_keyword(store_name)
+    compact_store_name = compact_keyword(store_name)
+
+    if len(compact_store_name) < MIN_KEYWORD_LENGTH:
+        return True
+
+    searchable_text = build_searchable_text(post, tag_names, comment_text)
+    compact_searchable_text = compact_keyword(searchable_text)
+
+    return (
+        normalized_store_name in searchable_text
+        or compact_store_name in compact_searchable_text
+    )
 
 
 def calculate_match_detail(
@@ -241,10 +350,11 @@ def find_similar_posts(
     title: str,
     content: str,
     tag_names: list[str],
+    store_name: str | None = None,
     limit: int = DEFAULT_SIMILAR_POST_LIMIT,
     exclude_post_id: int | None = None,
 ):
-    keywords = extract_keywords(title, content, tag_names)
+    keywords = extract_keywords(title, content, store_name, tag_names)
 
     if not keywords:
         return []
@@ -253,6 +363,16 @@ def find_similar_posts(
 
     if exclude_post_id is not None:
         query = query.filter(Post.id != exclude_post_id)
+
+    if store_name:
+        store_name_pattern = f"%{store_name.strip()}%"
+        query = query.filter(
+            or_(
+                Post.store_name.ilike(store_name_pattern),
+                Post.title.ilike(store_name_pattern),
+                Post.content.ilike(store_name_pattern),
+            )
+        )
 
     posts = (
         query
@@ -266,6 +386,9 @@ def find_similar_posts(
     for post in posts:
         post_tag_names = get_post_tag_names(db, post.id)
         comment_text = get_post_comment_text(db, post.id)
+        if not contains_store_name(store_name, post, post_tag_names, comment_text):
+            continue
+
         searchable_text = build_searchable_text(post, post_tag_names, comment_text)
 
         matched_keywords = [

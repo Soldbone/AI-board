@@ -53,6 +53,7 @@ class AgentPlaceRecommendationResponse(BaseModel):
     used_mcp: bool
     query: str = ""
     places: list[AgentRecommendedPlace] = Field(default_factory=list)
+    local_review_summary: str = ""
     fallback_map_url: str = ""
     reasoning_summary: str = ""
     tool_status: str = ""

@@ -3,6 +3,7 @@ import { apiPost } from './client'
 export type SimilarPostRequest = {
   title: string
   content: string
+  store_name?: string | null
   tag_names: string[]
   limit?: number
   exclude_post_id?: number

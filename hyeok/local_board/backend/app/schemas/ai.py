@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class SimilarPostRequest(BaseModel):
     title: str = ""
     content: str = ""
+    store_name: str | None = None
     tag_names: list[str] = Field(default_factory=list)
     limit: int = Field(default=5, ge=1, le=5)
     exclude_post_id: int | None = None
