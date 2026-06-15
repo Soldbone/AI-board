@@ -26,8 +26,24 @@ import {
   signup as signupUser,
 } from '@/api/auth';
 import { ApiRequestError, clearApiSession } from '@/api/client';
-import { listComments } from '@/api/comments';
-import { getPost, incrementPostView, listPosts, listTags } from '@/api/posts';
+import {
+  createComment,
+  createReply,
+  deleteComment,
+  listComments,
+  updateComment,
+} from '@/api/comments';
+import {
+  createPost,
+  deletePost,
+  getPost,
+  incrementPostView,
+  likePost,
+  listPosts,
+  listTags,
+  unlikePost,
+  updatePost,
+} from '@/api/posts';
 import { getVideo } from '@/api/videos';
 import type {
   AiAnalysisStatus,
@@ -56,6 +72,7 @@ import { cn } from '@/lib/utils';
 type Route =
   | { name: 'posts' }
   | { name: 'post-detail'; postId: string }
+  | { name: 'post-edit'; postId: string }
   | { name: 'login' }
   | { name: 'signup' }
   | { name: 'new-post' }
@@ -84,6 +101,11 @@ type SessionState =
 
 type LogoutState = 'idle' | 'submitting';
 
+type WriteNotice = {
+  tone: 'destructive' | 'info' | 'success';
+  message: string;
+};
+
 const POSTS_LIMIT = 20;
 const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
 
@@ -93,6 +115,9 @@ function parseRoute(pathname: string): Route {
   if (pathname === '/signup') return { name: 'signup' };
   if (pathname === '/posts/new') return { name: 'new-post' };
   if (pathname === '/admin/comments') return { name: 'admin-comments' };
+
+  const postEditMatch = pathname.match(/^\/posts\/([^/]+)\/edit$/);
+  if (postEditMatch) return { name: 'post-edit', postId: postEditMatch[1] };
 
   const postMatch = pathname.match(/^\/posts\/([^/]+)$/);
   if (postMatch) return { name: 'post-detail', postId: postMatch[1] };
@@ -226,7 +251,16 @@ function renderRoute(
     case 'posts':
       return <PostsIndex locationSearch={locationSearch} navigate={navigate} />;
     case 'post-detail':
-      return <PostDetail navigate={navigate} postId={route.postId} />;
+      return (
+        <PostDetail
+          locationSearch={locationSearch}
+          navigate={navigate}
+          postId={route.postId}
+          session={session}
+        />
+      );
+    case 'post-edit':
+      return <PostEditor mode="edit" navigate={navigate} postId={route.postId} session={session} />;
     case 'login':
       return (
         <AuthScreen
@@ -248,7 +282,7 @@ function renderRoute(
         />
       );
     case 'new-post':
-      return <PostEditorPlaceholder navigate={navigate} session={session} />;
+      return <PostEditor mode="create" navigate={navigate} session={session} />;
     case 'admin-comments':
       return <AdminCommentsPlaceholder navigate={navigate} session={session} />;
     case 'not-found':
@@ -737,7 +771,17 @@ function PaginationControls({
   );
 }
 
-function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }) {
+function PostDetail({
+  locationSearch,
+  navigate,
+  postId,
+  session,
+}: {
+  locationSearch: string;
+  navigate: Navigate;
+  postId: string;
+  session: SessionState;
+}) {
   const viewedPostIdRef = useRef<string | null>(null);
   const [postState, setPostState] = useState<AsyncState<PostResponse>>({
     status: 'idle',
@@ -758,6 +802,11 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
   const [postReloadKey, setPostReloadKey] = useState(0);
   const [commentsReloadKey, setCommentsReloadKey] = useState(0);
   const [videoReloadKey, setVideoReloadKey] = useState(0);
+  const [postActionStatus, setPostActionStatus] = useState<
+    'idle' | 'deleting' | 'liking' | 'unliking'
+  >('idle');
+  const [postActionNotice, setPostActionNotice] = useState<WriteNotice | null>(null);
+  const [sessionLikedPostIds, setSessionLikedPostIds] = useState<string[]>([]);
 
   useEffect(() => {
     let ignore = false;
@@ -905,6 +954,100 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
     return <PostDetailLoading navigate={navigate} />;
   }
 
+  const canManagePost = session.status === 'authenticated' && session.user.id === post.author.id;
+  const routeNotice = getPostRouteNotice(locationSearch);
+  const isSessionLiked = sessionLikedPostIds.includes(post.id);
+  const isLikeBusy = postActionStatus === 'liking' || postActionStatus === 'unliking';
+
+  const handleDeletePost = async () => {
+    if (postActionStatus === 'deleting') return;
+    if (
+      !window.confirm('게시글을 삭제할까요? 삭제된 게시글은 목록과 상세에서 노출되지 않습니다.')
+    ) {
+      return;
+    }
+
+    setPostActionStatus('deleting');
+    setPostActionNotice(null);
+
+    try {
+      await deletePost(post.id);
+      navigate(DEFAULT_AUTH_REDIRECT);
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setPostActionNotice);
+    } finally {
+      setPostActionStatus('idle');
+    }
+  };
+
+  const handleLikePost = async () => {
+    if (session.status !== 'authenticated') {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    if (isLikeBusy) return;
+
+    setPostActionStatus('liking');
+    setPostActionNotice(null);
+
+    try {
+      const response = await likePost(post.id);
+
+      setSessionLikedPostIds((current) =>
+        current.includes(post.id) ? current : [...current, post.id],
+      );
+      setPostState((current) => {
+        if (current.status !== 'success' || current.data.id !== post.id) return current;
+
+        return {
+          status: 'success',
+          data: { ...current.data, likeCount: response.likeCount },
+          error: null,
+        };
+      });
+      setPostActionNotice({ tone: 'success', message: '좋아요를 반영했습니다.' });
+    } catch (error: unknown) {
+      if (error instanceof ApiRequestError && error.status === 409) {
+        setSessionLikedPostIds((current) =>
+          current.includes(post.id) ? current : [...current, post.id],
+        );
+        setPostActionNotice({
+          tone: 'info',
+          message: '이미 좋아요한 게시글입니다. 현재 세션에서는 취소할 수 있습니다.',
+        });
+        setPostReloadKey((key) => key + 1);
+      } else {
+        handleWriteError(error, navigate, setPostActionNotice);
+      }
+    } finally {
+      setPostActionStatus('idle');
+    }
+  };
+
+  const handleUnlikePost = async () => {
+    if (session.status !== 'authenticated') {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    if (isLikeBusy) return;
+
+    setPostActionStatus('unliking');
+    setPostActionNotice(null);
+
+    try {
+      await unlikePost(post.id);
+      setSessionLikedPostIds((current) => current.filter((postId) => postId !== post.id));
+      setPostActionNotice({ tone: 'success', message: '좋아요를 취소했습니다.' });
+      setPostReloadKey((key) => key + 1);
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setPostActionNotice);
+    } finally {
+      setPostActionStatus('idle');
+    }
+  };
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Post detail">
@@ -918,7 +1061,23 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
           목록
         </Button>
 
-        <PostDetailHeader post={post} />
+        {routeNotice && <InlineNotice message={routeNotice.message} tone={routeNotice.tone} />}
+        {postActionNotice && (
+          <InlineNotice message={postActionNotice.message} tone={postActionNotice.tone} />
+        )}
+
+        <PostDetailHeader
+          canManagePost={canManagePost}
+          isDeleting={postActionStatus === 'deleting'}
+          isLikeBusy={isLikeBusy}
+          isSessionLiked={isSessionLiked}
+          navigate={navigate}
+          onDelete={handleDeletePost}
+          onLike={handleLikePost}
+          onUnlike={handleUnlikePost}
+          post={post}
+          session={session}
+        />
 
         <PostVideoSection
           fallbackVideo={post.video}
@@ -929,7 +1088,14 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
         <PostBody post={post} />
 
         <CommentsSection
+          navigate={navigate}
+          onChanged={() => {
+            setCommentsReloadKey((key) => key + 1);
+            setPostReloadKey((key) => key + 1);
+          }}
           onRetry={() => setCommentsReloadKey((key) => key + 1)}
+          postId={post.id}
+          session={session}
           state={commentsState}
         />
       </section>
@@ -1028,7 +1194,29 @@ function PostDetailNotFound({ navigate }: { navigate: Navigate }) {
   );
 }
 
-function PostDetailHeader({ post }: { post: PostResponse }) {
+function PostDetailHeader({
+  canManagePost,
+  isDeleting,
+  isLikeBusy,
+  isSessionLiked,
+  navigate,
+  onDelete,
+  onLike,
+  onUnlike,
+  post,
+  session,
+}: {
+  canManagePost: boolean;
+  isDeleting: boolean;
+  isLikeBusy: boolean;
+  isSessionLiked: boolean;
+  navigate: Navigate;
+  onDelete: () => void;
+  onLike: () => void;
+  onUnlike: () => void;
+  post: PostResponse;
+  session: SessionState;
+}) {
   const videoSummary = getVideoProcessingSummary(post.video);
 
   return (
@@ -1060,6 +1248,44 @@ function PostDetailHeader({ post }: { post: PostResponse }) {
           ))}
         </div>
       )}
+
+      {canManagePost && (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => navigate(`/posts/${post.id}/edit`)} size="sm" variant="outline">
+            <FileText className="size-4" aria-hidden="true" />
+            수정
+          </Button>
+          <Button disabled={isDeleting} onClick={onDelete} size="sm" variant="destructive">
+            <Trash2 className="size-4" aria-hidden="true" />
+            {isDeleting ? '삭제 중' : '삭제'}
+          </Button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {session.status === 'authenticated' ? (
+          isSessionLiked ? (
+            <Button disabled={isLikeBusy} onClick={onUnlike} size="sm" variant="outline">
+              <Heart className="size-4" aria-hidden="true" />
+              {isLikeBusy ? '처리 중' : '좋아요 취소'}
+            </Button>
+          ) : (
+            <Button disabled={isLikeBusy} onClick={onLike} size="sm" variant="outline">
+              <Heart className="size-4" aria-hidden="true" />
+              {isLikeBusy ? '처리 중' : '좋아요'}
+            </Button>
+          )
+        ) : (
+          <Button
+            onClick={() => navigate(buildLoginPath(getCurrentPath()))}
+            size="sm"
+            variant="outline"
+          >
+            <Heart className="size-4" aria-hidden="true" />
+            로그인 후 좋아요
+          </Button>
+        )}
+      </div>
     </header>
   );
 }
@@ -1225,14 +1451,59 @@ function PostBody({ post }: { post: PostResponse }) {
 }
 
 function CommentsSection({
+  navigate,
+  onChanged,
   onRetry,
+  postId,
+  session,
   state,
 }: {
+  navigate: Navigate;
+  onChanged: () => void;
   onRetry: () => void;
+  postId: string;
+  session: SessionState;
   state: AsyncState<CommentResponse[]>;
 }) {
   const comments = state.data ?? [];
   const totalCommentCount = countComments(comments);
+  const [content, setContent] = useState('');
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+  const canWrite = session.status === 'authenticated';
+
+  const handleCreateComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!canWrite) {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    const trimmedContent = content.trim();
+
+    if (!trimmedContent) {
+      setNotice({ tone: 'destructive', message: '댓글 내용을 입력해 주세요.' });
+      return;
+    }
+
+    setSubmitStatus('submitting');
+    setNotice(null);
+
+    try {
+      await createComment(postId, { content: trimmedContent });
+      setContent('');
+      setNotice({
+        tone: 'success',
+        message: '댓글이 등록되었습니다. AI 분석은 별도로 진행됩니다.',
+      });
+      onChanged();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setSubmitStatus('idle');
+    }
+  };
 
   return (
     <section
@@ -1248,11 +1519,47 @@ function CommentsSection({
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="muted">{totalCommentCount.toLocaleString()}개</Badge>
-          <Button disabled size="sm" variant="outline">
-            댓글 작성
-          </Button>
+          {!canWrite && (
+            <Button
+              onClick={() => navigate(buildLoginPath(getCurrentPath()))}
+              size="sm"
+              variant="outline"
+            >
+              로그인 후 댓글
+            </Button>
+          )}
         </div>
       </div>
+
+      {canWrite && (
+        <form
+          className="grid gap-3 rounded-lg border border-border bg-muted/40 p-3"
+          onSubmit={handleCreateComment}
+        >
+          <label className="grid gap-2 text-sm font-medium">
+            새 댓글
+            <Textarea
+              disabled={submitStatus === 'submitting'}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="토론에 참여할 의견이나 질문을 남깁니다."
+              value={content}
+            />
+          </label>
+          {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+          <div className="flex justify-end">
+            <Button disabled={submitStatus === 'submitting'} size="sm" type="submit">
+              <Send className="size-4" aria-hidden="true" />
+              {submitStatus === 'submitting' ? '등록 중' : '댓글 등록'}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {!canWrite && (
+        <p className="rounded-lg border border-border bg-muted p-3 text-sm leading-6 text-muted-foreground">
+          로그인하면 댓글과 대댓글을 작성할 수 있습니다.
+        </p>
+      )}
 
       {state.status === 'loading' && comments.length === 0 && <CommentsLoading />}
 
@@ -1281,7 +1588,13 @@ function CommentsSection({
             </div>
           )}
           {comments.map((comment) => (
-            <CommentThread comment={comment} key={comment.id} />
+            <CommentThread
+              comment={comment}
+              key={comment.id}
+              navigate={navigate}
+              onChanged={onChanged}
+              session={session}
+            />
           ))}
         </div>
       )}
@@ -1309,23 +1622,155 @@ function CommentsLoading() {
   );
 }
 
-function CommentThread({ comment }: { comment: CommentResponse }) {
+function CommentThread({
+  comment,
+  navigate,
+  onChanged,
+  session,
+}: {
+  comment: CommentResponse;
+  navigate: Navigate;
+  onChanged: () => void;
+  session: SessionState;
+}) {
   const replies = comment.replies ?? [];
 
   return (
     <div className="grid gap-3">
-      <CommentItem comment={comment} level={0} />
+      <CommentItem
+        comment={comment}
+        level={0}
+        navigate={navigate}
+        onChanged={onChanged}
+        session={session}
+      />
       {replies.map((reply) => (
-        <CommentItem comment={reply} key={reply.id} level={1} />
+        <CommentItem
+          comment={reply}
+          key={reply.id}
+          level={1}
+          navigate={navigate}
+          onChanged={onChanged}
+          session={session}
+        />
       ))}
     </div>
   );
 }
 
-function CommentItem({ comment, level }: { comment: CommentResponse; level: 0 | 1 }) {
+function CommentItem({
+  comment,
+  level,
+  navigate,
+  onChanged,
+  session,
+}: {
+  comment: CommentResponse;
+  level: 0 | 1;
+  navigate: Navigate;
+  onChanged: () => void;
+  session: SessionState;
+}) {
   const isReply = level === 1;
   const isDeleted = comment.isDeleted || comment.moderationStatus === 'DELETED_BY_ADMIN';
   const moderationBadge = getModerationStatusLabel(comment.moderationStatus);
+  const canWrite = session.status === 'authenticated';
+  const canManageComment = canWrite && session.user.id === comment.author.id && !isDeleted;
+  const canReply = canWrite && !isReply && !isDeleted;
+  const [mode, setMode] = useState<'idle' | 'reply' | 'edit'>('idle');
+  const [replyContent, setReplyContent] = useState('');
+  const [editContent, setEditContent] = useState(comment.content);
+  const [actionStatus, setActionStatus] = useState<'idle' | 'submitting' | 'deleting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+
+  useEffect(() => {
+    setEditContent(comment.content);
+    setMode('idle');
+    setReplyContent('');
+    setNotice(null);
+  }, [comment.content, comment.id]);
+
+  const handleCreateReply = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!canWrite) {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    const trimmedContent = replyContent.trim();
+
+    if (!trimmedContent) {
+      setNotice({ tone: 'destructive', message: '대댓글 내용을 입력해 주세요.' });
+      return;
+    }
+
+    setActionStatus('submitting');
+    setNotice(null);
+
+    try {
+      await createReply(comment.id, { content: trimmedContent });
+      setReplyContent('');
+      setMode('idle');
+      setNotice({
+        tone: 'success',
+        message: '댓글이 등록되었습니다. AI 분석은 별도로 진행됩니다.',
+      });
+      onChanged();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setActionStatus('idle');
+    }
+  };
+
+  const handleUpdateComment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedContent = editContent.trim();
+
+    if (!trimmedContent) {
+      setNotice({ tone: 'destructive', message: '댓글 내용을 입력해 주세요.' });
+      return;
+    }
+
+    setActionStatus('submitting');
+    setNotice(null);
+
+    try {
+      await updateComment(comment.id, { content: trimmedContent });
+      setMode('idle');
+      setNotice({
+        tone: 'success',
+        message: '댓글이 수정되었습니다. AI 분석은 다시 진행될 수 있습니다.',
+      });
+      onChanged();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setActionStatus('idle');
+    }
+  };
+
+  const handleDeleteComment = async () => {
+    if (actionStatus === 'deleting') return;
+    if (!window.confirm('댓글을 삭제할까요? 삭제된 댓글은 placeholder로 표시됩니다.')) {
+      return;
+    }
+
+    setActionStatus('deleting');
+    setNotice(null);
+
+    try {
+      await deleteComment(comment.id);
+      setNotice({ tone: 'success', message: '댓글이 삭제되었습니다.' });
+      onChanged();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setActionStatus('idle');
+    }
+  };
 
   return (
     <article
@@ -1355,16 +1800,36 @@ function CommentItem({ comment, level }: { comment: CommentResponse; level: 0 | 
         </div>
       </div>
 
-      <p
-        className={cn(
-          'whitespace-pre-wrap break-words text-sm leading-6',
-          isDeleted ? 'text-muted-foreground' : 'text-neutral-800',
-        )}
-      >
-        {comment.content}
-      </p>
+      {mode === 'edit' ? (
+        <form className="grid gap-3" onSubmit={handleUpdateComment}>
+          <Textarea
+            disabled={actionStatus === 'submitting'}
+            onChange={(event) => setEditContent(event.target.value)}
+            value={editContent}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={actionStatus === 'submitting'} size="sm" type="submit">
+              {actionStatus === 'submitting' ? '저장 중' : '수정 저장'}
+            </Button>
+            <Button onClick={() => setMode('idle')} size="sm" variant="outline">
+              취소
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <p
+          className={cn(
+            'whitespace-pre-wrap break-words text-sm leading-6',
+            isDeleted ? 'text-muted-foreground' : 'text-neutral-800',
+          )}
+        >
+          {comment.content}
+        </p>
+      )}
 
       <CommentAnalysisBadges comment={comment} />
+
+      {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
 
       {!isDeleted && (
         <div className="flex flex-wrap gap-2">
@@ -1373,12 +1838,53 @@ function CommentItem({ comment, level }: { comment: CommentResponse; level: 0 | 
               근거 후보 보기
             </Button>
           ) : null}
-          {!isReply && (
-            <Button disabled size="sm" variant="outline">
+          {canReply && (
+            <Button
+              onClick={() => setMode((current) => (current === 'reply' ? 'idle' : 'reply'))}
+              size="sm"
+              variant="outline"
+            >
               답글
             </Button>
           )}
+          {canManageComment && (
+            <>
+              <Button onClick={() => setMode('edit')} size="sm" variant="outline">
+                수정
+              </Button>
+              <Button
+                disabled={actionStatus === 'deleting'}
+                onClick={handleDeleteComment}
+                size="sm"
+                variant="destructive"
+              >
+                {actionStatus === 'deleting' ? '삭제 중' : '삭제'}
+              </Button>
+            </>
+          )}
         </div>
+      )}
+
+      {mode === 'reply' && canReply && (
+        <form
+          className="grid gap-3 rounded-md border border-border bg-background p-3"
+          onSubmit={handleCreateReply}
+        >
+          <Textarea
+            disabled={actionStatus === 'submitting'}
+            onChange={(event) => setReplyContent(event.target.value)}
+            placeholder="대댓글을 입력합니다."
+            value={replyContent}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={actionStatus === 'submitting'} size="sm" type="submit">
+              {actionStatus === 'submitting' ? '등록 중' : '대댓글 등록'}
+            </Button>
+            <Button onClick={() => setMode('idle')} size="sm" variant="outline">
+              취소
+            </Button>
+          </div>
+        </form>
       )}
     </article>
   );
@@ -1639,17 +2145,72 @@ function AuthScreen({
   );
 }
 
-function PostEditorPlaceholder({
+function PostEditor({
+  mode,
   navigate,
+  postId,
   session,
 }: {
+  mode: 'create' | 'edit';
   navigate: Navigate;
+  postId?: string;
   session: SessionState;
 }) {
+  const isEdit = mode === 'edit';
+  const [title, setTitle] = useState('');
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [content, setContent] = useState('');
+  const [tagsInput, setTagsInput] = useState('');
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+  const [editPostState, setEditPostState] = useState<AsyncState<PostResponse>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [editNotFound, setEditNotFound] = useState(false);
+  const [editReloadKey, setEditReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!isEdit || session.status !== 'authenticated' || !postId) {
+      return;
+    }
+
+    let ignore = false;
+
+    setEditNotFound(false);
+    setEditPostState((current) => ({
+      status: 'loading',
+      data: current.data?.id === postId ? current.data : null,
+      error: null,
+    }));
+
+    getPost(postId)
+      .then((post) => {
+        if (ignore) return;
+
+        setEditPostState({ status: 'success', data: post, error: null });
+        setTitle(post.title);
+        setYoutubeUrl(post.youtubeUrl);
+        setContent(post.content);
+        setTagsInput(post.tags.map((tag) => tag.name).join(', '));
+      })
+      .catch((error: unknown) => {
+        if (ignore) return;
+
+        setEditNotFound(isNotFoundError(error));
+        setEditPostState({ status: 'error', data: null, error: formatApiError(error) });
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [editReloadKey, isEdit, postId, session.status]);
+
   if (session.status === 'checking') {
     return (
       <>
-        <SessionChecking title="게시글 작성" />
+        <SessionChecking title={isEdit ? '게시글 수정' : '게시글 작성'} />
         <PlaceholderSide
           title="Write scope"
           items={['post create/update/delete', 'comment write', 'reply write', 'like toggle']}
@@ -1661,44 +2222,205 @@ function PostEditorPlaceholder({
   if (session.status === 'anonymous') {
     return (
       <AuthRequired
-        actionLabel="로그인하고 작성하기"
-        description="게시글 작성은 로그인 후 사용할 수 있습니다."
+        actionLabel={isEdit ? '로그인하고 수정하기' : '로그인하고 작성하기'}
+        description={
+          isEdit
+            ? '게시글 수정은 작성자 로그인 후 사용할 수 있습니다.'
+            : '게시글 작성은 로그인 후 사용할 수 있습니다.'
+        }
         navigate={navigate}
-        nextPath="/posts/new"
+        nextPath={isEdit && postId ? `/posts/${postId}/edit` : '/posts/new'}
         title="로그인이 필요함"
       />
     );
   }
 
+  const editPost = editPostState.data;
+
+  if (isEdit) {
+    if (!postId) {
+      return <PostDetailNotFound navigate={navigate} />;
+    }
+
+    if (editNotFound) {
+      return <PostDetailNotFound navigate={navigate} />;
+    }
+
+    if (editPostState.status === 'loading' && !editPost) {
+      return (
+        <>
+          <SessionChecking title="게시글 수정" />
+          <PlaceholderSide
+            title="Edit scope"
+            items={['GET /posts/:postId', 'PATCH /posts/:postId', '작성자 권한 확인']}
+          />
+        </>
+      );
+    }
+
+    if (editPostState.status === 'error' && !editPost) {
+      return (
+        <PostDetailError
+          error={editPostState.error}
+          navigate={navigate}
+          onRetry={() => setEditReloadKey((key) => key + 1)}
+        />
+      );
+    }
+
+    if (!editPost) {
+      return (
+        <>
+          <SessionChecking title="게시글 수정" />
+          <PlaceholderSide
+            title="Edit scope"
+            items={['GET /posts/:postId', 'PATCH /posts/:postId', '작성자 권한 확인']}
+          />
+        </>
+      );
+    }
+
+    if (editPost.author.id !== session.user.id) {
+      return (
+        <ForbiddenState
+          description="게시글 작성자만 이 게시글을 수정할 수 있습니다."
+          navigate={navigate}
+          title="권한이 없음"
+        />
+      );
+    }
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedTitle = title.trim();
+    const trimmedContent = content.trim();
+    const trimmedYoutubeUrl = youtubeUrl.trim();
+    const tags = parseTagsInput(tagsInput);
+
+    if (!trimmedTitle || !trimmedContent || (!isEdit && !trimmedYoutubeUrl)) {
+      setNotice({ tone: 'destructive', message: '필수 정보를 입력해 주세요.' });
+      return;
+    }
+
+    setSubmitStatus('submitting');
+    setNotice(null);
+
+    try {
+      if (isEdit) {
+        const updatedPost = await updatePost(postId!, {
+          title: trimmedTitle,
+          content: trimmedContent,
+          tags,
+        });
+
+        navigate(`/posts/${updatedPost.id}?updated=1`);
+      } else {
+        const createdPost = await createPost({
+          title: trimmedTitle,
+          content: trimmedContent,
+          youtubeUrl: trimmedYoutubeUrl,
+          tags,
+        });
+
+        navigate(`/posts/${createdPost.id}?created=1`);
+      }
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setSubmitStatus('idle');
+    }
+  };
+
   return (
     <>
-      <section className="flex min-w-0 flex-col gap-6" aria-label="New post placeholder">
+      <section
+        className="flex min-w-0 flex-col gap-6"
+        aria-label={isEdit ? 'Edit post' : 'New post'}
+      >
         <PageHeading
-          eyebrow="Write placeholder"
-          title="게시글 작성"
-          description="YouTube URL 기반 작성 흐름은 Harness 6에서 연결합니다."
-          badge={<Badge variant="muted">API 미연결</Badge>}
+          eyebrow={isEdit ? 'Edit post' : 'Write post'}
+          title={isEdit ? '게시글 수정' : '게시글 작성'}
+          description={
+            isEdit
+              ? '제목, 본문, 태그를 수정합니다. YouTube URL은 생성 후 변경하지 않습니다.'
+              : 'YouTube URL과 토론 맥락을 입력하면 영상 처리는 비동기로 진행됩니다.'
+          }
+          badge={<Badge variant={isEdit ? 'outline' : 'info'}>{isEdit ? 'PATCH' : 'POST'}</Badge>}
         />
 
-        <form className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5">
+        <form
+          className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+          onSubmit={handleSubmit}
+        >
           <label className="grid gap-2 text-sm font-medium">
             Title
-            <Input placeholder="영상 속 주장에 대해 토론해봅시다" readOnly />
+            <Input
+              disabled={submitStatus === 'submitting'}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="영상 속 주장에 대해 토론해봅시다"
+              required
+              value={title}
+            />
           </label>
           <label className="grid gap-2 text-sm font-medium">
             YouTube URL
-            <Input placeholder="https://www.youtube.com/watch?v=..." readOnly />
+            <Input
+              disabled={submitStatus === 'submitting' || isEdit}
+              onChange={(event) => setYoutubeUrl(event.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              required={!isEdit}
+              value={youtubeUrl}
+            />
+            {isEdit && (
+              <span className="text-xs font-normal leading-5 text-muted-foreground">
+                YouTube URL은 게시글 생성 이후 수정하지 않습니다.
+              </span>
+            )}
           </label>
           <label className="grid gap-2 text-sm font-medium">
             Content
-            <Textarea placeholder="토론할 맥락을 적습니다." readOnly />
+            <Textarea
+              disabled={submitStatus === 'submitting'}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="토론할 맥락을 적습니다."
+              required
+              value={content}
+            />
           </label>
+          <label className="grid gap-2 text-sm font-medium">
+            Tags
+            <Input
+              disabled={submitStatus === 'submitting'}
+              onChange={(event) => setTagsInput(event.target.value)}
+              placeholder="뉴스, 경제, AI"
+              value={tagsInput}
+            />
+            <span className="text-xs font-normal leading-5 text-muted-foreground">
+              쉼표로 구분해 입력합니다.
+            </span>
+          </label>
+
+          {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+
           <div className="flex flex-wrap gap-2">
-            <Button disabled>
+            <Button disabled={submitStatus === 'submitting'} type="submit">
               <FileText className="size-4" aria-hidden="true" />
-              작성 연결 대기
+              {submitStatus === 'submitting'
+                ? isEdit
+                  ? '수정 중'
+                  : '작성 중'
+                : isEdit
+                  ? '수정 저장'
+                  : '게시글 작성'}
             </Button>
-            <Button onClick={() => navigate('/?page=1&limit=20')} variant="outline">
+            <Button
+              onClick={() =>
+                navigate(isEdit && postId ? `/posts/${postId}` : DEFAULT_AUTH_REDIRECT)
+              }
+              variant="outline"
+            >
               취소
             </Button>
           </div>
@@ -1823,6 +2545,22 @@ function AppNotice({ message, tone }: { message: string; tone: 'destructive' }) 
         {message}
       </p>
     </div>
+  );
+}
+
+function InlineNotice({ message, tone }: WriteNotice) {
+  return (
+    <p
+      className={cn(
+        'rounded-md border p-3 text-sm leading-6',
+        tone === 'success' && 'border-green-700/20 bg-green-50 text-green-700',
+        tone === 'info' && 'border-blue-700/20 bg-blue-50 text-blue-700',
+        tone === 'destructive' && 'border-destructive/20 bg-destructive/5 text-destructive',
+      )}
+      role={tone === 'destructive' ? 'alert' : 'status'}
+    >
+      {message}
+    </p>
   );
 }
 
@@ -2258,6 +2996,26 @@ function getSafeNextPath(search: string) {
   }
 }
 
+function getPostRouteNotice(search: string): WriteNotice | null {
+  const params = new URLSearchParams(search);
+
+  if (params.get('created') === '1') {
+    return {
+      tone: 'success',
+      message: '게시글이 생성되었습니다. 영상 처리는 잠시 걸릴 수 있습니다.',
+    };
+  }
+
+  if (params.get('updated') === '1') {
+    return {
+      tone: 'success',
+      message: '게시글이 수정되었습니다.',
+    };
+  }
+
+  return null;
+}
+
 function createEmptyMeta(query: PostsQueryState): PaginationMeta {
   return {
     page: query.page,
@@ -2277,6 +3035,34 @@ function formatApiError(error: unknown) {
   }
 
   return '요청을 처리하지 못했습니다.';
+}
+
+function handleWriteError(
+  error: unknown,
+  navigate: Navigate,
+  setNotice: (notice: WriteNotice) => void,
+) {
+  if (error instanceof ApiRequestError && error.status === 401) {
+    navigate(buildLoginPath(getCurrentPath()));
+    return;
+  }
+
+  if (error instanceof ApiRequestError && error.status === 403) {
+    setNotice({
+      tone: 'destructive',
+      message: '권한이 없거나 CSRF token이 만료되었습니다. 다시 시도해 주세요.',
+    });
+    return;
+  }
+
+  setNotice({ tone: 'destructive', message: formatApiError(error) });
+}
+
+function parseTagsInput(value: string) {
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
 }
 
 function getSessionRestoreMessage(error: unknown) {
