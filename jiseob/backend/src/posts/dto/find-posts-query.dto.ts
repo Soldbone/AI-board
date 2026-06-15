@@ -1,5 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+
+export const POST_SORT_VALUES = ['latest', 'comments', 'likes', 'views'] as const;
+export type PostSort = (typeof POST_SORT_VALUES)[number];
 
 export class FindPostsQueryDto {
   @IsOptional()
@@ -22,4 +25,8 @@ export class FindPostsQueryDto {
   @IsOptional()
   @IsString()
   tag?: string;
+
+  @IsOptional()
+  @IsIn(POST_SORT_VALUES)
+  sort?: PostSort = 'latest';
 }

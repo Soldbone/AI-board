@@ -19,6 +19,7 @@ export type PostResponseBody = {
   commentCount: number;
   viewCount: number;
   likeCount: number;
+  likedByMe: boolean | null;
   video: {
     id: string;
     metadataStatus: string;
@@ -70,7 +71,10 @@ export const createPost = async (
 };
 
 export const getPost = async (session: E2eSession, postId: string): Promise<PostResponseBody> => {
-  const response = await session.agent.get(`${API_PREFIX}/posts/${postId}`).expect(200);
+  const response = await session.agent
+    .get(`${API_PREFIX}/posts/${postId}`)
+    .set(authHeader(session))
+    .expect(200);
 
   return response.body as PostResponseBody;
 };

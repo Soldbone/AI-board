@@ -3,7 +3,7 @@ import { UserRole } from '../common/enums/user-role.enum';
 import { PostsService } from './posts.service';
 
 describe('PostsService', () => {
-  const service = new PostsService({} as never, {} as never, {} as never, {} as never);
+  const service = new PostsService({} as never, {} as never, {} as never, {} as never, {} as never);
   const user = {
     id: '01J00000000000000000000000',
     email: 'user@example.com',

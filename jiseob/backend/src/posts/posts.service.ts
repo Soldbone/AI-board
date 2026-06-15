@@ -6,14 +6,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  QueryFailedError,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { TagResponse, TagsService } from '../tags/tags.service';
 import { User } from '../users/entities/user.entity';
 import { Video } from '../videos/entities/video.entity';
 import { VideoResponse, VideosService } from '../videos/videos.service';
 import { CreatePostDto } from './dto/create-post.dto';
-import { FindPostsQueryDto } from './dto/find-posts-query.dto';
+import { FindPostsQueryDto, PostSort } from './dto/find-posts-query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostLike } from './entities/post-like.entity';
 import { PostTag } from './entities/post-tag.entity';
@@ -32,6 +40,7 @@ export type PostListItemResponse = {
   commentCount: number;
   viewCount: number;
   likeCount: number;
+  likedByMe: boolean | null;
   author: PostAuthorResponse;
   video: VideoResponse;
   tags: TagResponse[];
@@ -67,6 +76,8 @@ export class PostsService {
     private readonly tagsService: TagsService,
     @InjectRepository(Post)
     private readonly postsRepository: Repository<Post>,
+    @InjectRepository(PostLike)
+    private readonly postLikesRepository: Repository<PostLike>,
   ) {}
 
   async createPost(user: AuthenticatedUser, createPostDto: CreatePostDto): Promise<PostResponse> {
@@ -101,14 +112,17 @@ export class PostsService {
       };
     });
 
-    const response = await this.getPost(postId);
+    const response = await this.getPost(postId, user);
 
     void this.videosService.enqueueProcessing(videoId).catch(() => undefined);
 
     return response;
   }
 
-  async findPosts(query: FindPostsQueryDto): Promise<PaginatedPostsResponse> {
+  async findPosts(
+    query: FindPostsQueryDto,
+    user?: AuthenticatedUser,
+  ): Promise<PaginatedPostsResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const queryBuilder = this.postsRepository
@@ -119,7 +133,6 @@ export class PostsService {
       .leftJoinAndSelect('post.postTags', 'postTag')
       .leftJoinAndSelect('postTag.tag', 'tag')
       .where('post.deleted_at IS NULL')
-      .orderBy('post.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -150,10 +163,18 @@ export class PostsService {
       );
     }
 
+    this.applyPostSort(queryBuilder, query.sort ?? 'latest');
+
     const [posts, total] = await queryBuilder.getManyAndCount();
+    const likedPostIds = await this.findLikedPostIds(
+      posts.map((post) => post.id),
+      user,
+    );
 
     return {
-      items: posts.map((post) => this.toPostListItemResponse(post as PostWithRelations)),
+      items: posts.map((post) =>
+        this.toPostListItemResponse(post as PostWithRelations, likedPostIds),
+      ),
       meta: {
         page,
         limit,
@@ -163,10 +184,11 @@ export class PostsService {
     };
   }
 
-  async getPost(postId: string): Promise<PostResponse> {
+  async getPost(postId: string, user?: AuthenticatedUser): Promise<PostResponse> {
     const post = await this.findActivePostWithRelations(postId);
+    const likedPostIds = await this.findLikedPostIds([post.id], user);
 
-    return this.toPostResponse(post);
+    return this.toPostResponse(post, likedPostIds);
   }
 
   async updatePost(
@@ -217,7 +239,7 @@ export class PostsService {
       }
     });
 
-    return this.getPost(postId);
+    return this.getPost(postId, user);
   }
 
   async deletePost(user: AuthenticatedUser, postId: string): Promise<void> {
@@ -341,14 +363,56 @@ export class PostsService {
     }
   }
 
-  private toPostResponse(post: PostWithRelations): PostResponse {
+  private applyPostSort(queryBuilder: SelectQueryBuilder<Post>, sort: PostSort): void {
+    const sortColumns: Record<PostSort, string> = {
+      latest: 'post.createdAt',
+      comments: 'post.commentCount',
+      likes: 'post.likeCount',
+      views: 'post.viewCount',
+    };
+    const primarySortColumn = sortColumns[sort] ?? sortColumns.latest;
+
+    queryBuilder.orderBy(primarySortColumn, 'DESC');
+
+    if (primarySortColumn !== 'post.createdAt') {
+      queryBuilder.addOrderBy('post.createdAt', 'DESC');
+    }
+
+    queryBuilder.addOrderBy('post.id', 'DESC');
+  }
+
+  private async findLikedPostIds(
+    postIds: string[],
+    user?: AuthenticatedUser,
+  ): Promise<Set<string> | null> {
+    if (!user || postIds.length === 0) {
+      return null;
+    }
+
+    const likes = await this.postLikesRepository.find({
+      select: {
+        postId: true,
+      },
+      where: {
+        postId: In(postIds),
+        userId: user.id,
+      },
+    });
+
+    return new Set(likes.map((like) => like.postId));
+  }
+
+  private toPostResponse(post: PostWithRelations, likedPostIds: Set<string> | null): PostResponse {
     return {
-      ...this.toPostListItemResponse(post),
+      ...this.toPostListItemResponse(post, likedPostIds),
       content: post.content,
     };
   }
 
-  private toPostListItemResponse(post: PostWithRelations): PostListItemResponse {
+  private toPostListItemResponse(
+    post: PostWithRelations,
+    likedPostIds: Set<string> | null,
+  ): PostListItemResponse {
     return {
       id: post.id,
       title: post.title,
@@ -357,6 +421,7 @@ export class PostsService {
       commentCount: post.commentCount,
       viewCount: post.viewCount,
       likeCount: post.likeCount,
+      likedByMe: likedPostIds ? likedPostIds.has(post.id) : null,
       author: this.toAuthorResponse(post),
       video: this.videosService.toVideoResponse(post.video),
       tags: this.toSortedTagResponses(post),

@@ -14,6 +14,7 @@ import {
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CsrfGuard } from '../common/guards/csrf.guard';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FindPostsQueryDto } from './dto/find-posts-query.dto';
@@ -25,8 +26,9 @@ export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @Get()
-  findPosts(@Query() query: FindPostsQueryDto) {
-    return this.postsService.findPosts(query);
+  @UseGuards(OptionalJwtAuthGuard)
+  findPosts(@Query() query: FindPostsQueryDto, @CurrentUser() user?: AuthenticatedUser) {
+    return this.postsService.findPosts(query, user);
   }
 
   @Post()
@@ -36,8 +38,9 @@ export class PostsController {
   }
 
   @Get(':postId')
-  getPost(@Param('postId') postId: string) {
-    return this.postsService.getPost(postId);
+  @UseGuards(OptionalJwtAuthGuard)
+  getPost(@Param('postId') postId: string, @CurrentUser() user?: AuthenticatedUser) {
+    return this.postsService.getPost(postId, user);
   }
 
   @Patch(':postId')
