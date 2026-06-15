@@ -202,11 +202,49 @@ const NON_INGREDIENT_TERMS = new Set([
   '만들',
   '먹는',
   '먹고',
+  '먹을',
+  '먹기',
+  '무엇',
+  '무슨',
   '싶어요',
   '좋아요',
   '느낌',
   '조건',
   '없음',
+  '집',
+  '집에',
+  '냉장고에',
+  '가지고',
+  '갖고',
+  '있는',
+  '있는데',
+  '있고',
+  '있어서',
+  '남았는데',
+  '남았어요',
+  '남았습니다',
+  '추천해주세요',
+  '부탁드립니다',
+  '괜찮을까요',
+  '퇴근',
+  '출근',
+  '오늘',
+  '내일',
+  '어제',
+  '주말',
+  '평일',
+  '바로',
+  '빨리',
+  '빠르게',
+  '빠른',
+  '안에',
+  '이내',
+  '동안',
+  '이후',
+  '이전',
+  '가능',
+  '가능한',
+  '가능하게',
 ]);
 
 @Injectable()
@@ -976,7 +1014,53 @@ export class AiRecommendationsService {
         ingredients.add(this.normalizeIngredientAlias(token)),
       );
 
+    this.extractInferredIngredientTokens(normalizedText).forEach((token) =>
+      ingredients.add(this.normalizeIngredientAlias(token)),
+    );
+
     return [...ingredients].slice(0, 12);
+  }
+
+  private extractInferredIngredientTokens(text: string) {
+    return [
+      ...new Set(
+        this.extractIngredientCandidateTexts(text)
+          .flatMap((candidateText) =>
+            candidateText
+              .replace(/[^\p{L}\p{N},\s]/gu, ' ')
+              .split(/[,\s]+/),
+          )
+          .map((token) => this.normalizeIngredientToken(token))
+          .filter((token) => this.isPotentialInferredIngredientToken(token)),
+      ),
+    ];
+  }
+
+  private extractIngredientCandidateTexts(text: string) {
+    const candidateTexts: string[] = [];
+    const inventoryMatches = text.matchAll(
+      /([\p{L}\p{N},\s]+?)(?:이|가|은|는)?\s*(?:있어요|있습니다|있는데|있고|남았어요|남았습니다|남았는데|남아있어요|남아있습니다)/gu,
+    );
+    const cookWithMatches = text.matchAll(
+      /([\p{L}\p{N},\s]+?)(?:으로|로)\s*(?:(?:[\p{L}\p{N}]{2,12})\s+)?(?:간단|요리|메뉴|무엇|무슨|만들|해먹|추천)/gu,
+    );
+    const labeledInventoryMatches = text.matchAll(
+      /(?:보유\s*재료|가지고\s*있는\s*재료|있는\s*재료|냉장고에|집에)[:：]?\s*([\p{L}\p{N},\s]+?)(?:있|남|으로|로|가지고|갖고|추천|요리|메뉴|만들|$)/gu,
+    );
+
+    [inventoryMatches, cookWithMatches, labeledInventoryMatches].forEach(
+      (matches) => {
+        for (const match of matches) {
+          const candidateText = match[1]?.trim();
+
+          if (candidateText) {
+            candidateTexts.push(candidateText);
+          }
+        }
+      },
+    );
+
+    return candidateTexts;
   }
 
   private normalizeIngredientToken(token: string) {
@@ -1045,6 +1129,15 @@ export class AiRecommendationsService {
       token.length <= 12 &&
       !/\d/.test(token) &&
       !NON_INGREDIENT_TERMS.has(token)
+    );
+  }
+
+  private isPotentialInferredIngredientToken(token: string) {
+    return (
+      this.isPotentialDirectIngredientToken(token) &&
+      !/(하다|해요|해주세요|됩니다|되나요|싶어요|주세요|나요|어요|습니다|는데|다면)$/.test(
+        token,
+      )
     );
   }
 

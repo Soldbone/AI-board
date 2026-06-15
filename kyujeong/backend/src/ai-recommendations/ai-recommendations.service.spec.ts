@@ -507,6 +507,123 @@ describe('AiRecommendationsService', () => {
     expect(recommendation.missingIngredients).toEqual(['토마토', '치즈']);
   });
 
+  it('should infer uncataloged ingredients from post text for RAG overlap', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 1,
+      title: '명란 크래미 메뉴 추천 부탁드려요',
+      content: '집에 명란이랑 크래미가 있어요. 간단하게 먹고 싶어요.',
+      viewCount: 0,
+      createdAt: new Date('2026-06-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+      postTags: [],
+      comments: [],
+      _count: {
+        comments: 0,
+      },
+    } as never);
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
+      {
+        id: 10,
+        title: '명란 크래미 주먹밥 후기',
+        content:
+          '명란, 크래미, 밥으로 주먹밥 만들었어요. 계란, 참기름을 더하면 퇴근 후 10분 안에 먹을 수 있어요.',
+        viewCount: 0,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        postTags: [],
+        comments: [
+          {
+            content: '명란과 크래미 조합이면 밥만 더해서 주먹밥으로 먹기 좋아요.',
+          },
+        ],
+        _count: {
+          comments: 1,
+        },
+      },
+    ] as never);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      {
+        postId: 10,
+        similarity: 0.72,
+      },
+    ] as never);
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '명란 크래미 주먹밥',
+      reason: '비슷한 커뮤니티 글을 참고했습니다.',
+      availableIngredients: ['명란', '크래미'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content: '명란과 크래미를 밥에 섞어 한입 크기로 뭉쳐주세요.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 4,
+        postId: 1,
+        requestedById: 1,
+        menuName: '명란 크래미 주먹밥',
+        reason: '비슷한 커뮤니티 글을 참고했습니다.',
+        availableIngredients: ['명란', '크래미'],
+        missingIngredients: ['계란', '밥', '참기름'],
+        estimatedCookingTime: 10,
+        difficulty: '쉬움',
+        content: '명란과 크래미를 밥에 섞어 한입 크기로 뭉쳐주세요.',
+        thumbnailUrl: null,
+        status: 'ACTIVE',
+        grounding: 'COMMUNITY_RAG',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [
+          {
+            postId: 10,
+            similarity: 0.72,
+            rank: 1,
+            post: {
+              id: 10,
+              title: '명란 크래미 주먹밥 후기',
+              postTags: [],
+            },
+          },
+        ],
+      } as never);
+
+    const recommendation = await service.create(1, 1);
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        availableIngredients: expect.arrayContaining(['명란', '크래미']),
+      }),
+      [
+        expect.objectContaining({
+          title: '명란 크래미 주먹밥 후기',
+          matchedIngredients: expect.arrayContaining(['명란', '크래미']),
+          missingIngredients: expect.arrayContaining(['계란', '밥', '참기름']),
+        }),
+      ],
+      'COMMUNITY_RAG',
+      null,
+      'BALANCED',
+    );
+    expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          availableIngredients: expect.arrayContaining(['명란', '크래미']),
+          missingIngredients: expect.arrayContaining(['계란', '밥', '참기름']),
+          grounding: 'COMMUNITY_RAG',
+        }),
+      }),
+    );
+    expect(recommendation.grounding).toBe('COMMUNITY_RAG');
+    expect(recommendation.missingIngredients).toEqual(['계란', '밥', '참기름']);
+    expect(recommendation.missingIngredients).not.toEqual(
+      expect.arrayContaining(['퇴근', '안에']),
+    );
+  });
+
   it('should preserve RAG missing ingredients when the model omits them', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
       {
