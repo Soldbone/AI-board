@@ -15,25 +15,43 @@ import { OpenAiCommentAnalyzerProvider } from './comment-analysis/openai-comment
 import { RagEvidence } from './rag/entities/rag-evidence.entity';
 import { RagController } from './rag/rag.controller';
 import { RagService } from './rag/rag.service';
+import { AiSummary } from './summary/entities/ai-summary.entity';
+import { OpenAiSummaryProvider } from './summary/openai-summary.provider';
+import { SummaryController } from './summary/summary.controller';
+import { SummaryProvider } from './summary/summary.provider';
+import { SummaryService } from './summary/summary.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CommentAnalysis, RagEvidence, Comment, Post, Video, TranscriptChunk]),
+    TypeOrmModule.forFeature([
+      CommentAnalysis,
+      RagEvidence,
+      AiSummary,
+      Comment,
+      Post,
+      Video,
+      TranscriptChunk,
+    ]),
   ],
-  controllers: [RagController],
+  controllers: [RagController, SummaryController],
   providers: [
     CommentAnalysisService,
     RagService,
+    SummaryService,
     RuleBasedCommentAnalyzerProvider,
     {
       provide: CommentAnalyzerProvider,
       useClass: OpenAiCommentAnalyzerProvider,
     },
     {
+      provide: SummaryProvider,
+      useClass: OpenAiSummaryProvider,
+    },
+    {
       provide: EmbeddingProvider,
       useClass: OpenAiEmbeddingProvider,
     },
   ],
-  exports: [CommentAnalysisService, RagService, EmbeddingProvider],
+  exports: [CommentAnalysisService, RagService, SummaryService, EmbeddingProvider],
 })
 export class AiModule {}
