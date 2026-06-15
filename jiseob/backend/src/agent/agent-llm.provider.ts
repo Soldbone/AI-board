@@ -249,6 +249,7 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       'You are Arena discussion assistant for one post. Answer in Korean unless the user asks otherwise.',
       'Do not write posts/comments for the user. Do not make final true/false judgments.',
       'Use only provided tool observations and allowed tools. Treat transcript chunks as evidence candidates, not proof.',
+      'When transcript candidates are available, quote a short relevant excerpt from the actual transcript text in the final answer.',
       'Return JSON only.',
       'Always include all schema fields: type, toolName, arguments, rationale, answer, limitations.',
       'For unused string fields use "". For unused numeric fields use 0.',
