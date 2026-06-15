@@ -6,17 +6,26 @@ import {
   FileText,
   Heart,
   LogIn,
+  LogOut,
   MessageCircle,
   Play,
   Plus,
   RefreshCw,
   Search,
   Send,
+  Shield,
   Trash2,
+  User,
   UserPlus,
   type LucideIcon,
 } from 'lucide-react';
-import { ApiRequestError } from '@/api/client';
+import {
+  login as loginUser,
+  logout as logoutUser,
+  restoreSession,
+  signup as signupUser,
+} from '@/api/auth';
+import { ApiRequestError, clearApiSession } from '@/api/client';
 import { listComments } from '@/api/comments';
 import { getPost, incrementPostView, listPosts, listTags } from '@/api/posts';
 import { getVideo } from '@/api/videos';
@@ -31,6 +40,7 @@ import type {
   PostResponse,
   RagStatus,
   TagResponse,
+  UserResponse,
   VideoProcessingStatus,
   VideoResponse,
   VideoSummaryResponse,
@@ -67,7 +77,15 @@ type AsyncState<TData> =
   | { status: 'success'; data: TData; error: null }
   | { status: 'error'; data: TData | null; error: string };
 
+type SessionState =
+  | { status: 'checking'; user: null; error: null }
+  | { status: 'anonymous'; user: null; error: string | null }
+  | { status: 'authenticated'; user: UserResponse; error: null };
+
+type LogoutState = 'idle' | 'submitting';
+
 const POSTS_LIMIT = 20;
+const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
 
 function parseRoute(pathname: string): Route {
   if (pathname === '/') return { name: 'posts' };
@@ -120,37 +138,137 @@ function useRoute() {
 
 export default function App() {
   const { route, navigate, locationSearch } = useRoute();
+  const [session, setSession] = useState<SessionState>({
+    status: 'checking',
+    user: null,
+    error: null,
+  });
+  const [logoutState, setLogoutState] = useState<LogoutState>('idle');
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    restoreSession()
+      .then((user) => {
+        if (!ignore) {
+          setSession({ status: 'authenticated', user, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setSession({
+            status: 'anonymous',
+            user: null,
+            error: getSessionRestoreMessage(error),
+          });
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const handleAuthenticated = (user: UserResponse) => {
+    setLogoutError(null);
+    setSession({ status: 'authenticated', user, error: null });
+  };
+
+  const handleLogout = async () => {
+    if (logoutState === 'submitting') return;
+
+    setLogoutState('submitting');
+    setLogoutError(null);
+
+    try {
+      await logoutUser();
+      setSession({ status: 'anonymous', user: null, error: null });
+      navigate(DEFAULT_AUTH_REDIRECT);
+    } catch (error: unknown) {
+      if (isAuthExpiredError(error)) {
+        clearApiSession();
+        setSession({ status: 'anonymous', user: null, error: null });
+        navigate(buildLoginPath(getCurrentPath()));
+      } else {
+        setLogoutError(formatApiError(error));
+      }
+    } finally {
+      setLogoutState('idle');
+    }
+  };
 
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <TopNav navigate={navigate} route={route} />
+      <TopNav
+        logoutState={logoutState}
+        navigate={navigate}
+        onLogout={handleLogout}
+        route={route}
+        session={session}
+      />
+      {logoutError && <AppNotice message={logoutError} tone="destructive" />}
       <main className="mx-auto grid w-[min(1240px,calc(100%-28px))] grid-cols-1 gap-6 py-6 lg:w-[min(1240px,calc(100%-48px))] lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8 lg:py-8">
-        {renderRoute(route, navigate, locationSearch)}
+        {renderRoute(route, navigate, locationSearch, session, handleAuthenticated)}
       </main>
     </div>
   );
 }
 
-function renderRoute(route: Route, navigate: Navigate, locationSearch: string) {
+function renderRoute(
+  route: Route,
+  navigate: Navigate,
+  locationSearch: string,
+  session: SessionState,
+  onAuthenticated: (user: UserResponse) => void,
+) {
   switch (route.name) {
     case 'posts':
       return <PostsIndex locationSearch={locationSearch} navigate={navigate} />;
     case 'post-detail':
       return <PostDetail navigate={navigate} postId={route.postId} />;
     case 'login':
-      return <AuthScreen mode="login" navigate={navigate} />;
+      return (
+        <AuthScreen
+          locationSearch={locationSearch}
+          mode="login"
+          navigate={navigate}
+          onAuthenticated={onAuthenticated}
+          session={session}
+        />
+      );
     case 'signup':
-      return <AuthScreen mode="signup" navigate={navigate} />;
+      return (
+        <AuthScreen
+          locationSearch={locationSearch}
+          mode="signup"
+          navigate={navigate}
+          onAuthenticated={onAuthenticated}
+          session={session}
+        />
+      );
     case 'new-post':
-      return <PostEditorPlaceholder navigate={navigate} />;
+      return <PostEditorPlaceholder navigate={navigate} session={session} />;
     case 'admin-comments':
-      return <AdminCommentsPlaceholder />;
+      return <AdminCommentsPlaceholder navigate={navigate} session={session} />;
     case 'not-found':
       return <NotFound navigate={navigate} />;
   }
 }
 
-function TopNav({ navigate, route }: { navigate: Navigate; route: Route }) {
+function TopNav({
+  logoutState,
+  navigate,
+  onLogout,
+  route,
+  session,
+}: {
+  logoutState: LogoutState;
+  navigate: Navigate;
+  onLogout: () => void;
+  route: Route;
+  session: SessionState;
+}) {
   const isActive = (target: Route['name']) => route.name === target;
 
   return (
@@ -178,18 +296,58 @@ function TopNav({ navigate, route }: { navigate: Navigate; route: Route }) {
         </label>
 
         <nav className="ml-auto flex items-center gap-2" aria-label="Primary">
-          <Button
-            className={cn(isActive('login') && 'bg-accent')}
-            onClick={() => navigate('/login')}
-            variant="outline"
-          >
-            <LogIn className="size-4" aria-hidden="true" />
-            Login
-          </Button>
-          <Button onClick={() => navigate('/posts/new')}>
-            <Plus className="size-4" aria-hidden="true" />
-            New post
-          </Button>
+          {session.status === 'checking' && (
+            <Badge className="min-w-fit" variant="secondary">
+              세션 확인 중
+            </Badge>
+          )}
+
+          {session.status === 'anonymous' && (
+            <>
+              <Button
+                className={cn(isActive('login') && 'bg-accent')}
+                onClick={() => navigate('/login')}
+                variant="outline"
+              >
+                <LogIn className="size-4" aria-hidden="true" />
+                Login
+              </Button>
+              <Button
+                className={cn(isActive('signup') && 'bg-accent')}
+                onClick={() => navigate('/signup')}
+                variant="outline"
+              >
+                <UserPlus className="size-4" aria-hidden="true" />
+                Sign up
+              </Button>
+            </>
+          )}
+
+          {session.status === 'authenticated' && (
+            <>
+              <Badge className="max-w-[160px] truncate" variant="outline">
+                {session.user.nickname}
+              </Badge>
+              {session.user.role === 'ADMIN' && (
+                <Button
+                  className={cn(isActive('admin-comments') && 'bg-accent')}
+                  onClick={() => navigate('/admin/comments')}
+                  variant="outline"
+                >
+                  <Shield className="size-4" aria-hidden="true" />
+                  Admin
+                </Button>
+              )}
+              <Button onClick={() => navigate('/posts/new')}>
+                <Plus className="size-4" aria-hidden="true" />
+                New post
+              </Button>
+              <Button disabled={logoutState === 'submitting'} onClick={onLogout} variant="ghost">
+                <LogOut className="size-4" aria-hidden="true" />
+                {logoutState === 'submitting' ? 'Logging out' : 'Logout'}
+              </Button>
+            </>
+          )}
         </nav>
       </div>
     </header>
@@ -1253,62 +1411,265 @@ function CommentAnalysisBadges({ comment }: { comment: CommentResponse }) {
   );
 }
 
-function AuthScreen({ mode, navigate }: { mode: 'login' | 'signup'; navigate: Navigate }) {
+function AuthScreen({
+  locationSearch,
+  mode,
+  navigate,
+  onAuthenticated,
+  session,
+}: {
+  locationSearch: string;
+  mode: 'login' | 'signup';
+  navigate: Navigate;
+  onAuthenticated: (user: UserResponse) => void;
+  session: SessionState;
+}) {
   const isLogin = mode === 'login';
+  const [email, setEmail] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [password, setPassword] = useState('');
+  const [authStatus, setAuthStatus] = useState<'idle' | 'submitting' | 'success'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEmail('');
+    setNickname('');
+    setPassword('');
+    setAuthStatus('idle');
+    setError(null);
+    setSuccessMessage(null);
+  }, [mode]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedEmail = email.trim();
+    const trimmedNickname = nickname.trim();
+
+    if (!trimmedEmail || !password || (!isLogin && !trimmedNickname)) {
+      setError('필수 정보를 입력해 주세요.');
+      return;
+    }
+
+    setAuthStatus('submitting');
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      if (isLogin) {
+        const response = await loginUser({ email: trimmedEmail, password });
+        onAuthenticated(response.user);
+        navigate(getSafeNextPath(locationSearch));
+      } else {
+        const user = await signupUser({
+          email: trimmedEmail,
+          nickname: trimmedNickname,
+          password,
+        });
+
+        setAuthStatus('success');
+        setSuccessMessage(`${user.nickname} 계정이 생성되었습니다. 로그인해 주세요.`);
+        setPassword('');
+      }
+    } catch (submitError: unknown) {
+      setAuthStatus('idle');
+      setError(formatApiError(submitError));
+    }
+  };
+
+  if (session.status === 'checking') {
+    return (
+      <>
+        <SessionChecking title={isLogin ? '로그인' : '회원가입'} />
+        <AuthSidePanel session={session} />
+      </>
+    );
+  }
+
+  if (session.status === 'authenticated') {
+    return (
+      <>
+        <section
+          className="flex min-w-0 flex-col gap-5"
+          aria-label={isLogin ? 'Already logged in' : 'Authenticated account'}
+        >
+          <PageHeading
+            eyebrow="Session ready"
+            title="이미 로그인되어 있습니다"
+            description={`${session.user.nickname} 계정으로 Arena를 사용 중입니다.`}
+            badge={
+              <Badge variant={session.user.role === 'ADMIN' ? 'warning' : 'success'}>
+                {session.user.role}
+              </Badge>
+            }
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)}>
+              <User className="size-4" aria-hidden="true" />
+              게시글 목록으로 이동
+            </Button>
+            {session.user.role === 'ADMIN' && (
+              <Button onClick={() => navigate('/admin/comments')} variant="outline">
+                <Shield className="size-4" aria-hidden="true" />
+                관리자 댓글 검토
+              </Button>
+            )}
+          </div>
+        </section>
+
+        <AuthSidePanel session={session} />
+      </>
+    );
+  }
 
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label={isLogin ? 'Login' : 'Signup'}>
         <PageHeading
-          eyebrow={isLogin ? 'Auth placeholder' : 'Account placeholder'}
+          eyebrow={isLogin ? 'Auth' : 'Account'}
           title={isLogin ? '로그인' : '회원가입'}
-          description="세션과 CSRF 흐름은 Harness 5에서 실제 API와 연결합니다."
-          badge={<Badge variant="muted">placeholder</Badge>}
+          description={
+            isLogin
+              ? '토론 작성과 관리자 작업에 필요한 세션을 준비합니다.'
+              : 'Arena에서 사용할 계정을 생성합니다. 가입 후 로그인해 주세요.'
+          }
+          badge={
+            <Badge variant={isLogin ? 'info' : 'secondary'}>
+              {isLogin ? 'session' : 'new user'}
+            </Badge>
+          }
         />
 
-        <form className="grid max-w-xl gap-4 rounded-lg border border-border bg-card p-4 sm:p-5">
+        <form
+          className="grid max-w-xl gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+          onSubmit={handleSubmit}
+        >
           {!isLogin && (
             <label className="grid gap-2 text-sm font-medium">
               Nickname
-              <Input placeholder="arena-user" readOnly />
+              <Input
+                autoComplete="nickname"
+                disabled={authStatus === 'submitting'}
+                onChange={(event) => setNickname(event.target.value)}
+                placeholder="arena-user"
+                required
+                value={nickname}
+              />
             </label>
           )}
           <label className="grid gap-2 text-sm font-medium">
             Email
-            <Input placeholder="you@example.com" readOnly />
+            <Input
+              autoComplete="email"
+              disabled={authStatus === 'submitting'}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+              type="email"
+              value={email}
+            />
           </label>
           <label className="grid gap-2 text-sm font-medium">
             Password
-            <Input placeholder="••••••••" readOnly type="password" />
+            <Input
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
+              disabled={authStatus === 'submitting'}
+              minLength={8}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="password123"
+              required
+              type="password"
+              value={password}
+            />
           </label>
-          <Button disabled>
+
+          {error && (
+            <p className="rounded-md bg-destructive/5 p-3 text-sm leading-6 text-destructive">
+              {error}
+            </p>
+          )}
+
+          {successMessage && (
+            <p className="rounded-md bg-green-50 p-3 text-sm leading-6 text-green-700">
+              {successMessage}
+            </p>
+          )}
+
+          <Button disabled={authStatus === 'submitting'} type="submit">
             {isLogin ? (
               <LogIn className="size-4" aria-hidden="true" />
             ) : (
               <UserPlus className="size-4" aria-hidden="true" />
             )}
-            {isLogin ? '로그인 연결 대기' : '회원가입 연결 대기'}
+            {authStatus === 'submitting'
+              ? isLogin
+                ? '로그인 중'
+                : '계정 생성 중'
+              : isLogin
+                ? '로그인'
+                : '회원가입'}
           </Button>
         </form>
 
-        <Button
-          className="w-fit"
-          onClick={() => navigate(isLogin ? '/signup' : '/login')}
-          variant="ghost"
-        >
-          {isLogin ? '회원가입 화면 보기' : '로그인 화면 보기'}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="w-fit"
+            onClick={() =>
+              navigate(isLogin ? `/signup${locationSearch}` : `/login${locationSearch}`)
+            }
+            variant="ghost"
+          >
+            {isLogin ? '회원가입 화면 보기' : '로그인 화면 보기'}
+          </Button>
+          {!isLogin && successMessage && (
+            <Button
+              className="w-fit"
+              onClick={() => navigate(`/login${locationSearch}`)}
+              variant="outline"
+            >
+              로그인으로 이동
+            </Button>
+          )}
+        </div>
       </section>
 
-      <PlaceholderSide
-        title="Auth scope"
-        items={['access token memory state', 'refresh 또는 me 조회', 'logout', 'csrf helper']}
-      />
+      <AuthSidePanel session={session} />
     </>
   );
 }
 
-function PostEditorPlaceholder({ navigate }: { navigate: Navigate }) {
+function PostEditorPlaceholder({
+  navigate,
+  session,
+}: {
+  navigate: Navigate;
+  session: SessionState;
+}) {
+  if (session.status === 'checking') {
+    return (
+      <>
+        <SessionChecking title="게시글 작성" />
+        <PlaceholderSide
+          title="Write scope"
+          items={['post create/update/delete', 'comment write', 'reply write', 'like toggle']}
+        />
+      </>
+    );
+  }
+
+  if (session.status === 'anonymous') {
+    return (
+      <AuthRequired
+        actionLabel="로그인하고 작성하기"
+        description="게시글 작성은 로그인 후 사용할 수 있습니다."
+        navigate={navigate}
+        nextPath="/posts/new"
+        title="로그인이 필요함"
+      />
+    );
+  }
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="New post placeholder">
@@ -1352,7 +1713,47 @@ function PostEditorPlaceholder({ navigate }: { navigate: Navigate }) {
   );
 }
 
-function AdminCommentsPlaceholder() {
+function AdminCommentsPlaceholder({
+  navigate,
+  session,
+}: {
+  navigate: Navigate;
+  session: SessionState;
+}) {
+  if (session.status === 'checking') {
+    return (
+      <>
+        <SessionChecking title="관리자 댓글 검토" />
+        <PlaceholderSide
+          title="Admin scope"
+          items={['GET /admin/comments', 'moderation filter', 'delete action', 'analysis retry']}
+        />
+      </>
+    );
+  }
+
+  if (session.status === 'anonymous') {
+    return (
+      <AuthRequired
+        actionLabel="로그인하고 계속하기"
+        description="관리자 댓글 검토 화면은 관리자 계정으로 로그인해야 합니다."
+        navigate={navigate}
+        nextPath="/admin/comments"
+        title="로그인이 필요함"
+      />
+    );
+  }
+
+  if (session.user.role !== 'ADMIN') {
+    return (
+      <ForbiddenState
+        description="현재 계정은 관리자 댓글 검토 화면에 접근할 수 없습니다."
+        navigate={navigate}
+        title="권한이 없음"
+      />
+    );
+  }
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Admin comments">
@@ -1406,6 +1807,156 @@ function AdminCommentsPlaceholder() {
         items={['GET /admin/comments', 'moderation filter', 'delete action', 'analysis retry']}
       />
     </>
+  );
+}
+
+function AppNotice({ message, tone }: { message: string; tone: 'destructive' }) {
+  return (
+    <div className="mx-auto w-[min(1240px,calc(100%-28px))] pt-4 lg:w-[min(1240px,calc(100%-48px))]">
+      <p
+        className={cn(
+          'rounded-lg border p-3 text-sm leading-6',
+          tone === 'destructive' && 'border-destructive/20 bg-destructive/5 text-destructive',
+        )}
+        role="alert"
+      >
+        {message}
+      </p>
+    </div>
+  );
+}
+
+function SessionChecking({ title }: { title: string }) {
+  return (
+    <section className="flex min-w-0 flex-col gap-5" aria-label={`${title} session check`}>
+      <PageHeading
+        eyebrow="Session"
+        title={title}
+        description="현재 로그인 상태를 확인하는 중입니다."
+        badge={<Badge variant="secondary">확인 중</Badge>}
+      />
+      <div className="grid max-w-xl gap-3 rounded-lg border border-border bg-card p-4 sm:p-5">
+        <Skeleton className="h-5 w-2/3" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+    </section>
+  );
+}
+
+function AuthRequired({
+  actionLabel,
+  description,
+  navigate,
+  nextPath,
+  title,
+}: {
+  actionLabel: string;
+  description: string;
+  navigate: Navigate;
+  nextPath: string;
+  title: string;
+}) {
+  return (
+    <>
+      <section className="flex min-w-0 flex-col gap-5" aria-label="Login required">
+        <PageHeading
+          eyebrow="Unauthorized"
+          title={title}
+          description={description}
+          badge={<Badge variant="destructive">401</Badge>}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => navigate(buildLoginPath(nextPath))}>
+            <LogIn className="size-4" aria-hidden="true" />
+            {actionLabel}
+          </Button>
+          <Button onClick={() => navigate(DEFAULT_AUTH_REDIRECT)} variant="outline">
+            게시글 목록으로 이동
+          </Button>
+        </div>
+      </section>
+
+      <PlaceholderSide
+        title="Auth required"
+        items={[
+          '로그인 후 access token을 memory에 저장합니다.',
+          'refresh token은 httpOnly cookie로 유지합니다.',
+          'write 요청 전 CSRF token을 준비합니다.',
+        ]}
+      />
+    </>
+  );
+}
+
+function ForbiddenState({
+  description,
+  navigate,
+  title,
+}: {
+  description: string;
+  navigate: Navigate;
+  title: string;
+}) {
+  return (
+    <>
+      <section className="flex min-w-0 flex-col gap-5" aria-label="Forbidden">
+        <PageHeading
+          eyebrow="Forbidden"
+          title={title}
+          description={description}
+          badge={<Badge variant="destructive">403</Badge>}
+        />
+        <Button className="w-fit" onClick={() => navigate(DEFAULT_AUTH_REDIRECT)} variant="outline">
+          게시글 목록으로 이동
+        </Button>
+      </section>
+
+      <PlaceholderSide
+        title="Permission"
+        items={[
+          '인증은 되었지만 권한이 없습니다.',
+          '관리자 기능은 ADMIN role만 사용할 수 있습니다.',
+        ]}
+      />
+    </>
+  );
+}
+
+function AuthSidePanel({ session }: { session: SessionState }) {
+  const statusLabel =
+    session.status === 'authenticated'
+      ? { label: '로그인됨', variant: 'success' as BadgeVariant }
+      : session.status === 'checking'
+        ? { label: '확인 중', variant: 'secondary' as BadgeVariant }
+        : { label: '비회원', variant: 'muted' as BadgeVariant };
+
+  return (
+    <aside className="flex min-w-0 flex-col gap-5" aria-label="Auth session">
+      <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">세션 상태</h2>
+          <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+        </div>
+        <StatusLine
+          badge={session.status === 'authenticated' ? 'memory ready' : '없음'}
+          label="Access token"
+          tone={session.status === 'authenticated' ? 'success' : 'secondary'}
+        />
+        <StatusLine
+          badge={session.status === 'authenticated' ? session.user.role : '없음'}
+          label="Role"
+          tone={
+            session.status === 'authenticated' && session.user.role === 'ADMIN'
+              ? 'warning'
+              : 'secondary'
+          }
+        />
+        <p className="text-sm leading-6 text-muted-foreground">
+          refresh token과 CSRF cookie 값은 화면에 표시하지 않습니다.
+        </p>
+      </section>
+    </aside>
   );
 }
 
@@ -1682,6 +2233,31 @@ function buildPostsPath(current: PostsQueryState, next: Partial<PostsQueryState>
   return `/?${params.toString()}`;
 }
 
+function buildLoginPath(nextPath: string) {
+  return `/login?next=${encodeURIComponent(nextPath)}`;
+}
+
+function getSafeNextPath(search: string) {
+  const params = new URLSearchParams(search);
+  const next = params.get('next');
+
+  if (!next || !next.startsWith('/') || next.startsWith('//')) {
+    return DEFAULT_AUTH_REDIRECT;
+  }
+
+  try {
+    const url = new URL(next, window.location.origin);
+
+    if (url.origin !== window.location.origin) {
+      return DEFAULT_AUTH_REDIRECT;
+    }
+
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return DEFAULT_AUTH_REDIRECT;
+  }
+}
+
 function createEmptyMeta(query: PostsQueryState): PaginationMeta {
   return {
     page: query.page,
@@ -1701,6 +2277,18 @@ function formatApiError(error: unknown) {
   }
 
   return '요청을 처리하지 못했습니다.';
+}
+
+function getSessionRestoreMessage(error: unknown) {
+  if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
+    return null;
+  }
+
+  return formatApiError(error);
+}
+
+function isAuthExpiredError(error: unknown) {
+  return error instanceof ApiRequestError && (error.status === 401 || error.status === 403);
 }
 
 function formatDateTime(value: string) {
