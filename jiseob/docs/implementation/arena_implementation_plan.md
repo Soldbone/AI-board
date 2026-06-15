@@ -538,7 +538,7 @@ GET  /api/v1/agent/runs/:runId
 
 ### 직접 했다면 접근법
 
-처음에는 LangGraph 같은 무거운 프레임워크를 바로 도입하지 않고, `plan -> tool call -> observe -> answer` 형태의 작은 상태 머신으로 시작한다. 상태 머신으로 한계가 보이면 LangGraph 또는 유사 구조로 교체한다.
+처음에는 LangGraph 같은 무거운 프레임워크를 바로 도입하지 않고, `post context -> model decision -> tool call -> observe -> answer` 형태의 작은 상태 머신으로 시작한다. LangChain 요구를 반영할 때도 이 상태 머신과 MCP boundary는 유지하고, LLM decision provider 내부만 LangChain `ChatOpenAI.withStructuredOutput()` adapter로 교체한다. 자세한 전환 하네스는 `phase10_langchain_adapter_plan.md`를 따른다.
 
 Agent는 domain service를 직접 호출하지 않고, `McpServerService.handleRequest()`에 JSON-RPC envelope을 넘겨 tool을 호출한다. HTTP self-call은 하지 않는다. 내부 메서드 호출이어도 JSON-RPC envelope, tool registry, argument validation, 권한 context, error sanitation 경계를 통과하므로 MCP 검증 목적을 충족한다.
 
@@ -556,6 +556,7 @@ Phase 10 MVP Agent는 게시글 상세 화면의 토론 보조자다. 요청 bod
 
 - `phase9_5_mcp_protocol_alignment.md`
 - `phase10_ai_agent_loop_plan.md`
+- `phase10_langchain_adapter_plan.md`
 
 ---
 

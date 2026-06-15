@@ -242,6 +242,8 @@ MVP Agent는 게시글 상세 화면의 토론 보조자다.
 - Agent run은 `PENDING`, `RUNNING`, `SUCCESS`, `FAILED` 상태를 가진다.
 - Agent step은 tool call과 tool result를 저장하되 API key, token, cookie, raw provider error, stack trace를 저장하지 않는다.
 - 초기 loop 제한은 `maxSteps=4`, 전체 timeout 30초, tool timeout 10초로 시작한다.
+- LangChain 요구를 반영할 때는 `docs/implementation/phase10_langchain_adapter_plan.md`를 따른다.
+- LangChain은 Agent LLM decision provider 내부 adapter로만 사용하고, Agent 상태 머신과 MCP JSON-RPC tool boundary는 유지한다.
 
 ### 3-10. 댓글 스레드 요약 정책
 

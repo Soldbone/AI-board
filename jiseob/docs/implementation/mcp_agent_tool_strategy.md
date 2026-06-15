@@ -21,7 +21,8 @@ AI Agent 요구사항의 핵심:
 - Agent가 스스로 도구를 선택하고 실행하는 추론 루프를 관리한다.
 - Function Calling을 사용한다.
 - Memory 또는 State를 관리한다.
-- LangGraph 또는 유사 구조를 고려한다.
+- LangChain은 우선 LLM decision provider adapter로 제한 사용한다.
+- LangGraph 또는 유사 구조는 현재 상태 머신으로 한계가 보일 때 별도 단계에서 고려한다.
 - 무한 루프 방지와 예외 처리를 설계한다.
 
 ---
@@ -220,3 +221,5 @@ MCP와 Agent는 RAG 이후에 붙인다. Agent가 의미 있는 tool 선택을 �
 Phase 9.5에서 MCP endpoint의 응답 shape를 공식 MCP tools 구조에 더 가깝게 맞췄다. `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함하는 tool result를 반환한다. 자세한 구현 내용은 `phase9_5_mcp_protocol_alignment.md`를 따른다.
 
 Phase 10에서는 Agent run 생성/조회 API, AgentRun/AgentStep 저장, LLM function calling, MCP tool caller, max step/timeout/retry guard를 구현한다. 자세한 구현 계획은 `phase10_ai_agent_loop_plan.md`를 따른다.
+
+LangChain 요구를 반영해도 MCP boundary를 LangChain tool abstraction으로 대체하지 않는다. Phase 10.1 전환은 `phase10_langchain_adapter_plan.md`에 따라 Agent LLM provider 내부만 LangChain adapter로 교체한다.

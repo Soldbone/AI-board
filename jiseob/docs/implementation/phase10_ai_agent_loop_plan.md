@@ -138,7 +138,7 @@ type AgentModelDecision =
     };
 ```
 
-구현은 기존 `OpenAiCommentAnalyzerProvider`와 같은 방식으로 OpenAI Responses API를 직접 `fetch`로 호출한다. 환경 변수는 다음을 사용한다.
+Phase 10 초기 구현은 기존 `OpenAiCommentAnalyzerProvider`와 같은 방식으로 OpenAI Responses API를 직접 `fetch`로 호출한다. 과제 명세 대응을 위해 LangChain을 도입할 때는 `phase10_langchain_adapter_plan.md`를 따른다. 이때 `AgentService` 상태 머신과 MCP JSON-RPC boundary는 유지하고, LLM decision provider 내부만 LangChain adapter로 교체한다. 환경 변수는 다음을 사용한다.
 
 ```text
 OPENAI_API_KEY
