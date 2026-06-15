@@ -40,7 +40,7 @@ shadcn/ui 컴포넌트는 `frontend/src/components/ui`에 둡니다. 별도 UI �
 - Phase 11: 댓글 스레드 AI 요약 생성/조회 API
 - Phase 12: 관리자용 주의 필요 댓글 조회/삭제와 AI 댓글 분석 재시도 API
 
-Phase 13 구현자는 `AGENTS.md`와 `docs/implementation/project_progress_audit_20260615.md`를 먼저 읽으면 됩니다.
+Phase 13 구현자는 `AGENTS.md`와 `docs/implementation/phase13_e2e_test_harness.md`를 먼저 읽으면 됩니다.
 
 ## 로컬 개발환경 요구사항
 
@@ -210,6 +210,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ```powershell
 pnpm.cmd typecheck
 pnpm.cmd --filter @arena/backend test --runInBand
+pnpm.cmd test:e2e
 pnpm.cmd lint
 pnpm.cmd format:check
 ```

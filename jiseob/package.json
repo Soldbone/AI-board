@@ -16,6 +16,7 @@
     "build": "pnpm -r --if-present build",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "pnpm -r --if-present typecheck",
+    "test:e2e": "pnpm --filter @arena/backend test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d postgres",

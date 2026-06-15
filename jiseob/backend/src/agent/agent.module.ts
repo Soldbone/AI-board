@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommonModule } from '../common/common.module';
 import { McpModule } from '../mcp/mcp.module';
 import { PostsModule } from '../posts/posts.module';
 import { AgentController } from './agent.controller';
@@ -11,7 +12,13 @@ import { AgentRun } from './entities/agent-run.entity';
 import { AgentStep } from './entities/agent-step.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AgentRun, AgentStep]), PostsModule, McpModule, ConfigModule],
+  imports: [
+    TypeOrmModule.forFeature([AgentRun, AgentStep]),
+    CommonModule,
+    PostsModule,
+    McpModule,
+    ConfigModule,
+  ],
   controllers: [AgentController],
   providers: [
     AgentService,

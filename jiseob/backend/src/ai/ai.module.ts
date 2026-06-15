@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Comment } from '../comments/entities/comment.entity';
+import { CommonModule } from '../common/common.module';
 import { Post } from '../posts/entities/post.entity';
 import { TranscriptChunk } from '../videos/entities/transcript-chunk.entity';
 import { Video } from '../videos/entities/video.entity';
@@ -23,6 +24,7 @@ import { SummaryService } from './summary/summary.service';
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([
       CommentAnalysis,
       RagEvidence,

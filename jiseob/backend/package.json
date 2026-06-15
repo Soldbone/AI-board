@@ -9,6 +9,7 @@
     "build": "nest build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
+    "test:e2e": "jest --config ./test/jest-e2e.config.cjs --runInBand",
     "migration:run": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:run",
     "migration:generate": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:generate",
     "migration:revert": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:revert"

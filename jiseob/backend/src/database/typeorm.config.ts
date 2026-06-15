@@ -7,16 +7,19 @@ const parseBoolean = (value: string | undefined): boolean => value === 'true';
 
 const parsePort = (value: string | undefined): number => (value ? Number(value) : 5432);
 
-const isTsNodeRuntime = (): boolean => process.argv.some((arg) => arg.includes('ts-node'));
+const isSourceRuntime = (): boolean =>
+  process.env.NODE_ENV === 'test' ||
+  Boolean(process.env.JEST_WORKER_ID) ||
+  process.argv.some((arg) => arg.includes('ts-node'));
 
 const getEntityGlobs = (): string[] => {
-  const sourceRoot = isTsNodeRuntime() ? 'src' : 'dist';
+  const sourceRoot = isSourceRuntime() ? 'src' : 'dist';
 
   return [join(process.cwd(), `${sourceRoot}/**/*.entity.${sourceRoot === 'src' ? 'ts' : 'js'}`)];
 };
 
 const getMigrationGlobs = (): string[] => {
-  const sourceRoot = isTsNodeRuntime() ? 'src' : 'dist';
+  const sourceRoot = isSourceRuntime() ? 'src' : 'dist';
 
   return [
     join(
