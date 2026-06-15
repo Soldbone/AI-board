@@ -22,6 +22,7 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
+    "seed:demo": "pnpm --filter @arena/backend seed:demo",
     "shadcn:add": "pnpm dlx shadcn@latest add -c frontend",
     "shadcn:web:add": "pnpm dlx shadcn@latest add -c frontend"
   },

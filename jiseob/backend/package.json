@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "test:e2e": "jest --config ./test/jest-e2e.config.cjs --runInBand",
+    "seed:demo": "ts-node --files -P tsconfig.json -r tsconfig-paths/register src/database/seeds/seed-demo-data.ts",
     "migration:run": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:run",
     "migration:generate": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:generate",
     "migration:revert": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:revert"

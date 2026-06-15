@@ -1,7 +1,7 @@
 # Demo Scenarios
 
-> 기준: Phase 13 완료 backend API
-> 전제: frontend는 placeholder이므로 HTTP client 또는 E2E mock 흐름 기준으로 시연한다.
+> 기준: Frontend Harness 9 및 demo seed 적용 상태
+> 전제: demo seed의 댓글 본문은 실제 YouTube 댓글을 복사하지 않은 합성 데이터다.
 
 ---
 
@@ -12,13 +12,83 @@
 ```powershell
 pnpm.cmd db:up
 pnpm.cmd --filter @arena/backend migration:run
+pnpm.cmd seed:demo
+pnpm.cmd dev
+```
+
+Backend API만 확인할 때는 다음처럼 실행해도 된다.
+
+```powershell
 pnpm.cmd dev:backend
 ```
 
-1. HTTP client는 cookie jar를 유지한다.
-2. 로그인 후 응답의 `accessToken`을 `Authorization: Bearer <accessToken>`으로 보낸다.
-3. state-changing REST API에는 `arena_csrf_token` cookie 값을 `X-CSRF-Token` header로 보낸다.
-4. 실제 provider key가 없는 환경에서는 provider 관련 흐름을 E2E mock 검증 결과로 설명한다.
+1. Demo seed는 `NODE_ENV=production`에서 실행을 거부한다.
+2. Demo seed는 기존 테이블을 truncate하지 않고, demo 전용 계정/게시글/댓글 ID를 upsert한다.
+3. HTTP client는 cookie jar를 유지한다.
+4. 로그인 후 응답의 `accessToken`을 `Authorization: Bearer <accessToken>`으로 보낸다.
+5. state-changing REST API에는 `arena_csrf_token` cookie 값을 `X-CSRF-Token` header로 보낸다.
+6. 실제 provider key가 없는 환경에서는 provider 관련 흐름을 seed 상태 또는 E2E mock 검증 결과로 설명한다.
+
+Demo 계정:
+
+| 역할  | 이메일                     | 비밀번호      |
+| ----- | -------------------------- | ------------- |
+| Admin | `demo-admin@arena.local`   | `password123` |
+| User  | `demo-minji@arena.local`   | `password123` |
+| User  | `demo-jaehyun@arena.local` | `password123` |
+| User  | `demo-sora@arena.local`    | `password123` |
+
+Demo seed가 만드는 주제:
+
+- 열차 좌석 등받이 예절
+- 교실 월드컵 시청과 교사 색출 논란
+- 노키즈존과 업장 자율
+- 무인점포 사과 쪽지와 책임 교육
+- 촉법소년 논란과 피해 회복
+
+---
+
+## 0-1. Frontend 데모 빠른 확인
+
+```text
+http://localhost:5173/
+http://localhost:5173/login
+http://localhost:5173/posts/:postId
+http://localhost:5173/admin/comments?moderationStatus=NEEDS_REVIEW
+```
+
+확인 포인트:
+
+- `/` 게시글 목록이 5개 demo 게시글과 태그, 댓글 수, 좋아요 수를 표시한다.
+- 게시글 상세는 합성 댓글과 대댓글을 표시한다.
+- 좌석 등받이 게시글에는 root 댓글 아래 대댓글 20개 이상이 있어 요약 UI와 긴 스레드를 확인할 수 있다.
+- 일반 사용자 로그인 상태에서 댓글 작성/대댓글 작성 UI를 확인한다.
+- 비로그인 상태의 `/admin/comments`는 인증 필요 상태를 표시한다.
+- 일반 사용자 상태의 `/admin/comments`는 권한 없음 상태를 표시한다.
+- Admin 상태의 `/admin/comments?moderationStatus=NEEDS_REVIEW`는 검토 필요 댓글, `FAILED` 분석 재시도 버튼, RAG 상태와 evidence count를 표시한다.
+- 관리자 화면에는 token, cookie, raw provider error가 노출되지 않아야 한다.
+
+수동 화면 QA:
+
+- Desktop 1440px, mobile 390px에서 게시글 목록과 댓글 스레드가 가로 overflow 없이 표시되는지 확인한다.
+- 긴 댓글과 버튼 텍스트가 서로 겹치지 않는지 확인한다.
+- Admin 삭제 후 목록이 재조회되고, 게시글 상세에는 `관리자에 의해 삭제된 댓글입니다`가 표시되는지 확인한다.
+
+---
+
+## 0-2. Demo seed 재실행
+
+Demo seed는 같은 명령을 다시 실행해도 동일 계정과 demo 게시글/댓글을 갱신한다.
+
+```powershell
+pnpm.cmd seed:demo
+```
+
+재실행 후 확인할 기본 기대값:
+
+- Admin 계정과 일반 사용자 계정 비밀번호는 다시 `password123`으로 맞춰진다.
+- Demo 댓글의 AI 분석 상태는 seed에 정의된 `SUCCESS`/`FAILED` 상태로 복원된다.
+- Demo 게시글의 `commentCount`, `likeCount`는 현재 active 데이터 기준으로 다시 계산된다.
 
 ---
 
@@ -179,23 +249,14 @@ GET /api/v1/comments/:rootCommentId/summary
 
 ---
 
-## 8. toxic 댓글 작성 후 admin 목록 조회
+## 8. 검토 필요 댓글 admin 목록 조회
 
-E2E mock 환경에서는 `toxic` 또는 `바보`가 포함된 댓글이 `NEEDS_REVIEW`로 분류된다.
+Demo seed에는 `NEEDS_REVIEW` 댓글이 미리 포함되어 있다.
 
-```json
-{
-  "content": "toxic 검토 대상 댓글"
-}
-```
+Admin 계정:
 
-Admin 계정 준비:
-
-```sql
-UPDATE users
-SET role = 'ADMIN'
-WHERE email = 'admin@example.com'
-  AND deleted_at IS NULL;
+```text
+demo-admin@arena.local / password123
 ```
 
 Admin으로 로그인 후:
@@ -210,6 +271,8 @@ Authorization: Bearer <adminAccessToken>
 - 일반 사용자는 `403 Forbidden`이다.
 - admin GET은 read API라 CSRF 없이 가능하다.
 - 목록 응답은 `{ items, meta }` shape다.
+- 일부 댓글은 `commentType=TOXIC` 또는 `aiAnalysisStatus=FAILED` 상태로 표시된다.
+- error message, token, cookie, raw provider error가 화면에 노출되지 않는지 확인한다.
 
 ---
 
@@ -237,13 +300,7 @@ GET /api/v1/posts/:postId/comments
 
 ## 10. 실패한 AI 댓글 분석 retry
 
-E2E mock 환경에서는 `fail-analysis`가 포함된 댓글이 분석 실패로 처리된다.
-
-```json
-{
-  "content": "fail-analysis 이 댓글은 분석 실패를 시연합니다."
-}
-```
+Demo seed의 admin 목록에는 `aiAnalysisStatus=FAILED` 댓글이 1개 포함되어 있다.
 
 Admin retry:
 
