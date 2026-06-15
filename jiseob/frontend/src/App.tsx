@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Eye,
+  ExternalLink,
   FileText,
   Heart,
   LogIn,
@@ -16,13 +17,22 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { ApiRequestError } from '@/api/client';
-import { listPosts, listTags } from '@/api/posts';
+import { listComments } from '@/api/comments';
+import { getPost, incrementPostView, listPosts, listTags } from '@/api/posts';
+import { getVideo } from '@/api/videos';
 import type {
+  AiAnalysisStatus,
+  CommentResponse,
+  CommentType,
+  ModerationStatus,
   PaginatedResponse,
   PaginationMeta,
   PostListItemResponse,
+  PostResponse,
+  RagStatus,
   TagResponse,
   VideoProcessingStatus,
+  VideoResponse,
   VideoSummaryResponse,
 } from '@/api/types';
 import { Badge } from '@/components/ui/badge';
@@ -570,6 +580,173 @@ function PaginationControls({
 }
 
 function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }) {
+  const viewedPostIdRef = useRef<string | null>(null);
+  const [postState, setPostState] = useState<AsyncState<PostResponse>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [commentsState, setCommentsState] = useState<AsyncState<CommentResponse[]>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [videoState, setVideoState] = useState<AsyncState<VideoResponse>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [postNotFound, setPostNotFound] = useState(false);
+  const [postReloadKey, setPostReloadKey] = useState(0);
+  const [commentsReloadKey, setCommentsReloadKey] = useState(0);
+  const [videoReloadKey, setVideoReloadKey] = useState(0);
+
+  useEffect(() => {
+    let ignore = false;
+
+    setPostNotFound(false);
+    setPostState((current) => ({
+      status: 'loading',
+      data: current.data?.id === postId ? current.data : null,
+      error: null,
+    }));
+
+    getPost(postId)
+      .then((data) => {
+        if (!ignore) {
+          setPostState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setPostNotFound(isNotFoundError(error));
+          setPostState({ status: 'error', data: null, error: formatApiError(error) });
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [postId, postReloadKey]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    setCommentsState(() => ({
+      status: 'loading',
+      data: null,
+      error: null,
+    }));
+
+    listComments(postId)
+      .then((data) => {
+        if (!ignore) {
+          setCommentsState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setCommentsState((current) => ({
+            status: 'error',
+            data: current.data,
+            error: formatApiError(error),
+          }));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [commentsReloadKey, postId]);
+
+  const post = postState.data;
+  const videoId = post?.video.id ?? null;
+
+  useEffect(() => {
+    if (!videoId) {
+      setVideoState({ status: 'idle', data: null, error: null });
+      return;
+    }
+
+    let ignore = false;
+
+    setVideoState((current) => ({
+      status: 'loading',
+      data: current.data?.id === videoId ? current.data : null,
+      error: null,
+    }));
+
+    getVideo(videoId)
+      .then((data) => {
+        if (!ignore) {
+          setVideoState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setVideoState((current) => ({
+            status: 'error',
+            data: current.data,
+            error: formatApiError(error),
+          }));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [videoId, videoReloadKey]);
+
+  useEffect(() => {
+    if (postState.status !== 'success') return;
+    if (viewedPostIdRef.current === postState.data.id) return;
+
+    viewedPostIdRef.current = postState.data.id;
+
+    incrementPostView(postState.data.id)
+      .then((result) => {
+        setPostState((current) => {
+          if (current.status !== 'success' || current.data.id !== postState.data.id) {
+            return current;
+          }
+
+          return {
+            status: 'success',
+            data: {
+              ...current.data,
+              viewCount: result.viewCount,
+            },
+            error: null,
+          };
+        });
+      })
+      .catch(() => {
+        // View counting is best-effort and should not block the read-only detail page.
+      });
+  }, [postState]);
+
+  if (postNotFound) {
+    return <PostDetailNotFound navigate={navigate} />;
+  }
+
+  if (postState.status === 'loading' && !post) {
+    return <PostDetailLoading navigate={navigate} />;
+  }
+
+  if (postState.status === 'error' && !post) {
+    return (
+      <PostDetailError
+        error={postState.error}
+        navigate={navigate}
+        onRetry={() => setPostReloadKey((key) => key + 1)}
+      />
+    );
+  }
+
+  if (!post) {
+    return <PostDetailLoading navigate={navigate} />;
+  }
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Post detail">
@@ -583,56 +760,496 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
           목록
         </Button>
 
-        <PageHeading
-          eyebrow="Post detail"
-          title="게시글 상세"
-          description={`선택한 게시글 ID: ${postId}. 상세 읽기 API 연결은 Harness 4에서 처리합니다.`}
-          badge={<Badge variant="muted">placeholder</Badge>}
+        <PostDetailHeader post={post} />
+
+        <PostVideoSection
+          fallbackVideo={post.video}
+          onRetry={() => setVideoReloadKey((key) => key + 1)}
+          state={videoState}
         />
 
-        <section
-          className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
-          aria-label="Video preview"
+        <PostBody post={post} />
+
+        <CommentsSection
+          onRetry={() => setCommentsReloadKey((key) => key + 1)}
+          state={commentsState}
+        />
+      </section>
+
+      <DetailSidePanel comments={commentsState.data ?? []} post={post} videoState={videoState} />
+    </>
+  );
+}
+
+function PostDetailLoading({ navigate }: { navigate: Navigate }) {
+  return (
+    <>
+      <section className="flex min-w-0 flex-col gap-6" aria-label="Post detail loading">
+        <Button
+          className="w-fit"
+          onClick={() => navigate('/?page=1&limit=20')}
+          size="sm"
+          variant="ghost"
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium">영상과 토론 본문</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                실제 영상 연결은 Harness 4에서 처리합니다.
-              </p>
-            </div>
-            <Badge variant="muted">읽기 연결 대기</Badge>
-          </div>
-          <div className="grid aspect-video place-items-center rounded-lg border border-border bg-[linear-gradient(135deg,rgba(0,0,0,0.78),rgba(30,41,59,0.86))] text-white">
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          목록
+        </Button>
+        <div className="grid gap-3">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-9 w-3/4" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+        <Skeleton className="aspect-video rounded-lg" />
+        <div className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:p-5">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+        <CommentsLoading />
+      </section>
+      <aside className="grid h-fit gap-5" aria-label="Detail side loading">
+        <Skeleton className="h-40 rounded-lg" />
+        <Skeleton className="h-48 rounded-lg" />
+      </aside>
+    </>
+  );
+}
+
+function PostDetailError({
+  error,
+  navigate,
+  onRetry,
+}: {
+  error: string;
+  navigate: Navigate;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      <section
+        className="grid gap-4 rounded-lg border border-destructive/20 bg-destructive/5 p-5"
+        aria-label="Post detail error"
+      >
+        <PageHeading
+          badge={<Badge variant="destructive">error</Badge>}
+          description={error}
+          eyebrow="Post detail"
+          title="게시글 상세를 불러오지 못했습니다"
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onRetry} variant="destructive">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            재시도
+          </Button>
+          <Button onClick={() => navigate('/?page=1&limit=20')} variant="outline">
+            게시글 목록
+          </Button>
+        </div>
+      </section>
+      <PlaceholderSide title="읽기 오류" items={['GET /posts/:postId', '서버 연결 상태 확인']} />
+    </>
+  );
+}
+
+function PostDetailNotFound({ navigate }: { navigate: Navigate }) {
+  return (
+    <>
+      <section className="flex min-w-0 flex-col gap-4" aria-label="Post not found">
+        <PageHeading
+          badge={<Badge variant="destructive">404</Badge>}
+          description="삭제되었거나 존재하지 않는 게시글입니다."
+          eyebrow="Post detail"
+          title="게시글을 찾을 수 없습니다"
+        />
+        <Button className="w-fit" onClick={() => navigate('/?page=1&limit=20')}>
+          게시글 목록으로 이동
+        </Button>
+      </section>
+      <PlaceholderSide title="Not found" items={['삭제된 게시글', '존재하지 않는 postId']} />
+    </>
+  );
+}
+
+function PostDetailHeader({ post }: { post: PostResponse }) {
+  const videoSummary = getVideoProcessingSummary(post.video);
+
+  return (
+    <header className="grid gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="mb-2 text-sm font-medium text-muted-foreground">Post detail</p>
+          <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">{post.title}</h1>
+        </div>
+        <Badge className="w-fit shrink-0" variant={videoSummary.variant}>
+          {videoSummary.label}
+        </Badge>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+        <span className="font-medium text-neutral-700">{post.author.nickname}</span>
+        <span>{formatDateTime(post.createdAt)}</span>
+        <Metric icon={MessageCircle} label={`댓글 ${post.commentCount}`} />
+        <Metric icon={Eye} label={`조회 ${post.viewCount}`} />
+        <Metric icon={Heart} label={`좋아요 ${post.likeCount}`} />
+      </div>
+
+      {post.tags.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <Badge key={tag.id} variant="muted">
+              #{tag.name}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function PostVideoSection({
+  fallbackVideo,
+  onRetry,
+  state,
+}: {
+  fallbackVideo: VideoSummaryResponse;
+  onRetry: () => void;
+  state: AsyncState<VideoResponse>;
+}) {
+  const video = state.data;
+  const videoForStatus = video ?? fallbackVideo;
+  const summary = getVideoProcessingSummary(videoForStatus);
+
+  return (
+    <section
+      className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+      aria-label="Video detail"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">영상 정보</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            영상 메타데이터와 처리 상태를 읽기 전용으로 표시합니다.
+          </p>
+        </div>
+        <Badge className="w-fit shrink-0" variant={summary.variant}>
+          {summary.label}
+        </Badge>
+      </div>
+
+      {state.status === 'error' && (
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>영상 상세 정보를 불러오지 못했습니다. {state.error}</span>
+          <Button className="w-fit" onClick={onRetry} size="sm" variant="destructive">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            재시도
+          </Button>
+        </div>
+      )}
+
+      <VideoFrame video={video} />
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <VideoStatusItem label="Metadata" status={videoForStatus.metadataStatus} />
+        <VideoStatusItem label="Transcript" status={videoForStatus.transcriptStatus} />
+        <VideoStatusItem label="Embedding" status={videoForStatus.embeddingStatus} />
+      </div>
+
+      {state.status === 'loading' && !video ? (
+        <div className="grid gap-3">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      ) : (
+        <VideoMetadata video={video} />
+      )}
+    </section>
+  );
+}
+
+function VideoFrame({ video }: { video: VideoResponse | null }) {
+  const thumbnailUrl = video?.thumbnailUrl;
+  const title = video?.title ?? 'YouTube video';
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-neutral-950">
+      <div className="relative aspect-video">
+        {thumbnailUrl ? (
+          <img
+            alt={title}
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+            src={thumbnailUrl}
+          />
+        ) : (
+          <div className="grid h-full place-items-center bg-[linear-gradient(135deg,rgba(23,23,23,1),rgba(64,64,64,1))] text-white">
             <span className="grid size-16 place-items-center rounded-full border border-white/30 bg-white/10">
               <Play className="ml-1 size-7 fill-white" aria-hidden="true" />
             </span>
           </div>
-          <p className="text-sm leading-6 text-neutral-700">
-            이 화면에서는 영상 카드, 게시글 본문, 댓글 thread가 하나의 읽기 흐름으로 이어집니다. AI
-            보조 정보는 오른쪽 panel과 이후 sheet에서 확인합니다.
-          </p>
-        </section>
-
-        <section
-          className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
-          aria-label="Comments"
+        )}
+      </div>
+      {video?.youtubeUrl && (
+        <a
+          className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3 text-sm text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href={video.youtubeUrl}
+          rel="noreferrer"
+          target="_blank"
         >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">댓글 thread</p>
-              <p className="mt-1 text-sm text-muted-foreground">읽기 전용 placeholder</p>
-            </div>
-            <Button variant="outline" disabled>
-              댓글 작성
-            </Button>
-          </div>
-          <CommentPreview />
-        </section>
-      </section>
+          <span className="min-w-0 truncate">{video.title ?? video.youtubeVideoId}</span>
+          <ExternalLink className="size-4 shrink-0" aria-hidden="true" />
+        </a>
+      )}
+    </div>
+  );
+}
 
-      <DetailSidePanel />
-    </>
+function VideoMetadata({ video }: { video: VideoResponse | null }) {
+  if (!video) {
+    return (
+      <p className="rounded-md bg-muted p-3 text-sm leading-6 text-muted-foreground">
+        영상 상세 메타데이터를 기다리는 중입니다.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-2">
+        <h3 className="text-sm font-semibold">{video.title ?? '제목 수집 대기 중'}</h3>
+        <p className="text-sm leading-6 text-muted-foreground">
+          {video.description || '영상 설명을 아직 사용할 수 없습니다.'}
+        </p>
+      </div>
+      <div className="grid gap-2 text-sm sm:grid-cols-2">
+        <DetailMetaLine label="채널" value={video.channelName ?? '수집 대기'} />
+        <DetailMetaLine
+          label="게시일"
+          value={video.publishedAt ? formatDateTime(video.publishedAt) : '수집 대기'}
+        />
+        <DetailMetaLine label="YouTube 조회" value={formatNullableNumber(video.youtubeViewCount)} />
+        <DetailMetaLine
+          label="YouTube 댓글"
+          value={formatNullableNumber(video.youtubeCommentCount)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function VideoStatusItem({ label, status }: { label: string; status: VideoProcessingStatus }) {
+  const statusLabel = getVideoProcessingStatusLabel(status);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-neutral-50 px-3 py-2 text-sm">
+      <span className="font-medium text-neutral-700">{label}</span>
+      <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+    </div>
+  );
+}
+
+function PostBody({ post }: { post: PostResponse }) {
+  return (
+    <article className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">토론 본문</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            작성자가 영상과 함께 남긴 맥락입니다.
+          </p>
+        </div>
+        <Badge variant="outline">read-only</Badge>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-sm leading-7 text-neutral-800">
+        {post.content}
+      </p>
+    </article>
+  );
+}
+
+function CommentsSection({
+  onRetry,
+  state,
+}: {
+  onRetry: () => void;
+  state: AsyncState<CommentResponse[]>;
+}) {
+  const comments = state.data ?? [];
+  const totalCommentCount = countComments(comments);
+
+  return (
+    <section
+      className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5"
+      aria-label="Comments"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">댓글 thread</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            루트 댓글과 대댓글을 최대 2단계로 표시합니다.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="muted">{totalCommentCount.toLocaleString()}개</Badge>
+          <Button disabled size="sm" variant="outline">
+            댓글 작성
+          </Button>
+        </div>
+      </div>
+
+      {state.status === 'loading' && comments.length === 0 && <CommentsLoading />}
+
+      {state.status === 'error' && (
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>댓글을 불러오지 못했습니다. {state.error}</span>
+          <Button className="w-fit" onClick={onRetry} size="sm" variant="destructive">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            재시도
+          </Button>
+        </div>
+      )}
+
+      {state.status === 'success' && comments.length === 0 && (
+        <div className="rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
+          <h3 className="font-semibold text-foreground">아직 항목이 없음</h3>
+          <p className="mt-1">이 게시글에는 아직 댓글이 없습니다.</p>
+        </div>
+      )}
+
+      {comments.length > 0 && (
+        <div className="grid gap-3" aria-busy={state.status === 'loading'}>
+          {state.status === 'loading' && (
+            <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+              댓글을 새로 불러오는 중입니다.
+            </div>
+          )}
+          {comments.map((comment) => (
+            <CommentThread comment={comment} key={comment.id} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CommentsLoading() {
+  return (
+    <div className="grid gap-3" aria-label="댓글 로딩 중">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div className="grid gap-3 rounded-lg border border-border bg-card p-4" key={index}>
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-8 rounded-full" />
+            <div className="grid flex-1 gap-2">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          </div>
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CommentThread({ comment }: { comment: CommentResponse }) {
+  const replies = comment.replies ?? [];
+
+  return (
+    <div className="grid gap-3">
+      <CommentItem comment={comment} level={0} />
+      {replies.map((reply) => (
+        <CommentItem comment={reply} key={reply.id} level={1} />
+      ))}
+    </div>
+  );
+}
+
+function CommentItem({ comment, level }: { comment: CommentResponse; level: 0 | 1 }) {
+  const isReply = level === 1;
+  const isDeleted = comment.isDeleted || comment.moderationStatus === 'DELETED_BY_ADMIN';
+  const moderationBadge = getModerationStatusLabel(comment.moderationStatus);
+
+  return (
+    <article
+      className={cn(
+        'grid gap-3 rounded-lg border border-border p-4',
+        isReply ? 'ml-0 bg-neutral-50 sm:ml-7' : 'bg-card',
+        isDeleted && 'border-dashed bg-muted/60',
+      )}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold">
+            {getAuthorInitial(comment.author.nickname)}
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{comment.author.nickname}</h3>
+            <p className="text-xs text-muted-foreground">{formatDateTime(comment.createdAt)}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isReply && <Badge variant="muted">reply</Badge>}
+          {moderationBadge && (
+            <Badge className="w-fit" variant={moderationBadge.variant}>
+              {moderationBadge.label}
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      <p
+        className={cn(
+          'whitespace-pre-wrap break-words text-sm leading-6',
+          isDeleted ? 'text-muted-foreground' : 'text-neutral-800',
+        )}
+      >
+        {comment.content}
+      </p>
+
+      <CommentAnalysisBadges comment={comment} />
+
+      {!isDeleted && (
+        <div className="flex flex-wrap gap-2">
+          {comment.analysis?.evidenceCount ? (
+            <Button disabled size="sm" variant="outline">
+              근거 후보 보기
+            </Button>
+          ) : null}
+          {!isReply && (
+            <Button disabled size="sm" variant="outline">
+              답글
+            </Button>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function CommentAnalysisBadges({ comment }: { comment: CommentResponse }) {
+  const analysis = comment.analysis;
+
+  if (!analysis) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="muted">분석 없음</Badge>
+      </div>
+    );
+  }
+
+  const commentType = getCommentTypeLabel(analysis.commentType);
+  const aiStatus = getAiAnalysisStatusLabel(analysis.aiAnalysisStatus);
+  const ragStatus = getRagStatusLabel(analysis.ragStatus);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {commentType && <Badge variant={commentType.variant}>{commentType.label}</Badge>}
+      <Badge variant={aiStatus.variant}>{aiStatus.label}</Badge>
+      <Badge variant={ragStatus.variant}>{ragStatus.label}</Badge>
+      {analysis.evidenceCount > 0 && (
+        <Badge variant="success">근거 후보 {analysis.evidenceCount}</Badge>
+      )}
+    </div>
   );
 }
 
@@ -842,13 +1459,35 @@ function BoardSidePanel({
   );
 }
 
-function DetailSidePanel() {
+function DetailSidePanel({
+  comments,
+  post,
+  videoState,
+}: {
+  comments: CommentResponse[];
+  post: PostResponse;
+  videoState: AsyncState<VideoResponse>;
+}) {
+  const video = videoState.data ?? post.video;
+  const videoSummary = getVideoProcessingSummary(video);
+  const totalCommentCount = countComments(comments);
+
   return (
     <aside className="flex min-w-0 flex-col gap-5" aria-label="Detail side panel">
-      <PlaceholderSide
-        title="상세 연결 예정"
-        items={['GET /posts/:postId', 'GET /posts/:postId/comments', 'GET /videos/:videoId']}
-      />
+      <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">처리 상태</h2>
+          <Badge variant={videoSummary.variant}>{videoSummary.label}</Badge>
+        </div>
+        {videoState.status === 'error' && (
+          <p className="rounded-md bg-destructive/5 p-3 text-sm leading-6 text-destructive">
+            영상 상세 조회에 실패해 게시글의 요약 상태를 표시합니다.
+          </p>
+        )}
+        <DetailStatusRow label="Metadata" status={video.metadataStatus} />
+        <DetailStatusRow label="Transcript" status={video.transcriptStatus} />
+        <DetailStatusRow label="Embedding" status={video.embeddingStatus} />
+      </section>
 
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
@@ -867,13 +1506,21 @@ function DetailSidePanel() {
 
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">근거 후보 sheet</h2>
-          <Badge variant="success">3개</Badge>
+          <h2 className="text-base font-semibold">요약과 근거 후보</h2>
+          <Badge variant="muted">placeholder</Badge>
         </div>
-        <div className="grid gap-3 rounded-md border border-border bg-neutral-50 p-3">
-          <p className="text-xs text-muted-foreground">00:12 - 00:20 · similarity 0.84</p>
-          <p className="text-sm leading-6">영상에서 수치 증가를 설명하는 자막 구간입니다.</p>
-        </div>
+        <StatusLine badge={totalCommentCount.toLocaleString()} label="현재 댓글" tone="secondary" />
+        <StatusLine
+          badge={post.commentCount.toLocaleString()}
+          label="게시글 카운터"
+          tone="secondary"
+        />
+        <Button disabled variant="outline">
+          댓글 스레드 요약
+        </Button>
+        <Button disabled variant="outline">
+          근거 후보 sheet
+        </Button>
         <p className="text-sm leading-6 text-muted-foreground">
           근거 후보는 관련 있을 수 있는 자막 구간이며, 사실 여부를 최종 판정하지 않습니다.
         </p>
@@ -903,57 +1550,6 @@ function PlaceholderSide({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function CommentPreview() {
-  return (
-    <div className="grid gap-3">
-      <article className="grid gap-3 rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold">
-              토
-            </span>
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold">토론러</h3>
-              <p className="text-xs text-muted-foreground">방금 전</p>
-            </div>
-          </div>
-          <Badge className="w-fit" variant="info">
-            사실 주장
-          </Badge>
-        </div>
-        <p className="text-sm leading-6">
-          영상에서는 2024년에 수치가 증가했다고 말하는데, 정확히 어느 구간에서 나오는지 같이 보면
-          좋겠습니다.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="success">근거 후보 3개</Badge>
-          <Button variant="outline" size="sm" disabled>
-            근거 후보 보기
-          </Button>
-          <Button variant="outline" size="sm" disabled>
-            답글
-          </Button>
-        </div>
-      </article>
-
-      <article className="ml-0 grid gap-3 rounded-lg border border-border bg-neutral-50 p-4 sm:ml-7">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold">
-            A
-          </span>
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold">arena-user</h3>
-            <p className="text-xs text-muted-foreground">1분 전</p>
-          </div>
-        </div>
-        <p className="text-sm leading-6">
-          00:12 근처에서 언급되는 듯합니다. 다만 영상 전체 맥락도 같이 봐야 할 것 같습니다.
-        </p>
-      </article>
-    </div>
-  );
-}
-
 function StatusLine({
   label,
   badge,
@@ -971,6 +1567,26 @@ function StatusLine({
       </div>
       <Separator />
     </>
+  );
+}
+
+function DetailMetaLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-neutral-50 px-3 py-2">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate font-medium text-neutral-800">{value}</span>
+    </div>
+  );
+}
+
+function DetailStatusRow({ label, status }: { label: string; status: VideoProcessingStatus }) {
+  const statusLabel = getVideoProcessingStatusLabel(status);
+
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span>{label}</span>
+      <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+    </div>
   );
 }
 
@@ -1104,6 +1720,111 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+}
+
+function formatNullableNumber(value: number | null) {
+  return value === null ? '수집 대기' : value.toLocaleString();
+}
+
+function countComments(comments: CommentResponse[]) {
+  return comments.reduce((total, comment) => total + 1 + (comment.replies?.length ?? 0), 0);
+}
+
+function getAuthorInitial(nickname: string) {
+  const trimmed = nickname.trim();
+  return trimmed.length > 0 ? trimmed[0] : '?';
+}
+
+function isNotFoundError(error: unknown) {
+  return error instanceof ApiRequestError && error.status === 404;
+}
+
+function getVideoProcessingStatusLabel(status: VideoProcessingStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'PENDING':
+      return { label: '대기 중', variant: 'secondary' };
+    case 'PROCESSING':
+      return { label: '처리 중', variant: 'secondary' };
+    case 'SUCCESS':
+      return { label: '준비됨', variant: 'success' };
+    case 'FAILED':
+      return { label: '실패', variant: 'destructive' };
+    case 'NOT_AVAILABLE':
+      return { label: '사용할 수 없음', variant: 'muted' };
+  }
+}
+
+function getCommentTypeLabel(type: CommentType | null): {
+  label: string;
+  variant: BadgeVariant;
+} | null {
+  switch (type) {
+    case 'FACT_CLAIM':
+      return { label: '사실 주장', variant: 'info' };
+    case 'OPINION':
+      return { label: '의견', variant: 'outline' };
+    case 'QUESTION':
+      return { label: '질문', variant: 'secondary' };
+    case 'TOXIC':
+      return { label: '검토 필요', variant: 'warning' };
+    case null:
+      return null;
+  }
+}
+
+function getAiAnalysisStatusLabel(status: AiAnalysisStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'PENDING':
+      return { label: '분석 대기', variant: 'secondary' };
+    case 'PROCESSING':
+      return { label: '분석 중', variant: 'secondary' };
+    case 'SUCCESS':
+      return { label: '분석됨', variant: 'outline' };
+    case 'FAILED':
+      return { label: '분석 실패', variant: 'destructive' };
+    case 'NOT_REQUIRED':
+      return { label: '분석 없음', variant: 'muted' };
+  }
+}
+
+function getRagStatusLabel(status: RagStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'PENDING':
+      return { label: '근거 후보 준비 중', variant: 'secondary' };
+    case 'PROCESSING':
+      return { label: '자막 검색 중', variant: 'secondary' };
+    case 'SUCCESS':
+      return { label: '근거 후보 있음', variant: 'success' };
+    case 'NO_RESULT':
+      return { label: '관련 구간 없음', variant: 'muted' };
+    case 'FAILED':
+      return { label: '근거 후보 실패', variant: 'destructive' };
+    case 'NOT_REQUIRED':
+      return { label: '근거 후보 없음', variant: 'muted' };
+  }
+}
+
+function getModerationStatusLabel(status: ModerationStatus): {
+  label: string;
+  variant: BadgeVariant;
+} | null {
+  switch (status) {
+    case 'NORMAL':
+      return null;
+    case 'NEEDS_REVIEW':
+      return { label: '검토 필요', variant: 'warning' };
+    case 'DELETED_BY_ADMIN':
+      return { label: '관리자 삭제', variant: 'destructive' };
+  }
 }
 
 function getVideoProcessingSummary(video: VideoSummaryResponse): {
