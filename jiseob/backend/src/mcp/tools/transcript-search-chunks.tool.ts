@@ -18,6 +18,7 @@ type TranscriptSearchRow = {
   startTime?: number | null;
   endTime?: number | null;
   similarityScore: string | number;
+  matchType?: 'TEXT' | 'VECTOR';
 };
 
 @Injectable()
@@ -80,7 +81,7 @@ export class TranscriptSearchChunksTool implements McpTool {
       throw new McpToolError('QUERY_EMBEDDING_FAILED', '검색어 임베딩을 생성하지 못했습니다.');
     }
 
-    const rows = await this.searchSimilarChunks(post.video.id, queryEmbedding, limit);
+    const rows = await this.searchChunks(post.video.id, query, queryEmbedding, limit);
 
     return {
       postId,
@@ -102,6 +103,38 @@ export class TranscriptSearchChunksTool implements McpTool {
     }
   }
 
+  private async searchChunks(
+    videoId: string,
+    query: string,
+    queryEmbedding: number[],
+    limit: number,
+  ) {
+    const vectorRows = await this.searchSimilarChunks(videoId, queryEmbedding, limit);
+
+    if (vectorRows.length >= limit) {
+      return vectorRows;
+    }
+
+    const textRows = await this.searchTextChunks(videoId, query, limit);
+    const seenChunkIds = new Set(vectorRows.map((row) => row.transcriptChunkId));
+    const mergedRows = [...vectorRows];
+
+    for (const row of textRows) {
+      if (seenChunkIds.has(row.transcriptChunkId)) {
+        continue;
+      }
+
+      seenChunkIds.add(row.transcriptChunkId);
+      mergedRows.push(row);
+
+      if (mergedRows.length >= limit) {
+        break;
+      }
+    }
+
+    return mergedRows;
+  }
+
   private async searchSimilarChunks(videoId: string, queryEmbedding: number[], limit: number) {
     const vector = this.toVectorLiteral(queryEmbedding);
     const rows = (await this.dataSource.query(
@@ -112,7 +145,8 @@ export class TranscriptSearchChunksTool implements McpTool {
           "content",
           "start_time" AS "startTime",
           "end_time" AS "endTime",
-          1 - ("embedding" <=> $1::vector) AS "similarityScore"
+          1 - ("embedding" <=> $1::vector) AS "similarityScore",
+          'VECTOR' AS "matchType"
         FROM "transcript_chunks"
         WHERE "video_id" = $2
           AND "deleted_at" IS NULL
@@ -132,6 +166,47 @@ export class TranscriptSearchChunksTool implements McpTool {
         startTime: row.startTime,
         endTime: row.endTime,
         similarityScore: Number(row.similarityScore),
+        matchType: row.matchType ?? 'VECTOR',
+      }))
+      .filter((row) => Number.isFinite(row.chunkIndex) && Number.isFinite(row.similarityScore));
+  }
+
+  private async searchTextChunks(videoId: string, query: string, limit: number) {
+    const normalizedQuery = query.trim();
+
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    const rows = (await this.dataSource.query(
+      `
+        SELECT
+          "id" AS "transcriptChunkId",
+          "chunk_index" AS "chunkIndex",
+          "content",
+          "start_time" AS "startTime",
+          "end_time" AS "endTime",
+          1 AS "similarityScore",
+          'TEXT' AS "matchType"
+        FROM "transcript_chunks"
+        WHERE "video_id" = $1
+          AND "deleted_at" IS NULL
+          AND position(lower($2) in lower("content")) > 0
+        ORDER BY "chunk_index" ASC
+        LIMIT $3
+      `,
+      [videoId, normalizedQuery, limit],
+    )) as TranscriptSearchRow[];
+
+    return rows
+      .map((row) => ({
+        transcriptChunkId: row.transcriptChunkId,
+        chunkIndex: Number(row.chunkIndex),
+        content: row.content,
+        startTime: row.startTime,
+        endTime: row.endTime,
+        similarityScore: Number(row.similarityScore),
+        matchType: row.matchType ?? 'TEXT',
       }))
       .filter((row) => Number.isFinite(row.chunkIndex) && Number.isFinite(row.similarityScore));
   }

@@ -70,6 +70,54 @@ describe('TranscriptSearchChunksTool', () => {
     ]);
   });
 
+  it('falls back to exact transcript text matches when vector search has no results', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          transcriptChunkId: '01J00000000000000000000006',
+          chunkIndex: 1,
+          content: "♪ We're no strangers to love ♪",
+          startTime: 18.64,
+          endTime: 21.88,
+          similarityScore: '1',
+          matchType: 'TEXT',
+        },
+      ]);
+    const tool = createTool({
+      dataSource: { query },
+      postsService: { getPost: jest.fn().mockResolvedValue(post) },
+      embeddingProvider: { embedTexts: jest.fn().mockResolvedValue([[0.1, 0.2]]) },
+    });
+
+    await expect(
+      tool.execute({
+        postId: post.id,
+        query: "We're no strangers to love",
+        limit: 3,
+      }),
+    ).resolves.toMatchObject({
+      postId: post.id,
+      videoId: post.video.id,
+      limit: 3,
+      chunks: [
+        {
+          transcriptChunkId: '01J00000000000000000000006',
+          chunkIndex: 1,
+          content: "♪ We're no strangers to love ♪",
+          similarityScore: 1,
+          matchType: 'TEXT',
+        },
+      ],
+    });
+    expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining('position(lower($2)'), [
+      post.video.id,
+      "We're no strangers to love",
+      3,
+    ]);
+  });
+
   it('rejects limit values above the maximum', async () => {
     const tool = createTool();
 
