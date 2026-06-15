@@ -27,6 +27,7 @@ import {
   signup as signupUser,
 } from '@/api/auth';
 import { createAgentRun, getAgentRun } from '@/api/agent';
+import { deleteAdminComment, listAdminComments, retryCommentAnalysis } from '@/api/admin';
 import { ApiRequestError, clearApiSession } from '@/api/client';
 import {
   createSummary,
@@ -56,6 +57,7 @@ import type {
   AgentRunStatus,
   AgentToolUseResponse,
   AiAnalysisStatus,
+  AdminCommentResponse,
   CommentEvidencesResponse,
   CommentResponse,
   CommentType,
@@ -138,7 +140,20 @@ type AgentPanelState =
   | { status: 'success'; data: AgentPanelRun; error: null }
   | { status: 'error'; data: AgentPanelRun | null; error: string };
 
+type AdminCommentsQueryState = {
+  page: number;
+  limit: number;
+  moderationStatus: ModerationStatus;
+};
+
+type AdminCommentActionState = {
+  action: 'delete' | 'retry';
+  commentId: string;
+} | null;
+
 const POSTS_LIMIT = 20;
+const ADMIN_COMMENTS_LIMIT = 20;
+const ADMIN_COMMENTS_MODERATION_STATUS: ModerationStatus = 'NEEDS_REVIEW';
 const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
 
 function parseRoute(pathname: string): Route {
@@ -316,7 +331,13 @@ function renderRoute(
     case 'new-post':
       return <PostEditor mode="create" navigate={navigate} session={session} />;
     case 'admin-comments':
-      return <AdminCommentsPlaceholder navigate={navigate} session={session} />;
+      return (
+        <AdminCommentsScreen
+          locationSearch={locationSearch}
+          navigate={navigate}
+          session={session}
+        />
+      );
     case 'not-found':
       return <NotFound navigate={navigate} />;
   }
@@ -361,7 +382,10 @@ function TopNav({
           />
         </label>
 
-        <nav className="ml-auto flex items-center gap-2" aria-label="Primary">
+        <nav
+          className="ml-auto flex w-full max-w-full flex-wrap items-center justify-end gap-2 md:w-auto"
+          aria-label="Primary"
+        >
           {session.status === 'checking' && (
             <Badge className="min-w-fit" variant="secondary">
               세션 확인 중
@@ -3006,10 +3030,12 @@ function PostEditor({
   );
 }
 
-function AdminCommentsPlaceholder({
+function AdminCommentsScreen({
+  locationSearch,
   navigate,
   session,
 }: {
+  locationSearch: string;
   navigate: Navigate;
   session: SessionState;
 }) {
@@ -3047,59 +3073,434 @@ function AdminCommentsPlaceholder({
     );
   }
 
+  return <AdminCommentsAdminView locationSearch={locationSearch} navigate={navigate} />;
+}
+
+function AdminCommentsAdminView({
+  locationSearch,
+  navigate,
+}: {
+  locationSearch: string;
+  navigate: Navigate;
+}) {
+  const query = useMemo(() => parseAdminCommentsQuery(locationSearch), [locationSearch]);
+  const [commentsState, setCommentsState] = useState<
+    AsyncState<PaginatedResponse<AdminCommentResponse>>
+  >({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [reloadKey, setReloadKey] = useState(0);
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+  const [actionState, setActionState] = useState<AdminCommentActionState>(null);
+  const [apiForbidden, setApiForbidden] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+
+    setApiForbidden(false);
+    setCommentsState((current) => ({ status: 'loading', data: current.data, error: null }));
+
+    listAdminComments({
+      limit: query.limit,
+      moderationStatus: query.moderationStatus,
+      page: query.page,
+    })
+      .then((data) => {
+        if (!ignore) {
+          setCommentsState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (ignore) return;
+
+        if (error instanceof ApiRequestError && error.status === 401) {
+          navigate(buildLoginPath(getCurrentPath()));
+          return;
+        }
+
+        if (error instanceof ApiRequestError && error.status === 403) {
+          setApiForbidden(true);
+        }
+
+        setCommentsState((current) => ({
+          status: 'error',
+          data: current.data,
+          error: formatApiError(error),
+        }));
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [query.limit, query.moderationStatus, query.page, reloadKey]);
+
+  if (apiForbidden) {
+    return (
+      <ForbiddenState
+        description="관리자 댓글 검토 API에 접근할 권한이 없습니다."
+        navigate={navigate}
+        title="권한이 없음"
+      />
+    );
+  }
+
+  const comments = commentsState.data?.items ?? [];
+  const meta = commentsState.data?.meta ?? createEmptyAdminMeta(query);
+
+  const refreshComments = () => setReloadKey((key) => key + 1);
+
+  const handleDelete = async (comment: AdminCommentResponse) => {
+    if (actionState) return;
+
+    if (
+      !window.confirm(
+        '관리자 권한으로 댓글을 삭제할까요? 삭제된 댓글은 관리자 삭제 상태로 표시됩니다.',
+      )
+    ) {
+      return;
+    }
+
+    setActionState({ action: 'delete', commentId: comment.id });
+    setNotice(null);
+
+    try {
+      await deleteAdminComment(comment.id);
+      setNotice({ tone: 'success', message: '댓글이 관리자 삭제 처리되었습니다.' });
+      refreshComments();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setActionState(null);
+    }
+  };
+
+  const handleRetryAnalysis = async (comment: AdminCommentResponse) => {
+    if (actionState) return;
+
+    setActionState({ action: 'retry', commentId: comment.id });
+    setNotice(null);
+
+    try {
+      await retryCommentAnalysis(comment.id);
+      setNotice({ tone: 'success', message: '댓글 분석 재시도 요청이 접수되었습니다.' });
+      refreshComments();
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setActionState(null);
+    }
+  };
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Admin comments">
         <PageHeading
-          eyebrow="Admin placeholder"
+          eyebrow="Admin comments"
           title="관리자 댓글 검토"
-          description="운영형 dense list 구조만 먼저 고정합니다."
-          badge={<Badge variant="warning">NEEDS_REVIEW</Badge>}
+          description="검토가 필요한 댓글을 확인하고 관리자 삭제 또는 분석 재시도를 처리합니다."
+          badge={<Badge variant="warning">Harness 9</Badge>}
         />
 
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm">검토 필요</Button>
-          <Button variant="outline" size="sm">
-            정상
-          </Button>
-          <Button variant="outline" size="sm">
-            관리자 삭제
-          </Button>
-        </div>
+        <AdminCommentsFilters query={query} navigate={navigate} />
 
-        <section className="grid gap-2" aria-label="Admin queue">
-          {['검토가 필요한 댓글', '분석 재시도가 필요한 댓글'].map((title, index) => (
-            <article
-              className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-              key={title}
-            >
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold">{title}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  commentType {index === 0 ? 'TOXIC' : 'FACT_CLAIM'} · aiAnalysis{' '}
-                  {index === 0 ? 'SUCCESS' : 'FAILED'}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" disabled>
-                  <RefreshCw className="size-4" aria-hidden="true" />
-                  Retry
-                </Button>
-                <Button variant="destructive" size="sm" disabled>
-                  <Trash2 className="size-4" aria-hidden="true" />
-                  Delete
-                </Button>
-              </div>
-            </article>
-          ))}
-        </section>
+        {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+
+        <AdminCommentsList
+          actionState={actionState}
+          comments={comments}
+          onDelete={handleDelete}
+          onRetryAnalysis={handleRetryAnalysis}
+          onRetryLoad={refreshComments}
+          state={commentsState}
+        />
+
+        {commentsState.status === 'success' && comments.length > 0 && (
+          <PaginationControls
+            meta={meta}
+            onNext={() => navigate(buildAdminCommentsPath(query, { page: query.page + 1 }))}
+            onPrevious={() =>
+              navigate(buildAdminCommentsPath(query, { page: Math.max(1, query.page - 1) }))
+            }
+          />
+        )}
       </section>
 
-      <PlaceholderSide
-        title="Admin scope"
-        items={['GET /admin/comments', 'moderation filter', 'delete action', 'analysis retry']}
-      />
+      <AdminCommentsSidePanel comments={comments} meta={meta} query={query} state={commentsState} />
     </>
+  );
+}
+
+function AdminCommentsFilters({
+  navigate,
+  query,
+}: {
+  navigate: Navigate;
+  query: AdminCommentsQueryState;
+}) {
+  return (
+    <section className="flex flex-wrap items-center gap-2" aria-label="Admin moderation filters">
+      <Button
+        onClick={() =>
+          navigate(
+            buildAdminCommentsPath(query, {
+              moderationStatus: ADMIN_COMMENTS_MODERATION_STATUS,
+              page: 1,
+            }),
+          )
+        }
+        size="sm"
+        variant={query.moderationStatus === 'NEEDS_REVIEW' ? 'default' : 'outline'}
+      >
+        검토 필요
+      </Button>
+      <Badge variant="muted">NEEDS_REVIEW</Badge>
+    </section>
+  );
+}
+
+function AdminCommentsList({
+  actionState,
+  comments,
+  onDelete,
+  onRetryAnalysis,
+  onRetryLoad,
+  state,
+}: {
+  actionState: AdminCommentActionState;
+  comments: AdminCommentResponse[];
+  onDelete: (comment: AdminCommentResponse) => void;
+  onRetryAnalysis: (comment: AdminCommentResponse) => void;
+  onRetryLoad: () => void;
+  state: AsyncState<PaginatedResponse<AdminCommentResponse>>;
+}) {
+  if (state.status === 'loading' && comments.length === 0) {
+    return <AdminCommentsLoading />;
+  }
+
+  if (state.status === 'error' && comments.length === 0) {
+    return <AdminCommentsError error={state.error} onRetry={onRetryLoad} />;
+  }
+
+  if (state.status === 'success' && comments.length === 0) {
+    return <AdminCommentsEmpty />;
+  }
+
+  return (
+    <section
+      className="overflow-hidden rounded-lg border border-border bg-card"
+      aria-busy={state.status === 'loading'}
+      aria-label="Admin comments queue"
+    >
+      <div className="hidden grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(150px,0.7fr)_minmax(150px,auto)] gap-3 border-b border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+        <span>댓글</span>
+        <span>작성자 / 게시글</span>
+        <span>AI 상태</span>
+        <span>시간</span>
+        <span className="text-right">작업</span>
+      </div>
+
+      {state.status === 'loading' && (
+        <p className="border-b border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          목록을 새로 불러오는 중입니다.
+        </p>
+      )}
+
+      {state.status === 'error' && (
+        <div className="border-b border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          관리자 댓글 목록을 불러오지 못했습니다. {state.error}
+        </div>
+      )}
+
+      <div className="divide-y divide-border">
+        {comments.map((comment) => (
+          <AdminCommentRow
+            actionState={actionState}
+            comment={comment}
+            key={comment.id}
+            onDelete={onDelete}
+            onRetryAnalysis={onRetryAnalysis}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminCommentsLoading() {
+  return (
+    <section
+      className="grid gap-2 rounded-lg border border-border bg-card p-3"
+      aria-label="관리자 댓글 목록 로딩 중"
+    >
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div className="grid gap-3 rounded-md border border-border p-3" key={index}>
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-6 w-20 rounded-full" />
+          </div>
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function AdminCommentsError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <section
+      className="grid gap-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      aria-label="관리자 댓글 목록 오류"
+    >
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-destructive">
+          관리자 댓글 목록을 불러오지 못했습니다
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-destructive/80">{error}</p>
+      </div>
+      <Button className="w-fit" onClick={onRetry} variant="destructive">
+        <RefreshCw className="size-4" aria-hidden="true" />
+        재시도
+      </Button>
+    </section>
+  );
+}
+
+function AdminCommentsEmpty() {
+  return (
+    <section
+      className="rounded-lg border border-border bg-muted p-5 text-sm leading-6 text-muted-foreground"
+      aria-label="관리자 댓글 목록 비어 있음"
+    >
+      <h2 className="text-base font-semibold text-foreground">아직 항목이 없음</h2>
+      <p className="mt-2">검토가 필요한 댓글이 없습니다.</p>
+    </section>
+  );
+}
+
+function AdminCommentRow({
+  actionState,
+  comment,
+  onDelete,
+  onRetryAnalysis,
+}: {
+  actionState: AdminCommentActionState;
+  comment: AdminCommentResponse;
+  onDelete: (comment: AdminCommentResponse) => void;
+  onRetryAnalysis: (comment: AdminCommentResponse) => void;
+}) {
+  const moderationLabel = getAdminModerationStatusLabel(comment.moderationStatus);
+  const kindLabel = getAdminCommentKindLabel(comment);
+  const activeAction = actionState?.commentId === comment.id ? actionState.action : null;
+  const hasActionInFlight = actionState !== null;
+  const canRetry = comment.analysis?.aiAnalysisStatus === 'FAILED';
+  const commentTypeLabel = getCommentTypeLabel(comment.analysis?.commentType ?? null);
+  const aiStatusLabel = comment.analysis
+    ? getAiAnalysisStatusLabel(comment.analysis.aiAnalysisStatus)
+    : null;
+  const ragStatusLabel = comment.analysis ? getRagStatusLabel(comment.analysis.ragStatus) : null;
+
+  return (
+    <article className="grid gap-3 p-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(150px,0.7fr)_minmax(180px,0.9fr)_minmax(150px,0.7fr)_minmax(150px,auto)] md:items-center">
+      <div className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge variant={moderationLabel.variant}>{moderationLabel.label}</Badge>
+          <Badge variant={kindLabel.variant}>{kindLabel.label}</Badge>
+        </div>
+        <p className="line-clamp-3 break-words text-sm leading-6 text-neutral-800">
+          {comment.content}
+        </p>
+        <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+          comment {comment.id}
+        </p>
+      </div>
+
+      <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
+        <span className="truncate font-medium text-neutral-700">{comment.author.nickname}</span>
+        <span className="truncate font-mono">post {comment.postId}</span>
+        {comment.parentCommentId && (
+          <span className="truncate font-mono">parent {comment.parentCommentId}</span>
+        )}
+      </div>
+
+      <div className="flex min-w-0 flex-wrap gap-2">
+        {commentTypeLabel && (
+          <Badge variant={commentTypeLabel.variant}>{commentTypeLabel.label}</Badge>
+        )}
+        {aiStatusLabel ? (
+          <Badge variant={aiStatusLabel.variant}>{aiStatusLabel.label}</Badge>
+        ) : (
+          <Badge variant="muted">분석 없음</Badge>
+        )}
+        {ragStatusLabel && <Badge variant={ragStatusLabel.variant}>{ragStatusLabel.label}</Badge>}
+        <Badge variant="muted">근거 {comment.analysis?.evidenceCount ?? 0}</Badge>
+      </div>
+
+      <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
+        <span>생성 {formatDateTime(comment.createdAt)}</span>
+        <span>수정 {formatDateTime(comment.updatedAt)}</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 md:justify-end">
+        <Button
+          disabled={hasActionInFlight || !canRetry}
+          onClick={() => onRetryAnalysis(comment)}
+          size="sm"
+          variant="outline"
+        >
+          <RefreshCw className="size-4" aria-hidden="true" />
+          {activeAction === 'retry' ? '요청 중' : '재분석'}
+        </Button>
+        <Button
+          disabled={hasActionInFlight}
+          onClick={() => onDelete(comment)}
+          size="sm"
+          variant="destructive"
+        >
+          <Trash2 className="size-4" aria-hidden="true" />
+          {activeAction === 'delete' ? '삭제 중' : '삭제'}
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+function AdminCommentsSidePanel({
+  comments,
+  meta,
+  query,
+  state,
+}: {
+  comments: AdminCommentResponse[];
+  meta: PaginationMeta;
+  query: AdminCommentsQueryState;
+  state: AsyncState<PaginatedResponse<AdminCommentResponse>>;
+}) {
+  const statusLabel = getAdminListStatusLabel(state, meta);
+  const failedAnalysisCount = comments.filter(
+    (comment) => comment.analysis?.aiAnalysisStatus === 'FAILED',
+  ).length;
+
+  return (
+    <aside className="flex min-w-0 flex-col gap-5" aria-label="Admin comments status">
+      <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">검토 현황</h2>
+          <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+        </div>
+        <div className="grid gap-2 text-sm">
+          <DetailMetaLine label="필터" value={query.moderationStatus} />
+          <DetailMetaLine label="전체" value={`${meta.total.toLocaleString()}개`} />
+          <DetailMetaLine
+            label="페이지"
+            value={`${meta.page.toLocaleString()} / ${Math.max(meta.totalPages, 1).toLocaleString()}`}
+          />
+          <DetailMetaLine label="재분석 가능" value={`${failedAnalysisCount.toLocaleString()}개`} />
+        </div>
+      </section>
+    </aside>
   );
 }
 
@@ -3876,6 +4277,16 @@ function parsePostsQuery(search: string): PostsQueryState {
   };
 }
 
+function parseAdminCommentsQuery(search: string): AdminCommentsQueryState {
+  const params = new URLSearchParams(search);
+
+  return {
+    page: parsePositiveInteger(params.get('page'), 1),
+    limit: ADMIN_COMMENTS_LIMIT,
+    moderationStatus: ADMIN_COMMENTS_MODERATION_STATUS,
+  };
+}
+
 function parsePositiveInteger(value: string | null, fallback: number) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -3901,6 +4312,25 @@ function buildPostsPath(current: PostsQueryState, next: Partial<PostsQueryState>
   }
 
   return `/?${params.toString()}`;
+}
+
+function buildAdminCommentsPath(
+  current: AdminCommentsQueryState,
+  next: Partial<AdminCommentsQueryState>,
+) {
+  const merged = {
+    ...current,
+    ...next,
+    limit: ADMIN_COMMENTS_LIMIT,
+    moderationStatus: ADMIN_COMMENTS_MODERATION_STATUS,
+  };
+  const params = new URLSearchParams();
+
+  params.set('page', String(Math.max(1, merged.page)));
+  params.set('limit', String(ADMIN_COMMENTS_LIMIT));
+  params.set('moderationStatus', merged.moderationStatus);
+
+  return `/admin/comments?${params.toString()}`;
 }
 
 function buildLoginPath(nextPath: string) {
@@ -3949,6 +4379,15 @@ function getPostRouteNotice(search: string): WriteNotice | null {
 }
 
 function createEmptyMeta(query: PostsQueryState): PaginationMeta {
+  return {
+    page: query.page,
+    limit: query.limit,
+    total: 0,
+    totalPages: 0,
+  };
+}
+
+function createEmptyAdminMeta(query: AdminCommentsQueryState): PaginationMeta {
   return {
     page: query.page,
     limit: query.limit,
@@ -4262,6 +4701,24 @@ function getModerationStatusLabel(status: ModerationStatus): {
   }
 }
 
+function getAdminModerationStatusLabel(status: ModerationStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  return getModerationStatusLabel(status) ?? { label: '정상', variant: 'outline' };
+}
+
+function getAdminCommentKindLabel(comment: AdminCommentResponse): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  if (comment.parentCommentId) {
+    return { label: '대댓글', variant: 'secondary' };
+  }
+
+  return { label: '댓글', variant: 'outline' };
+}
+
 function getVideoProcessingSummary(video: VideoSummaryResponse): {
   label: string;
   variant: BadgeVariant;
@@ -4298,6 +4755,28 @@ function getPendingVideoLabel(video: VideoSummaryResponse) {
 
 function getListStatusLabel(
   state: AsyncState<PaginatedResponse<PostListItemResponse>>,
+  meta: PaginationMeta,
+): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  if (state.status === 'loading') {
+    return { label: '불러오는 중', variant: 'secondary' };
+  }
+
+  if (state.status === 'error') {
+    return { label: '오류', variant: 'destructive' };
+  }
+
+  if (meta.total === 0) {
+    return { label: '비어 있음', variant: 'muted' };
+  }
+
+  return { label: '조회됨', variant: 'success' };
+}
+
+function getAdminListStatusLabel(
+  state: AsyncState<PaginatedResponse<AdminCommentResponse>>,
   meta: PaginationMeta,
 ): {
   label: string;
