@@ -32,5 +32,6 @@ const MCP_TOOL_PROVIDERS = [
       inject: MCP_TOOL_PROVIDERS,
     },
   ],
+  exports: [McpServerService],
 })
 export class McpModule {}
