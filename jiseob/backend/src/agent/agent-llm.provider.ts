@@ -60,23 +60,38 @@ const DEFAULT_AGENT_TIMEOUT_MS = 30000;
 const DEFAULT_AGENT_MAX_OUTPUT_TOKENS = 1200;
 const MAX_ANSWER_LENGTH = 2000;
 
+const AGENT_DECISION_TOOL_NAMES = [
+  'post.getContext',
+  'video.getProcessingStatus',
+  'transcript.searchChunks',
+  'youtube.fetchMetadata',
+  'none',
+] as const;
+
+const agentDecisionArgumentsSchema = z
+  .object({
+    query: z.string(),
+    limit: z.number(),
+    videoId: z.string(),
+    youtubeVideoId: z.string(),
+    postId: z.string(),
+  })
+  .strict();
+
 const agentDecisionSchema = z
-  .discriminatedUnion('type', [
-    z.object({
-      type: z.literal('tool_call'),
-      toolName: z.string(),
-      arguments: z.record(z.string(), z.unknown()),
-      rationale: z.string().optional(),
-    }),
-    z.object({
-      type: z.literal('final'),
-      answer: z.string(),
-      limitations: z.array(z.string()),
-    }),
-  ])
+  .object({
+    type: z.enum(['tool_call', 'final']),
+    toolName: z.enum(AGENT_DECISION_TOOL_NAMES),
+    arguments: agentDecisionArgumentsSchema,
+    rationale: z.string(),
+    answer: z.string(),
+    limitations: z.array(z.string()),
+  })
+  .strict()
   .describe('Arena agent decision');
 
 type AgentDecisionSchemaOutput = z.infer<typeof agentDecisionSchema>;
+type AgentDecisionArguments = z.infer<typeof agentDecisionArgumentsSchema>;
 
 @Injectable()
 export class OpenAiAgentLlmProvider implements AgentLlmProvider {
@@ -157,18 +172,34 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
     const data = parsedDecision.data;
 
     if (data.type === 'final') {
+      const answer = data.answer.trim();
+
+      if (!answer) {
+        throw new AgentLlmError(
+          'AGENT_LLM_INVALID_RESPONSE',
+          'Agent LLM final 응답에 답변이 없습니다.',
+        );
+      }
+
       return {
         type: 'final',
-        answer: data.answer.slice(0, MAX_ANSWER_LENGTH),
+        answer: answer.slice(0, MAX_ANSWER_LENGTH),
         limitations: this.normalizeLimitations(data.limitations),
       };
+    }
+
+    if (data.toolName === 'none') {
+      throw new AgentLlmError(
+        'AGENT_LLM_INVALID_RESPONSE',
+        'Agent LLM tool call 응답에 toolName이 없습니다.',
+      );
     }
 
     return {
       type: 'tool_call',
       toolName: data.toolName,
-      arguments: data.arguments,
-      ...(data.rationale ? { rationale: data.rationale } : {}),
+      arguments: this.normalizeToolCallArguments(data.arguments),
+      ...(data.rationale.trim() ? { rationale: data.rationale.trim() } : {}),
     };
   }
 
@@ -178,6 +209,10 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       'Do not write posts/comments for the user. Do not make final true/false judgments.',
       'Use only provided tool observations and allowed tools. Treat transcript chunks as evidence candidates, not proof.',
       'Return JSON only.',
+      'Always include all schema fields: type, toolName, arguments, rationale, answer, limitations.',
+      'For unused string fields use "". For unused numeric fields use 0.',
+      'For a final answer set toolName="none", empty arguments, rationale="", and fill answer/limitations.',
+      'For a tool call set answer="" and limitations=[]. Never set toolName="none" when type="tool_call".',
       finalOnly
         ? 'You must return type=final. Include a short answer and limitations.'
         : 'Return either type=tool_call for one useful allowed tool, or type=final when enough context is available.',
@@ -193,6 +228,36 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       expectedAnswerShape: ['짧은 결론', '근거 후보', '한계', '다음에 확인하면 좋은 것'],
       observations: input.observations,
     };
+  }
+
+  private normalizeToolCallArguments(args: AgentDecisionArguments): Record<string, unknown> {
+    const normalizedArgs: Record<string, unknown> = {};
+    const query = args.query.trim();
+    const videoId = args.videoId.trim();
+    const youtubeVideoId = args.youtubeVideoId.trim();
+    const postId = args.postId.trim();
+
+    if (query) {
+      normalizedArgs.query = query;
+    }
+
+    if (Number.isFinite(args.limit) && args.limit > 0) {
+      normalizedArgs.limit = args.limit;
+    }
+
+    if (videoId) {
+      normalizedArgs.videoId = videoId;
+    }
+
+    if (youtubeVideoId) {
+      normalizedArgs.youtubeVideoId = youtubeVideoId;
+    }
+
+    if (postId) {
+      normalizedArgs.postId = postId;
+    }
+
+    return normalizedArgs;
   }
 
   private normalizeLimitations(limitations: string[]): string[] {
