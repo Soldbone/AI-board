@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
+import { z, ZodError } from 'zod';
 
 export type AgentToolObservation = {
   toolName: string;
@@ -32,29 +35,6 @@ export type AgentModelDecision =
       limitations: string[];
     };
 
-type OpenAiResponsesApiResponse = {
-  error?: {
-    message?: string;
-  };
-  output_text?: string;
-  output?: Array<{
-    type?: string;
-    content?: Array<{
-      type?: string;
-      text?: string;
-    }>;
-  }>;
-};
-
-type AgentDecisionPayload = {
-  type?: string;
-  toolName?: string;
-  arguments?: Record<string, unknown>;
-  rationale?: string;
-  answer?: string;
-  limitations?: unknown[];
-};
-
 export type AgentLlmErrorCode =
   | 'MISSING_OPENAI_API_KEY'
   | 'AGENT_LLM_FAILED'
@@ -80,36 +60,23 @@ const DEFAULT_AGENT_TIMEOUT_MS = 30000;
 const DEFAULT_AGENT_MAX_OUTPUT_TOKENS = 1200;
 const MAX_ANSWER_LENGTH = 2000;
 
-const AGENT_DECISION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    type: {
-      type: 'string',
-      enum: ['tool_call', 'final'],
-    },
-    toolName: {
-      type: 'string',
-    },
-    arguments: {
-      type: 'object',
-      additionalProperties: true,
-    },
-    rationale: {
-      type: 'string',
-    },
-    answer: {
-      type: 'string',
-    },
-    limitations: {
-      type: 'array',
-      items: {
-        type: 'string',
-      },
-    },
-  },
-  required: ['type'],
-};
+const agentDecisionSchema = z
+  .discriminatedUnion('type', [
+    z.object({
+      type: z.literal('tool_call'),
+      toolName: z.string(),
+      arguments: z.record(z.string(), z.unknown()),
+      rationale: z.string().optional(),
+    }),
+    z.object({
+      type: z.literal('final'),
+      answer: z.string(),
+      limitations: z.array(z.string()),
+    }),
+  ])
+  .describe('Arena agent decision');
+
+type AgentDecisionSchemaOutput = z.infer<typeof agentDecisionSchema>;
 
 @Injectable()
 export class OpenAiAgentLlmProvider implements AgentLlmProvider {
@@ -120,7 +87,7 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
   }
 
   async decide(input: AgentModelInput): Promise<AgentModelDecision> {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY')?.trim();
 
     if (!apiKey) {
       throw new AgentLlmError(
@@ -129,108 +96,80 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       );
     }
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal: AbortSignal.timeout(this.getTimeoutMs()),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    try {
+      const model = new ChatOpenAI({
+        apiKey,
         model: this.model,
-        instructions: this.createInstructions(input.finalOnly),
-        input: JSON.stringify(this.toPromptInput(input)),
-        max_output_tokens: this.getMaxOutputTokens(),
-        store: false,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'agent_decision',
-            strict: false,
-            schema: AGENT_DECISION_SCHEMA,
-          },
+        timeout: this.getTimeoutMs(),
+        maxTokens: this.getMaxOutputTokens(),
+        maxRetries: 0,
+        temperature: 0,
+        modelKwargs: {
+          store: false,
         },
-      }),
-    });
-    const body = (await response.json().catch(() => ({}))) as OpenAiResponsesApiResponse;
+        zdrEnabled: true,
+      });
+      const structuredModel = model.withStructuredOutput<AgentDecisionSchemaOutput>(
+        agentDecisionSchema,
+        {
+          name: 'agent_decision',
+          strict: true,
+        },
+      );
+      const decision = await structuredModel.invoke([
+        new SystemMessage(this.createInstructions(input.finalOnly)),
+        new HumanMessage(JSON.stringify(this.toPromptInput(input))),
+      ]);
 
-    if (!response.ok) {
+      return this.normalizeDecision(decision);
+    } catch (error) {
+      if (error instanceof AgentLlmError) {
+        throw error;
+      }
+
+      if (this.isStructuredOutputError(error)) {
+        throw new AgentLlmError(
+          'AGENT_LLM_INVALID_RESPONSE',
+          'Agent LLM structured output이 올바르지 않습니다.',
+          this.getErrorMessage(error),
+        );
+      }
+
       throw new AgentLlmError(
         'AGENT_LLM_FAILED',
         'Agent LLM 호출에 실패했습니다.',
-        body.error?.message,
+        this.getErrorMessage(error),
       );
     }
-
-    return this.parseDecisionResponse(body);
   }
 
-  private parseDecisionResponse(body: OpenAiResponsesApiResponse): AgentModelDecision {
-    const outputText = body.output_text ?? this.findOutputText(body);
+  private normalizeDecision(decision: unknown): AgentModelDecision {
+    const parsedDecision = agentDecisionSchema.safeParse(decision);
 
-    if (!outputText) {
-      throw new AgentLlmError('AGENT_LLM_INVALID_RESPONSE', 'Agent LLM 응답이 비어 있습니다.');
-    }
-
-    let payload: AgentDecisionPayload;
-
-    try {
-      payload = JSON.parse(outputText) as AgentDecisionPayload;
-    } catch (error) {
+    if (!parsedDecision.success) {
       throw new AgentLlmError(
         'AGENT_LLM_INVALID_RESPONSE',
-        'Agent LLM 응답 JSON이 올바르지 않습니다.',
-        error instanceof Error ? error.message : undefined,
+        'Agent LLM decision 응답이 올바르지 않습니다.',
+        parsedDecision.error.message,
       );
     }
 
-    if (payload.type === 'tool_call') {
-      if (!payload.toolName || !this.isRecord(payload.arguments)) {
-        throw new AgentLlmError(
-          'AGENT_LLM_INVALID_RESPONSE',
-          'Agent LLM tool call 응답이 올바르지 않습니다.',
-        );
-      }
+    const data = parsedDecision.data;
 
-      return {
-        type: 'tool_call',
-        toolName: payload.toolName,
-        arguments: payload.arguments,
-        ...(payload.rationale ? { rationale: payload.rationale } : {}),
-      };
-    }
-
-    if (payload.type === 'final') {
-      if (!payload.answer || typeof payload.answer !== 'string') {
-        throw new AgentLlmError(
-          'AGENT_LLM_INVALID_RESPONSE',
-          'Agent LLM final 응답이 올바르지 않습니다.',
-        );
-      }
-
+    if (data.type === 'final') {
       return {
         type: 'final',
-        answer: payload.answer.slice(0, MAX_ANSWER_LENGTH),
-        limitations: this.parseLimitations(payload.limitations),
+        answer: data.answer.slice(0, MAX_ANSWER_LENGTH),
+        limitations: this.normalizeLimitations(data.limitations),
       };
     }
 
-    throw new AgentLlmError(
-      'AGENT_LLM_INVALID_RESPONSE',
-      'Agent LLM decision type이 올바르지 않습니다.',
-    );
-  }
-
-  private findOutputText(body: OpenAiResponsesApiResponse): string | null {
-    for (const outputItem of body.output ?? []) {
-      for (const contentItem of outputItem.content ?? []) {
-        if (contentItem.type === 'output_text' && contentItem.text) {
-          return contentItem.text;
-        }
-      }
-    }
-
-    return null;
+    return {
+      type: 'tool_call',
+      toolName: data.toolName,
+      arguments: data.arguments,
+      ...(data.rationale ? { rationale: data.rationale } : {}),
+    };
   }
 
   private createInstructions(finalOnly: boolean): string {
@@ -256,11 +195,8 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
     };
   }
 
-  private parseLimitations(limitations: unknown[] | undefined): string[] {
-    return (limitations ?? [])
-      .filter((limitation): limitation is string => typeof limitation === 'string')
-      .map((limitation) => limitation.trim())
-      .filter(Boolean);
+  private normalizeLimitations(limitations: string[]): string[] {
+    return limitations.map((limitation) => limitation.trim()).filter(Boolean);
   }
 
   private getTimeoutMs(): number {
@@ -283,7 +219,23 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       : DEFAULT_AGENT_MAX_OUTPUT_TOKENS;
   }
 
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  private isStructuredOutputError(error: unknown): boolean {
+    if (error instanceof ZodError) {
+      return true;
+    }
+
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return (
+      error.name.includes('Zod') ||
+      error.message.includes('Failed to parse structured output') ||
+      error.message.includes('structured output')
+    );
+  }
+
+  private getErrorMessage(error: unknown): string | undefined {
+    return error instanceof Error ? error.message : undefined;
   }
 }
