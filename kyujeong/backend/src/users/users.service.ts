@@ -60,10 +60,11 @@ export class UsersService {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	          select: {
+	            id: true,
+	            status: true,
+	            thumbnailUrl: true,
+	          },
         },
       },
     });
@@ -72,9 +73,10 @@ export class UsersService {
       ...post,
       tags: postTags.map((postTag) => postTag.tag.name),
       commentsCount: _count.comments,
-      hasAiRecommendation: aiRecommendations.length > 0,
-      aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
-    }));
+	      hasAiRecommendation: aiRecommendations.length > 0,
+	      aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
+	      aiThumbnailUrl: aiRecommendations[0]?.thumbnailUrl ?? null,
+	    }));
   }
 
   async findMyComments(userId: number) {
@@ -158,8 +160,9 @@ export class UsersService {
       missingIngredients: recommendation.missingIngredients,
       estimatedCookingTime: recommendation.estimatedCookingTime,
       difficulty: recommendation.difficulty,
-      content: recommendation.content,
-      status: recommendation.status,
+	      content: recommendation.content,
+	      thumbnailUrl: recommendation.thumbnailUrl ?? null,
+	      status: recommendation.status,
       grounding: recommendation.grounding,
       createdAt: recommendation.createdAt,
       post: recommendation.post,

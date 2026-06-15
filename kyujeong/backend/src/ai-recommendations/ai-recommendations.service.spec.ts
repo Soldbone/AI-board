@@ -3,6 +3,7 @@ import { FoodMetadataService } from '../food-metadata/food-metadata.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiRecommendationsService } from './ai-recommendations.service';
 import { EmbeddingService } from './embedding.service';
+import { RecipeImageService } from './recipe-image.service';
 import { RecipeLlmService } from './recipe-llm.service';
 
 describe('AiRecommendationsService', () => {
@@ -11,6 +12,7 @@ describe('AiRecommendationsService', () => {
   let prismaService: PrismaService;
   let embeddingService: EmbeddingService;
   let recipeLlmService: RecipeLlmService;
+  let recipeImageService: RecipeImageService;
   let foodMetadataService: FoodMetadataService;
 
   const emptyNutritionMetadata = {
@@ -87,6 +89,17 @@ describe('AiRecommendationsService', () => {
           },
         },
         {
+          provide: RecipeImageService,
+          useValue: {
+            createThumbnail: jest.fn().mockResolvedValue(null),
+            getStatus: jest.fn(() => ({
+              configured: false,
+              enabled: false,
+              model: 'gpt-image-1',
+            })),
+          },
+        },
+        {
           provide: FoodMetadataService,
           useValue: {
             analyzeIngredientsNutrition: jest
@@ -101,6 +114,7 @@ describe('AiRecommendationsService', () => {
     prismaService = module.get<PrismaService>(PrismaService);
     embeddingService = module.get<EmbeddingService>(EmbeddingService);
     recipeLlmService = module.get<RecipeLlmService>(RecipeLlmService);
+    recipeImageService = module.get<RecipeImageService>(RecipeImageService);
     foodMetadataService = module.get<FoodMetadataService>(FoodMetadataService);
   });
 
@@ -119,6 +133,9 @@ describe('AiRecommendationsService', () => {
       pgvectorInstalled: true,
       ragMinSimilarity: 0.55,
       ragMinIngredientOverlap: 1,
+      imageGenerationConfigured: false,
+      imageGenerationEnabled: false,
+      imageModel: 'gpt-image-1',
       pgvectorDecision:
         'pgvector is installed; vector search is the primary retrieval path.',
     });
@@ -128,12 +145,20 @@ describe('AiRecommendationsService', () => {
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.OPENAI_EMBEDDING_MODEL = 'custom-embedding';
     process.env.OPENAI_CHAT_MODEL = 'custom-chat';
+    jest.spyOn(recipeImageService, 'getStatus').mockReturnValue({
+      configured: true,
+      enabled: false,
+      model: 'custom-image',
+    });
 
     await expect(service.getStatus()).resolves.toMatchObject({
       mode: 'OPENAI',
       openAiConfigured: true,
       embeddingModel: 'custom-embedding',
       chatModel: 'custom-chat',
+      imageGenerationConfigured: true,
+      imageGenerationEnabled: false,
+      imageModel: 'custom-image',
     });
   });
 
@@ -153,6 +178,9 @@ describe('AiRecommendationsService', () => {
       content: '김치와 계란을 볶아 밥과 섞어주세요.',
     });
     jest
+      .spyOn(recipeImageService, 'createThumbnail')
+      .mockResolvedValue('data:image/jpeg;base64,test');
+    jest
       .spyOn(prismaService.aiRecipeRecommendation, 'create')
       .mockResolvedValue({
         id: 1,
@@ -165,6 +193,7 @@ describe('AiRecommendationsService', () => {
         estimatedCookingTime: 10,
         difficulty: '쉬움',
         content: '김치와 계란을 볶아 밥과 섞어주세요.',
+        thumbnailUrl: 'data:image/jpeg;base64,test',
         status: 'ACTIVE',
         grounding: 'GENERAL_AI',
         createdAt: new Date('2026-06-13T00:00:00.000Z'),
@@ -190,6 +219,7 @@ describe('AiRecommendationsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           grounding: 'GENERAL_AI',
+          thumbnailUrl: 'data:image/jpeg;base64,test',
         }),
       }),
     );
@@ -475,6 +505,86 @@ describe('AiRecommendationsService', () => {
     );
     expect(recommendation.grounding).toBe('COMMUNITY_RAG');
     expect(recommendation.missingIngredients).toEqual(['토마토', '치즈']);
+  });
+
+  it('should preserve RAG missing ingredients when the model omits them', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
+      {
+        id: 10,
+        title: '병아리콩 샐러드 만들기',
+        content:
+          '병아리콩, 토마토, 치즈, 올리브오일로 가볍게 먹는 샐러드를 만들었어요.',
+        viewCount: 0,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        postTags: [],
+        comments: [
+          {
+            content:
+              '병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
+          },
+        ],
+        _count: {
+          comments: 1,
+        },
+      },
+    ] as never);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      {
+        postId: 10,
+        similarity: 0.72,
+      },
+    ] as never);
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '아보카도 병아리콩 샐러드',
+      reason: '병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
+      availableIngredients: ['아보카도', '병아리콩'],
+      missingIngredients: [],
+      estimatedCookingTime: 15,
+      difficulty: '쉬움',
+      content: '아보카도와 병아리콩을 섞어 샐러드를 만듭니다.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 6,
+        postId: null,
+        requestedById: 1,
+        menuName: '아보카도 병아리콩 샐러드',
+        reason: '병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
+        availableIngredients: ['아보카도', '병아리콩'],
+        missingIngredients: ['토마토', '치즈'],
+        estimatedCookingTime: 15,
+        difficulty: '쉬움',
+        content: '아보카도와 병아리콩을 섞어 샐러드를 만듭니다.',
+        status: 'ACTIVE',
+        grounding: 'COMMUNITY_RAG',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    const recommendation = await service.createDirect(
+      {
+        ingredients: ['아보카도', '병아리콩', '그릭요거트'],
+        conditions: '가볍게 먹고 싶어요',
+      },
+      1,
+    );
+
+    expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          missingIngredients: expect.arrayContaining(['토마토', '치즈']),
+        }),
+      }),
+    );
+    expect(recommendation.missingIngredients).toEqual(
+      expect.arrayContaining(['토마토', '치즈']),
+    );
   });
 
   it('should pass usable nutrition metadata to recipe generation', async () => {

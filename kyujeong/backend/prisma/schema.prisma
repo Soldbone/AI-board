@@ -94,6 +94,7 @@ model AiRecipeRecommendation {
   estimatedCookingTime Int?
   difficulty           String                 @db.VarChar(40)
   content              String                 @db.Text
+  thumbnailUrl         String?                @db.Text
   status               AiRecommendationStatus @default(ACTIVE)
   grounding            AiRecommendationGrounding @default(COMMUNITY_RAG)
   createdAt            DateTime               @default(now())

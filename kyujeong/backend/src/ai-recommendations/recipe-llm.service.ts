@@ -176,7 +176,7 @@ export class RecipeLlmService {
         'availableIngredients must only include ingredients the user already has.',
         'missingIngredients should list optional or necessary ingredients for the chosen recipe that the user does not appear to have.',
         'Do not force missingIngredients. Return an empty array when the recipe works well with the available ingredients.',
-        'If community evidence has missingIngredients, treat them as possible add-ons, not as already owned ingredients.',
+        'If community evidence has missingIngredients that are useful for the chosen recipe and absent from targetPost.availableIngredients, include them in missingIngredients instead of saying there are none.',
         isGeneralAi
           ? 'Do not say that community posts were referenced.'
           : 'Use commentEvidence from the similar community posts as the supporting evidence.',
@@ -244,7 +244,7 @@ export class RecipeLlmService {
       reason: [
         hasSimilarPosts
           ? `비슷한 게시글에서 ${primaryIngredient}를 빠르게 활용하는 흐름이 보여서, 현재 재료로 부담 없이 만들 수 있는 메뉴로 추천합니다.`
-            : `아직 참고할 만한 유사 게시글이 적어서, 현재 글에 적힌 재료와 조건을 중심으로 간단한 메뉴를 추천합니다.`,
+          : `아직 참고할 만한 유사 게시글이 적어서, 현재 글에 적힌 재료와 조건을 중심으로 간단한 메뉴를 추천합니다.`,
         goalPoint,
         nutritionPoint,
       ]
@@ -296,7 +296,9 @@ export class RecipeLlmService {
           typeof ingredient.nutrition.proteinG === 'number' &&
           ingredient.nutrition.proteinG >= 5,
       )
-      .map((ingredient) => ingredient.matchedName ?? ingredient.normalizedInput);
+      .map(
+        (ingredient) => ingredient.matchedName ?? ingredient.normalizedInput,
+      );
 
     if (proteinIngredients.length > 0) {
       return `${proteinIngredients.slice(0, 2).join(', ')}에 단백질이 있어 한 끼의 포만감을 보강하기 좋습니다.`;

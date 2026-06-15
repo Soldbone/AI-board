@@ -49,10 +49,11 @@ export class PostsService {
         skip: (currentPage - 1) * pageSize,
         take: pageSize,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          title: true,
-          createdAt: true,
+	        select: {
+	          id: true,
+	          title: true,
+	          content: true,
+	          createdAt: true,
           author: {
             select: {
               id: true,
@@ -77,11 +78,12 @@ export class PostsService {
             orderBy: {
               createdAt: 'desc',
             },
-            take: 1,
-            select: {
-              id: true,
-              status: true,
-            },
+	            take: 1,
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
           },
         },
       }),
@@ -89,7 +91,7 @@ export class PostsService {
     ]);
 
     return {
-      items: posts.map((post) => this.mapPostTagsToTags(post)),
+	      items: posts.map((post) => this.mapPostListItem(post)),
       total,
       page: currentPage,
       size: pageSize,
@@ -328,10 +330,47 @@ export class PostsService {
     ]);
   }
 
-  private mapPostTagsToTags<
-    T extends {
-      postTags: {
-        tag: {
+	  private mapPostListItem<
+	    T extends {
+	      content: string;
+	      postTags: {
+	        tag: {
+	          name: string;
+	        };
+	      }[];
+	      _count?: {
+	        comments: number;
+	      };
+	      aiRecommendations?: {
+	        id: number;
+	        status: 'ACTIVE' | 'STALE';
+	        thumbnailUrl: string | null;
+	      }[];
+	    },
+	  >(post: T) {
+	    const { content, postTags, _count, aiRecommendations, ...postWithoutPostTags } =
+	      post;
+
+	    return {
+	      ...postWithoutPostTags,
+	      contentPreview: this.createContentPreview(content),
+	      tags: postTags.map((postTag) => postTag.tag.name),
+	      commentsCount: _count?.comments ?? 0,
+	      ...(aiRecommendations
+	        ? {
+	            hasAiRecommendation: aiRecommendations.length > 0,
+	            aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
+	            aiThumbnailUrl: aiRecommendations[0]?.thumbnailUrl ?? null,
+	          }
+	        : {}),
+	    };
+	  }
+
+	  private mapPostTagsToTags<
+	    T extends {
+	      content?: string;
+	      postTags: {
+	        tag: {
           name: string;
         };
       }[];
@@ -343,13 +382,14 @@ export class PostsService {
         status: 'ACTIVE' | 'STALE';
       }[];
     },
-  >(post: T) {
-    const { postTags, _count, aiRecommendations, ...postWithoutPostTags } =
-      post;
+	  >(post: T) {
+	    const { content, postTags, _count, aiRecommendations, ...postWithoutPostTags } =
+	      post;
 
-    return {
-      ...postWithoutPostTags,
-      tags: postTags.map((postTag) => postTag.tag.name),
+	    return {
+	      ...postWithoutPostTags,
+	      ...(typeof content === 'string' ? { content } : {}),
+	      tags: postTags.map((postTag) => postTag.tag.name),
       commentsCount: _count?.comments ?? 0,
       ...(aiRecommendations
         ? {
@@ -357,6 +397,16 @@ export class PostsService {
             aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
           }
         : {}),
-    };
-  }
-}
+	    };
+	  }
+
+	  private createContentPreview(content: string) {
+	    const normalizedContent = content.replace(/\s+/g, ' ').trim();
+
+	    if (normalizedContent.length <= 96) {
+	      return normalizedContent;
+	    }
+
+	    return `${normalizedContent.slice(0, 96)}...`;
+	  }
+	}

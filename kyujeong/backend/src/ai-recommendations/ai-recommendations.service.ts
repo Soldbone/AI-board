@@ -9,11 +9,13 @@ import { CreateRecommendationDto } from './dto/create-recommendation.dto';
 import {
   RecipeLlmService,
   type RecommendationGrounding,
+  type RecipeRecommendationDraft,
 } from './recipe-llm.service';
 import {
   AI_RECOMMENDATION_GOAL_LABELS,
   normalizeAiRecommendationGoal,
 } from './recommendation-goal';
+import { RecipeImageService } from './recipe-image.service';
 
 const ragPostSelect = {
   id: true,
@@ -213,12 +215,14 @@ export class AiRecommendationsService {
     private readonly prismaService: PrismaService,
     private readonly embeddingService: EmbeddingService,
     private readonly recipeLlmService: RecipeLlmService,
+    private readonly recipeImageService: RecipeImageService,
     private readonly foodMetadataService: FoodMetadataService,
   ) {}
 
   async getStatus() {
     const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY?.trim());
     const pgvectorStatus = await this.getPgvectorStatus();
+    const imageGenerationStatus = this.recipeImageService.getStatus();
 
     return {
       mode: hasOpenAiKey ? 'OPENAI' : 'FALLBACK',
@@ -234,6 +238,9 @@ export class AiRecommendationsService {
       pgvectorInstalled: pgvectorStatus.installed,
       ragMinSimilarity: this.getRagMinSimilarity(),
       ragMinIngredientOverlap: this.getRagMinIngredientOverlap(),
+      imageGenerationConfigured: imageGenerationStatus.configured,
+      imageGenerationEnabled: imageGenerationStatus.enabled,
+      imageModel: imageGenerationStatus.model,
       pgvectorDecision: pgvectorStatus.installed
         ? 'pgvector is installed; vector search is the primary retrieval path.'
         : pgvectorStatus.available
@@ -323,7 +330,7 @@ export class AiRecommendationsService {
     const grounding = this.getRecommendationGrounding(similarPosts);
     const nutritionMetadata =
       await this.getIngredientNutritionMetadata(targetIngredients);
-    const recommendationDraft =
+    const rawRecommendationDraft =
       await this.recipeLlmService.createRecommendation(
         this.toRecipeContext(targetPost, targetIngredients, additionalRequest),
         similarPosts.map((similarPost) => ({
@@ -342,6 +349,16 @@ export class AiRecommendationsService {
         nutritionMetadata,
         nutritionGoal,
       );
+    const recommendationDraft = this.completeRecommendationDraft(
+      rawRecommendationDraft,
+      grounding,
+      targetIngredients,
+      similarPosts,
+    );
+    const thumbnailUrl = await this.createRecommendationThumbnailUrl(
+      recommendationDraft.menuName,
+      recommendationDraft.availableIngredients,
+    );
 
     const recommendation =
       await this.prismaService.aiRecipeRecommendation.create({
@@ -355,6 +372,7 @@ export class AiRecommendationsService {
           estimatedCookingTime: recommendationDraft.estimatedCookingTime,
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
+          thumbnailUrl,
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -423,7 +441,7 @@ export class AiRecommendationsService {
     const grounding = this.getRecommendationGrounding(similarPosts);
     const nutritionMetadata =
       await this.getIngredientNutritionMetadata(targetIngredients);
-    const recommendationDraft =
+    const rawRecommendationDraft =
       await this.recipeLlmService.createRecommendation(
         {
           title: '직접 입력 냉파 추천',
@@ -453,6 +471,16 @@ export class AiRecommendationsService {
         nutritionMetadata,
         nutritionGoal,
       );
+    const recommendationDraft = this.completeRecommendationDraft(
+      rawRecommendationDraft,
+      grounding,
+      targetIngredients,
+      similarPosts,
+    );
+    const thumbnailUrl = await this.createRecommendationThumbnailUrl(
+      recommendationDraft.menuName,
+      recommendationDraft.availableIngredients,
+    );
 
     const recommendation =
       await this.prismaService.aiRecipeRecommendation.create({
@@ -466,6 +494,7 @@ export class AiRecommendationsService {
           estimatedCookingTime: recommendationDraft.estimatedCookingTime,
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
+          thumbnailUrl,
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -596,6 +625,31 @@ export class AiRecommendationsService {
     similarPosts: SimilarPost[],
   ): RecommendationGrounding {
     return similarPosts.length > 0 ? 'COMMUNITY_RAG' : 'GENERAL_AI';
+  }
+
+  private completeRecommendationDraft(
+    recommendationDraft: RecipeRecommendationDraft,
+    grounding: RecommendationGrounding,
+    targetIngredients: string[],
+    similarPosts: SimilarPost[],
+  ): RecipeRecommendationDraft {
+    if (grounding !== 'COMMUNITY_RAG' || similarPosts.length === 0) {
+      return recommendationDraft;
+    }
+
+    const targetIngredientSet = new Set(targetIngredients);
+    const evidenceMissingIngredients = similarPosts.flatMap(
+      (similarPost) => similarPost.missingIngredients,
+    );
+    const missingIngredients = [
+      ...recommendationDraft.missingIngredients,
+      ...evidenceMissingIngredients,
+    ].filter((ingredient) => !targetIngredientSet.has(ingredient));
+
+    return {
+      ...recommendationDraft,
+      missingIngredients: [...new Set(missingIngredients)].slice(0, 4),
+    };
   }
 
   private async upsertRagDocument(
@@ -1021,6 +1075,138 @@ export class AiRecommendationsService {
     return post.postTags.map((postTag) => postTag.tag.name);
   }
 
+  private async createRecommendationThumbnailUrl(
+    menuName: string,
+    ingredients: string[],
+  ) {
+    return (
+      (await this.recipeImageService.createThumbnail({
+        menuName,
+        ingredients,
+      })) ?? this.createFoodThumbnailUrl(menuName, ingredients)
+    );
+  }
+
+  private createFoodThumbnailUrl(menuName: string, ingredients: string[]) {
+    const palette = this.getFoodThumbnailPalette(menuName, ingredients);
+    const safeMenuName = this.escapeSvgText(menuName);
+    const safeIngredientLabel = this.escapeSvgText(
+      ingredients.slice(0, 3).join(' · ') || 'AI 추천 메뉴',
+    );
+    const svg = `
+	      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="${safeMenuName}">
+	        <defs>
+	          <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+	            <stop offset="0" stop-color="${palette.backgroundStart}"/>
+	            <stop offset="1" stop-color="${palette.backgroundEnd}"/>
+	          </linearGradient>
+	          <radialGradient id="plate" cx="50%" cy="52%" r="54%">
+	            <stop offset="0" stop-color="#fffdf6"/>
+	            <stop offset="0.68" stop-color="#f7efe4"/>
+	            <stop offset="1" stop-color="#d9cec0"/>
+	          </radialGradient>
+	          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+	            <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0d1210" flood-opacity="0.24"/>
+	          </filter>
+	        </defs>
+	        <rect width="640" height="420" fill="url(#bg)"/>
+	        <rect width="640" height="420" fill="#fffaf0" opacity="0.16"/>
+	        <circle cx="138" cy="92" r="16" fill="${palette.herb}"/>
+	        <circle cx="528" cy="108" r="13" fill="${palette.herb}"/>
+	        <circle cx="88" cy="310" r="10" fill="${palette.accent}"/>
+	        <circle cx="560" cy="304" r="18" fill="${palette.accent}" opacity="0.72"/>
+	        <ellipse cx="320" cy="246" rx="212" ry="118" fill="url(#plate)" filter="url(#shadow)"/>
+	        <ellipse cx="320" cy="238" rx="150" ry="80" fill="${palette.foodBase}"/>
+	        <circle cx="268" cy="216" r="55" fill="${palette.foodLight}" opacity="0.95"/>
+	        <circle cx="374" cy="224" r="67" fill="${palette.foodMain}" opacity="0.94"/>
+	        <circle cx="330" cy="190" r="42" fill="${palette.accent}" opacity="0.9"/>
+	        <circle cx="306" cy="246" r="24" fill="#fff5cf" opacity="0.95"/>
+	        <circle cx="412" cy="254" r="18" fill="#fff3bf" opacity="0.95"/>
+	        <circle cx="236" cy="276" r="13" fill="${palette.herb}"/>
+	        <circle cx="448" cy="204" r="12" fill="${palette.herb}"/>
+	        <rect x="78" y="42" width="150" height="38" rx="19" fill="#ffffff" opacity="0.7"/>
+	        <text x="105" y="67" font-family="Pretendard, 'Noto Sans KR', Arial, sans-serif" font-size="18" font-weight="800" fill="#263229">AI 추천</text>
+	        <text x="320" y="360" text-anchor="middle" font-family="Pretendard, 'Noto Sans KR', Arial, sans-serif" font-size="24" font-weight="800" fill="#1d2822">${safeMenuName}</text>
+	        <text x="320" y="390" text-anchor="middle" font-family="Pretendard, 'Noto Sans KR', Arial, sans-serif" font-size="15" font-weight="600" fill="#56645d">${safeIngredientLabel}</text>
+	      </svg>
+	    `
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
+
+  private getFoodThumbnailPalette(menuName: string, ingredients: string[]) {
+    const sourceText = `${menuName} ${ingredients.join(' ')}`;
+
+    if (/김치|고추|매운|떡볶/.test(sourceText)) {
+      return {
+        backgroundStart: '#fff3eb',
+        backgroundEnd: '#e8f4ee',
+        foodBase: '#f5753d',
+        foodMain: '#dc4428',
+        foodLight: '#ffb054',
+        accent: '#ffd15a',
+        herb: '#2e8b4f',
+      };
+    }
+
+    if (/계란|달걀|오믈렛|스크램블/.test(sourceText)) {
+      return {
+        backgroundStart: '#fff8df',
+        backgroundEnd: '#eaf4ed',
+        foodBase: '#ffd35a',
+        foodMain: '#f2a63a',
+        foodLight: '#fff0a6',
+        accent: '#ff7f3f',
+        herb: '#2f8d52',
+      };
+    }
+
+    if (/면|소면|파스타|국수|라면/.test(sourceText)) {
+      return {
+        backgroundStart: '#fff8ee',
+        backgroundEnd: '#edf7f1',
+        foodBase: '#f1d086',
+        foodMain: '#f0a24a',
+        foodLight: '#fff1bf',
+        accent: '#e85b35',
+        herb: '#2f8f61',
+      };
+    }
+
+    if (/두부|콩|샐러드|오이|채소|야채/.test(sourceText)) {
+      return {
+        backgroundStart: '#f3fbf4',
+        backgroundEnd: '#fff7e8',
+        foodBase: '#dff0cb',
+        foodMain: '#56a86a',
+        foodLight: '#fff7da',
+        accent: '#f6c95d',
+        herb: '#247d48',
+      };
+    }
+
+    return {
+      backgroundStart: '#fff7eb',
+      backgroundEnd: '#e9f4ef',
+      foodBase: '#f6c45d',
+      foodMain: '#eb6a38',
+      foodLight: '#fff2b8',
+      accent: '#24b99a',
+      herb: '#2f8b44',
+    };
+  }
+
+  private escapeSvgText(text: string) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
   private mapRecommendation(
     recommendation: Prisma.AiRecipeRecommendationGetPayload<{
       include: {
@@ -1056,6 +1242,7 @@ export class AiRecommendationsService {
       estimatedCookingTime: recommendation.estimatedCookingTime,
       difficulty: recommendation.difficulty,
       content: recommendation.content,
+      thumbnailUrl: recommendation.thumbnailUrl ?? null,
       status: recommendation.status,
       grounding: recommendation.grounding,
       createdAt: recommendation.createdAt,

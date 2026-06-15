@@ -49,9 +49,11 @@ describe('PostsService', () => {
   it('should return latest posts with pagination and list fields', async () => {
     const posts = [
       {
-        id: 1,
-        title: 'Test title',
-        createdAt: new Date(),
+	        id: 1,
+	        title: 'Test title',
+	        content:
+	          '냉장고에 계란과 김치가 남아 있어서 빠르게 먹을 수 있는 메뉴를 찾고 있어요.',
+	        createdAt: new Date(),
         author: {
           id: 1,
           nickname: 'tester',
@@ -66,12 +68,13 @@ describe('PostsService', () => {
         _count: {
           comments: 2,
         },
-        aiRecommendations: [
-          {
-            id: 10,
-            status: 'ACTIVE',
-          },
-        ],
+	        aiRecommendations: [
+	          {
+	            id: 10,
+	            status: 'ACTIVE',
+	            thumbnailUrl: 'data:image/svg+xml;utf8,test',
+	          },
+	        ],
       },
     ];
 
@@ -81,15 +84,17 @@ describe('PostsService', () => {
     await expect(service.findAll(2, 5)).resolves.toEqual({
       items: [
         {
-          id: posts[0].id,
-          title: posts[0].title,
-          createdAt: posts[0].createdAt,
+	          id: posts[0].id,
+	          title: posts[0].title,
+	          contentPreview: posts[0].content,
+	          createdAt: posts[0].createdAt,
           author: posts[0].author,
           tags: ['nestjs'],
-          commentsCount: 2,
-          hasAiRecommendation: true,
-          aiRecommendationStatus: 'ACTIVE',
-        },
+	          commentsCount: 2,
+	          hasAiRecommendation: true,
+	          aiRecommendationStatus: 'ACTIVE',
+	          aiThumbnailUrl: 'data:image/svg+xml;utf8,test',
+	        },
       ],
       total: 1,
       page: 2,
@@ -101,10 +106,11 @@ describe('PostsService', () => {
       skip: 5,
       take: 5,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -130,10 +136,11 @@ describe('PostsService', () => {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
         },
       },
     });
@@ -154,10 +161,11 @@ describe('PostsService', () => {
       skip: 0,
       take: 1,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -183,10 +191,11 @@ describe('PostsService', () => {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
         },
       },
     });
@@ -212,10 +221,11 @@ describe('PostsService', () => {
       skip: 0,
       take: 10,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -241,10 +251,11 @@ describe('PostsService', () => {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
         },
       },
     });
@@ -273,10 +284,11 @@ describe('PostsService', () => {
       skip: 0,
       take: 10,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -302,10 +314,11 @@ describe('PostsService', () => {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
         },
       },
     });
@@ -339,9 +352,10 @@ describe('PostsService', () => {
       take: 10,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	        id: true,
+	        title: true,
+	        content: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -367,10 +381,11 @@ describe('PostsService', () => {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            status: true,
-          },
+	          select: {
+	            id: true,
+	            status: true,
+	            thumbnailUrl: true,
+	          },
         },
       },
     });
