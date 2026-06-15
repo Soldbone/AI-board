@@ -28,10 +28,12 @@ import {
 } from '@/api/auth';
 import { ApiRequestError, clearApiSession } from '@/api/client';
 import {
+  createSummary,
   createComment,
   createReply,
   deleteComment,
   getEvidences,
+  getSummary,
   listComments,
   updateComment,
 } from '@/api/comments';
@@ -59,6 +61,8 @@ import type {
   PostListItemResponse,
   PostResponse,
   RagStatus,
+  SummaryResponse,
+  SummaryStatus,
   TagResponse,
   UserResponse,
   VideoProcessingStatus,
@@ -115,6 +119,11 @@ type EvidenceTarget = {
   authorNickname: string;
   createdAt: string;
 };
+
+type SummaryPanelState =
+  | { status: 'idle' | 'loading' | 'empty'; data: SummaryResponse | null; error: null }
+  | { status: 'success'; data: SummaryResponse; error: null }
+  | { status: 'error'; data: SummaryResponse | null; error: string };
 
 const POSTS_LIMIT = 20;
 const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
@@ -1737,6 +1746,7 @@ function CommentThread({
           session={session}
         />
       ))}
+      <CommentSummaryPanel comment={comment} navigate={navigate} session={session} />
     </div>
   );
 }
@@ -1973,6 +1983,298 @@ function CommentItem({
         </form>
       )}
     </article>
+  );
+}
+
+function CommentSummaryPanel({
+  comment,
+  navigate,
+  session,
+}: {
+  comment: CommentResponse;
+  navigate: Navigate;
+  session: SessionState;
+}) {
+  const [summaryState, setSummaryState] = useState<SummaryPanelState>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [requestStatus, setRequestStatus] = useState<'idle' | 'submitting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [pollStartedAt, setPollStartedAt] = useState<number | null>(null);
+  const [pollExpired, setPollExpired] = useState(false);
+  const summarizableCount = countSummarizableThreadComments(comment);
+  const hasEnoughComments = summarizableCount >= 10;
+  const canRequestSummary = hasEnoughComments && !isCommentDeleted(comment);
+  const threadRevision = getCommentThreadRevision(comment);
+  const summary = summaryState.data;
+  const isRunning = summary ? isSummaryRunning(summary.status) : false;
+
+  useEffect(() => {
+    let ignore = false;
+
+    setSummaryState((current) => ({
+      status: 'loading',
+      data: current.data?.rootCommentId === comment.id ? current.data : null,
+      error: null,
+    }));
+
+    getSummary(comment.id)
+      .then((data) => {
+        if (!ignore) {
+          setSummaryState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (ignore) return;
+
+        if (isNotFoundError(error)) {
+          setSummaryState({ status: 'empty', data: null, error: null });
+          return;
+        }
+
+        setSummaryState((current) => ({
+          status: 'error',
+          data: current.data,
+          error: formatApiError(error),
+        }));
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [comment.id, reloadKey, threadRevision]);
+
+  useEffect(() => {
+    if (!summary || !isSummaryRunning(summary.status)) {
+      setPollStartedAt(null);
+      setPollExpired(false);
+      return;
+    }
+
+    if (pollStartedAt === null) {
+      setPollStartedAt(Date.now());
+      setPollExpired(false);
+    }
+  }, [pollStartedAt, summary]);
+
+  useEffect(() => {
+    if (!summary || !isSummaryRunning(summary.status) || pollStartedAt === null || pollExpired) {
+      return;
+    }
+
+    if (document.visibilityState === 'hidden') return;
+
+    const elapsed = Date.now() - pollStartedAt;
+
+    if (elapsed >= 90_000) {
+      setPollExpired(true);
+      return;
+    }
+
+    const delay = elapsed >= 30_000 ? 3_000 : 1_000;
+    const timeoutId = window.setTimeout(() => setReloadKey((key) => key + 1), delay);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [pollExpired, pollStartedAt, summary]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        summary &&
+        isSummaryRunning(summary.status) &&
+        !pollExpired
+      ) {
+        setReloadKey((key) => key + 1);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pollExpired, summary]);
+
+  const handleRequestSummary = async () => {
+    if (!canRequestSummary) {
+      setNotice({ tone: 'info', message: '요약할 댓글이 충분하지 않습니다.' });
+      return;
+    }
+
+    if (session.status !== 'authenticated') {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    setRequestStatus('submitting');
+    setNotice(null);
+
+    try {
+      const data = await createSummary(comment.id);
+      setSummaryState({ status: 'success', data, error: null });
+      setNotice({ tone: 'success', message: '요약 요청이 접수되었습니다.' });
+
+      if (isSummaryRunning(data.status)) {
+        setPollStartedAt(Date.now());
+        setPollExpired(false);
+      }
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+    } finally {
+      setRequestStatus('idle');
+    }
+  };
+
+  return (
+    <section className="ml-0 grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:ml-7">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">댓글 스레드 요약</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            루트 댓글과 직계 대댓글을 기준으로 생성된 보조 요약입니다.
+          </p>
+        </div>
+        <Badge variant={hasEnoughComments ? 'secondary' : 'muted'}>
+          요약 대상 {summarizableCount.toLocaleString()}개
+        </Badge>
+      </div>
+
+      {!hasEnoughComments && (
+        <p className="rounded-md bg-background p-3 text-sm leading-6 text-muted-foreground">
+          요약할 댓글이 충분하지 않습니다.
+        </p>
+      )}
+
+      <SummaryPanelContent onRetry={() => setReloadKey((key) => key + 1)} state={summaryState} />
+
+      {summary?.isStale && (
+        <InlineNotice
+          message="새 댓글이 추가되어 요약이 최신 상태가 아닐 수 있습니다."
+          tone="info"
+        />
+      )}
+
+      {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+
+      <div className="flex flex-wrap gap-2">
+        {session.status === 'authenticated' ? (
+          <Button
+            disabled={!canRequestSummary || requestStatus === 'submitting' || isRunning}
+            onClick={handleRequestSummary}
+            size="sm"
+            variant={summary?.status === 'FAILED' ? 'destructive' : 'outline'}
+          >
+            {getSummaryActionLabel(summary, requestStatus)}
+          </Button>
+        ) : (
+          <Button
+            disabled={!canRequestSummary}
+            onClick={() => navigate(buildLoginPath(getCurrentPath()))}
+            size="sm"
+            variant="outline"
+          >
+            로그인 후 요약
+          </Button>
+        )}
+
+        {isRunning && (
+          <Button onClick={() => setReloadKey((key) => key + 1)} size="sm" variant="outline">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            상태 새로고침
+          </Button>
+        )}
+      </div>
+
+      {isRunning && (
+        <p className="text-sm leading-6 text-muted-foreground">
+          {pollExpired
+            ? '요약이 아직 완료되지 않았습니다. 수동으로 상태를 새로고침해 주세요.'
+            : '요약 상태를 자동으로 확인하는 중입니다.'}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function SummaryPanelContent({
+  onRetry,
+  state,
+}: {
+  onRetry: () => void;
+  state: SummaryPanelState;
+}) {
+  const data = state.data;
+
+  if (state.status === 'loading' && !data) {
+    return (
+      <div className="grid gap-2" aria-label="댓글 요약 로딩 중">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-16 rounded-lg" />
+      </div>
+    );
+  }
+
+  if (state.status === 'empty') {
+    return (
+      <p className="rounded-md bg-background p-3 text-sm leading-6 text-muted-foreground">
+        아직 생성된 요약이 없습니다.
+      </p>
+    );
+  }
+
+  if (state.status === 'error' && !data) {
+    return (
+      <div className="grid gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3">
+        <InlineNotice message={`요약을 불러오지 못했습니다. ${state.error}`} tone="destructive" />
+        <Button className="w-fit" onClick={onRetry} size="sm" variant="destructive">
+          <RefreshCw className="size-4" aria-hidden="true" />
+          다시 조회
+        </Button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const statusLabel = getSummaryStatusLabel(data.status);
+
+  return (
+    <div className="grid gap-3" aria-busy={state.status === 'loading'}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+        <Badge variant="muted">
+          {data.summarizedCommentCount.toLocaleString()} /{' '}
+          {data.currentCommentCount.toLocaleString()}개 반영
+        </Badge>
+      </div>
+
+      {data.status === 'SUCCESS' && data.summaryText ? (
+        <p className="whitespace-pre-wrap break-words rounded-md bg-background p-3 text-sm leading-6 text-neutral-800">
+          {data.summaryText}
+        </p>
+      ) : data.status === 'FAILED' ? (
+        <div className="rounded-md bg-destructive/5 p-3 text-sm leading-6 text-destructive">
+          요약을 생성하지 못했습니다.
+          {data.errorCode ? ` 오류 코드: ${data.errorCode}` : ''}
+        </div>
+      ) : (
+        <p className="rounded-md bg-background p-3 text-sm leading-6 text-muted-foreground">
+          요약을 준비하는 중입니다.
+        </p>
+      )}
+
+      {data.generatedAt && (
+        <p className="text-xs text-muted-foreground">생성 {formatDateTime(data.generatedAt)}</p>
+      )}
+
+      {state.status === 'error' && (
+        <InlineNotice
+          message={`요약을 새로 불러오지 못했습니다. ${state.error}`}
+          tone="destructive"
+        />
+      )}
+    </div>
   );
 }
 
@@ -3339,6 +3641,18 @@ function getEvidenceActionLabel(comment: CommentResponse) {
   return '근거 후보 상태';
 }
 
+function getSummaryActionLabel(
+  summary: SummaryResponse | null | undefined,
+  requestStatus: 'idle' | 'submitting',
+) {
+  if (requestStatus === 'submitting') return '요약 요청 중';
+  if (summary?.status === 'FAILED') return '요약 다시 요청';
+  if (summary?.isStale) return '요약 갱신';
+  if (summary?.status === 'SUCCESS') return '요약 다시 확인';
+  if (summary && isSummaryRunning(summary.status)) return '요약 진행 중';
+  return '댓글 스레드 요약';
+}
+
 function getSessionRestoreMessage(error: unknown) {
   if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
     return null;
@@ -3393,6 +3707,25 @@ function formatTranscriptTime(value: number) {
 
 function countComments(comments: CommentResponse[]) {
   return comments.reduce((total, comment) => total + 1 + (comment.replies?.length ?? 0), 0);
+}
+
+function countSummarizableThreadComments(comment: CommentResponse) {
+  const rootCount = isCommentDeleted(comment) ? 0 : 1;
+  const replyCount = (comment.replies ?? []).filter((reply) => !isCommentDeleted(reply)).length;
+
+  return rootCount + replyCount;
+}
+
+function getCommentThreadRevision(comment: CommentResponse) {
+  return [comment.updatedAt, ...(comment.replies ?? []).map((reply) => reply.updatedAt)].join('|');
+}
+
+function isCommentDeleted(comment: CommentResponse) {
+  return comment.isDeleted || comment.moderationStatus === 'DELETED_BY_ADMIN';
+}
+
+function isSummaryRunning(status: SummaryStatus) {
+  return status === 'PENDING' || status === 'PROCESSING';
 }
 
 function getAuthorInitial(nickname: string) {
@@ -3475,6 +3808,22 @@ function getRagStatusLabel(status: RagStatus): {
       return { label: '근거 후보 실패', variant: 'destructive' };
     case 'NOT_REQUIRED':
       return { label: '근거 후보 없음', variant: 'muted' };
+  }
+}
+
+function getSummaryStatusLabel(status: SummaryStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'PENDING':
+      return { label: '생성 대기', variant: 'secondary' };
+    case 'PROCESSING':
+      return { label: '요약 중', variant: 'secondary' };
+    case 'SUCCESS':
+      return { label: '요약 완료', variant: 'success' };
+    case 'FAILED':
+      return { label: '요약 실패', variant: 'destructive' };
   }
 }
 
