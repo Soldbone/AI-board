@@ -26,6 +26,7 @@ import {
   restoreSession,
   signup as signupUser,
 } from '@/api/auth';
+import { createAgentRun, getAgentRun } from '@/api/agent';
 import { ApiRequestError, clearApiSession } from '@/api/client';
 import {
   createSummary,
@@ -50,10 +51,13 @@ import {
 } from '@/api/posts';
 import { getVideo } from '@/api/videos';
 import type {
+  AgentRunResponse,
+  AgentRunStatus,
   AiAnalysisStatus,
   CommentEvidencesResponse,
   CommentResponse,
   CommentType,
+  CreateAgentRunResponse,
   EvidenceResponse,
   ModerationStatus,
   PaginatedResponse,
@@ -124,6 +128,13 @@ type SummaryPanelState =
   | { status: 'idle' | 'loading' | 'empty'; data: SummaryResponse | null; error: null }
   | { status: 'success'; data: SummaryResponse; error: null }
   | { status: 'error'; data: SummaryResponse | null; error: string };
+
+type AgentPanelRun = AgentRunResponse | CreateAgentRunResponse;
+
+type AgentPanelState =
+  | { status: 'idle' | 'loading'; data: AgentPanelRun | null; error: null }
+  | { status: 'success'; data: AgentPanelRun; error: null }
+  | { status: 'error'; data: AgentPanelRun | null; error: string };
 
 const POSTS_LIMIT = 20;
 const DEFAULT_AUTH_REDIRECT = '/?page=1&limit=20';
@@ -1167,7 +1178,13 @@ function PostDetail({
         />
       </section>
 
-      <DetailSidePanel comments={commentsState.data ?? []} post={post} videoState={videoState} />
+      <DetailSidePanel
+        comments={commentsState.data ?? []}
+        navigate={navigate}
+        post={post}
+        session={session}
+        videoState={videoState}
+      />
       <EvidenceSheet
         onClose={() => setEvidenceTarget(null)}
         onRetry={() => {
@@ -3302,11 +3319,15 @@ function BoardSidePanel({
 
 function DetailSidePanel({
   comments,
+  navigate,
   post,
+  session,
   videoState,
 }: {
   comments: CommentResponse[];
+  navigate: Navigate;
   post: PostResponse;
+  session: SessionState;
   videoState: AsyncState<VideoResponse>;
 }) {
   const video = videoState.data ?? post.video;
@@ -3330,20 +3351,7 @@ function DetailSidePanel({
         <DetailStatusRow label="Embedding" status={video.embeddingStatus} />
       </section>
 
-      <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">Agent 질문</h2>
-          <Badge variant="info">placeholder</Badge>
-        </div>
-        <Textarea readOnly value="이 게시글의 핵심 주장과 관련된 자막 근거 후보를 찾아줘." />
-        <Button disabled>
-          <Send className="size-4" aria-hidden="true" />
-          질문 보내기
-        </Button>
-        <div className="rounded-md bg-muted p-3 text-sm leading-6 text-neutral-600">
-          Agent 답변에는 근거 후보와 한계를 함께 표시합니다.
-        </div>
-      </section>
+      <AgentPanel navigate={navigate} post={post} session={session} />
 
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
@@ -3367,6 +3375,261 @@ function DetailSidePanel({
         </p>
       </section>
     </aside>
+  );
+}
+
+function AgentPanel({
+  navigate,
+  post,
+  session,
+}: {
+  navigate: Navigate;
+  post: PostResponse;
+  session: SessionState;
+}) {
+  const [question, setQuestion] = useState(
+    '이 게시글의 핵심 주장과 관련된 자막 근거 후보를 찾아줘.',
+  );
+  const [runState, setRunState] = useState<AgentPanelState>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting'>('idle');
+  const [notice, setNotice] = useState<WriteNotice | null>(null);
+  const [pollStartedAt, setPollStartedAt] = useState<number | null>(null);
+  const [pollExpired, setPollExpired] = useState(false);
+  const run = runState.data;
+  const isRunning = run ? isAgentRunRunning(run.status) : false;
+  const canAsk = session.status === 'authenticated';
+
+  useEffect(() => {
+    setRunState({ status: 'idle', data: null, error: null });
+    setNotice(null);
+    setPollStartedAt(null);
+    setPollExpired(false);
+  }, [post.id]);
+
+  useEffect(() => {
+    if (!run || !isAgentRunRunning(run.status)) {
+      setPollStartedAt(null);
+      setPollExpired(false);
+      return;
+    }
+
+    if (pollStartedAt === null) {
+      setPollStartedAt(Date.now());
+      setPollExpired(false);
+    }
+  }, [pollStartedAt, run]);
+
+  useEffect(() => {
+    if (!run || !isAgentRunRunning(run.status) || pollStartedAt === null || pollExpired) {
+      return;
+    }
+
+    if (document.visibilityState === 'hidden') return;
+
+    const elapsed = Date.now() - pollStartedAt;
+
+    if (elapsed >= 90_000) {
+      setPollExpired(true);
+      return;
+    }
+
+    const delay = elapsed >= 30_000 ? 3_000 : 1_000;
+    const timeoutId = window.setTimeout(() => {
+      refreshAgentRun(run.runId);
+    }, delay);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [pollExpired, pollStartedAt, run]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        run &&
+        isAgentRunRunning(run.status) &&
+        !pollExpired
+      ) {
+        refreshAgentRun(run.runId);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pollExpired, run]);
+
+  const refreshAgentRun = async (runId: string) => {
+    setRunState((current) => ({
+      status: 'loading',
+      data: current.data,
+      error: null,
+    }));
+
+    try {
+      const data = await getAgentRun(runId);
+      setRunState({ status: 'success', data, error: null });
+
+      if (!isAgentRunRunning(data.status)) {
+        setPollStartedAt(null);
+        setPollExpired(false);
+      }
+    } catch (error: unknown) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        navigate(buildLoginPath(getCurrentPath()));
+        return;
+      }
+
+      setRunState((current) => ({
+        status: 'error',
+        data: current.data,
+        error: formatApiError(error),
+      }));
+    }
+  };
+
+  const handleSubmitQuestion = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!canAsk) {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    const trimmedQuestion = question.trim();
+
+    if (!trimmedQuestion) {
+      setNotice({ tone: 'destructive', message: 'Agent에게 보낼 질문을 입력해 주세요.' });
+      return;
+    }
+
+    setSubmitStatus('submitting');
+    setNotice(null);
+    setRunState({ status: 'loading', data: null, error: null });
+
+    try {
+      const createdRun = await createAgentRun(post.id, { question: trimmedQuestion });
+      setRunState({ status: 'success', data: createdRun, error: null });
+      setPollStartedAt(Date.now());
+      setPollExpired(false);
+      setNotice({ tone: 'success', message: 'Agent 질문이 접수되었습니다.' });
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setNotice);
+      setRunState({ status: 'idle', data: null, error: null });
+    } finally {
+      setSubmitStatus('idle');
+    }
+  };
+
+  const statusLabel = run ? getAgentRunStatusLabel(run.status) : null;
+
+  return (
+    <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">Agent 질문</h2>
+        <Badge variant={statusLabel?.variant ?? 'info'}>{statusLabel?.label ?? 'ready'}</Badge>
+      </div>
+
+      <form className="grid gap-3" onSubmit={handleSubmitQuestion}>
+        <label className="grid gap-2 text-sm font-medium">
+          질문
+          <Textarea
+            disabled={!canAsk || submitStatus === 'submitting'}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="게시글과 영상 맥락에 대해 질문합니다."
+            value={question}
+          />
+        </label>
+
+        {notice && <InlineNotice message={notice.message} tone={notice.tone} />}
+
+        {canAsk ? (
+          <Button disabled={submitStatus === 'submitting'} type="submit">
+            <Send className="size-4" aria-hidden="true" />
+            {submitStatus === 'submitting' ? '질문 전송 중' : '질문 보내기'}
+          </Button>
+        ) : (
+          <Button onClick={() => navigate(buildLoginPath(getCurrentPath()))} type="button">
+            <LogIn className="size-4" aria-hidden="true" />
+            로그인 후 질문
+          </Button>
+        )}
+      </form>
+
+      <AgentRunStatusPanel
+        onRefresh={() => {
+          if (run) refreshAgentRun(run.runId);
+        }}
+        pollExpired={pollExpired}
+        runState={runState}
+      />
+    </section>
+  );
+}
+
+function AgentRunStatusPanel({
+  onRefresh,
+  pollExpired,
+  runState,
+}: {
+  onRefresh: () => void;
+  pollExpired: boolean;
+  runState: AgentPanelState;
+}) {
+  const run = runState.data;
+
+  if (runState.status === 'idle') {
+    return (
+      <p className="rounded-md bg-muted p-3 text-sm leading-6 text-neutral-600">
+        Agent 답변에는 근거 후보와 한계를 함께 표시합니다.
+      </p>
+    );
+  }
+
+  if (runState.status === 'loading' && !run) {
+    return (
+      <div className="grid gap-2" aria-label="Agent run loading">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-20 rounded-md" />
+      </div>
+    );
+  }
+
+  if (!run) return null;
+
+  const statusLabel = getAgentRunStatusLabel(run.status);
+
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-muted/40 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
+        <Badge variant="muted">step {getAgentStepCount(run).toLocaleString()}</Badge>
+      </div>
+      <p className="text-sm leading-6 text-muted-foreground">{getAgentRunStatusMessage(run)}</p>
+      {runState.status === 'error' && (
+        <InlineNotice
+          message={`Agent 상태를 불러오지 못했습니다. ${runState.error}`}
+          tone="destructive"
+        />
+      )}
+      {isAgentRunRunning(run.status) && (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onRefresh} size="sm" variant="outline">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            상태 새로고침
+          </Button>
+        </div>
+      )}
+      {isAgentRunRunning(run.status) && (
+        <p className="text-sm leading-6 text-muted-foreground">
+          {pollExpired
+            ? 'Agent run이 아직 완료되지 않았습니다. 수동으로 상태를 새로고침해 주세요.'
+            : 'Agent run 상태를 자동으로 확인하는 중입니다.'}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -3728,6 +3991,14 @@ function isSummaryRunning(status: SummaryStatus) {
   return status === 'PENDING' || status === 'PROCESSING';
 }
 
+function isAgentRunRunning(status: AgentRunStatus) {
+  return status === 'PENDING' || status === 'RUNNING';
+}
+
+function getAgentStepCount(run: AgentPanelRun) {
+  return 'stepCount' in run ? run.stepCount : 0;
+}
+
 function getAuthorInitial(nickname: string) {
   const trimmed = nickname.trim();
   return trimmed.length > 0 ? trimmed[0] : '?';
@@ -3824,6 +4095,35 @@ function getSummaryStatusLabel(status: SummaryStatus): {
       return { label: '요약 완료', variant: 'success' };
     case 'FAILED':
       return { label: '요약 실패', variant: 'destructive' };
+  }
+}
+
+function getAgentRunStatusLabel(status: AgentRunStatus): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'PENDING':
+      return { label: '질문 접수', variant: 'secondary' };
+    case 'RUNNING':
+      return { label: '근거 후보 확인 중', variant: 'secondary' };
+    case 'SUCCESS':
+      return { label: '답변 완료', variant: 'success' };
+    case 'FAILED':
+      return { label: '답변 실패', variant: 'destructive' };
+  }
+}
+
+function getAgentRunStatusMessage(run: AgentPanelRun) {
+  switch (run.status) {
+    case 'PENDING':
+      return 'Agent 질문이 접수되었습니다.';
+    case 'RUNNING':
+      return 'Agent가 게시글 맥락과 근거 후보를 확인하는 중입니다.';
+    case 'SUCCESS':
+      return 'Agent 답변이 준비되었습니다.';
+    case 'FAILED':
+      return 'Agent 답변을 생성하지 못했습니다.';
   }
 }
 
