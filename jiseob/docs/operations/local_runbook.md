@@ -14,6 +14,8 @@ Docker Desktop
 PowerShell
 ```
 
+네이티브 backend(`pnpm.cmd dev:backend`)에서 실제 영상 자막 처리를 실행하려면 추가로 Python 3가 필요하다. Docker backend를 사용하면 Python과 transcript CLI는 이미지 안에 설치되므로 로컬 Python 설치가 필수는 아니다.
+
 권장 준비:
 
 ```powershell
@@ -66,6 +68,7 @@ CSRF_SECRET=replace-with-a-local-csrf-secret
 ```env
 YOUTUBE_API_KEY=
 OPENAI_API_KEY=
+YOUTUBE_TRANSCRIPT_COMMAND=youtube_transcript_api
 ```
 
 주의:
@@ -73,6 +76,37 @@ OPENAI_API_KEY=
 - 실제 API key를 문서, commit, 채팅에 남기지 않는다.
 - `JWT_ACCESS_SECRET`, `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔둔다.
 - API key가 없어도 health check, unit test, E2E mock test는 가능하다.
+
+---
+
+## 2.1. Transcript CLI for Native Backend
+
+`pnpm.cmd dev:backend`처럼 backend를 Windows에서 직접 실행하면 `youtube_transcript_api` CLI도 로컬에서 실행 가능해야 한다. 프로젝트는 Python 의존성을 `backend/requirements.txt`에 둔다.
+
+권장 설치:
+
+```powershell
+cd C:\Users\1472e\Desktop\jungle\AI-board\jiseob
+py -3 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+backend\.venv\Scripts\youtube_transcript_api.exe --help
+```
+
+네이티브 backend가 venv 안의 CLI를 확실히 사용하게 하려면 `.env`에 절대 경로를 지정한다.
+
+```env
+YOUTUBE_TRANSCRIPT_COMMAND=C:\Users\1472e\Desktop\jungle\AI-board\jiseob\backend\.venv\Scripts\youtube_transcript_api.exe
+```
+
+PowerShell 세션에서만 임시로 PATH에 추가해도 된다.
+
+```powershell
+$env:Path = "C:\Users\1472e\Desktop\jungle\AI-board\jiseob\backend\.venv\Scripts;$env:Path"
+pnpm.cmd dev:backend
+```
+
+`spawn youtube_transcript_api ENOENT`는 backend 프로세스가 이 CLI를 찾지 못한다는 뜻이다. 위 `--help` 명령과 `.env`의 `YOUTUBE_TRANSCRIPT_COMMAND`를 먼저 확인한다.
 
 ---
 
@@ -161,10 +195,10 @@ pnpm.cmd dev
 PostgreSQL과 backend container를 함께 실행:
 
 ```powershell
-docker compose up -d backend
+docker compose up -d --build backend
 ```
 
-Docker backend image에는 transcript 처리용 Python과 `youtube-transcript-api` CLI가 포함된다.
+Docker backend image에는 transcript 처리용 Python venv와 `backend/requirements.txt` 기반 `youtube-transcript-api` CLI가 포함된다.
 
 ```powershell
 docker compose exec backend youtube_transcript_api --help
