@@ -7,12 +7,13 @@
 }
 
 .app-workspace {
-  width: min(1180px, 100%);
+  width: 100%;
   margin: 0 auto;
 }
 
 .auth-panel,
 .account-panel {
+  width: 100%;
   border: 1px solid #d8dee8;
   border-radius: 8px;
   background: #ffffff;

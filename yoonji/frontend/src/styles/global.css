@@ -1,20 +1,98 @@
 @import "../App.css";
 
 .app-shell {
+  --app-content-width: 900px;
+  --side-ad-gap: 16px;
+  --side-ad-max-width: 240px;
   padding: 0 20px 40px;
 }
 
 .site-header,
 .layout-main {
-  width: min(1180px, 100%);
+  width: 100%;
+  margin: 0;
+}
+
+.below-banner-layout {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, var(--app-content-width))
+    minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
   margin: 0 auto;
 }
 
+.content-column {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.side-ad-stack {
+  display: grid;
+  gap: 12px;
+  width: min(var(--side-ad-max-width), calc(100% - var(--side-ad-gap)));
+}
+
+.side-ad-stack img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid rgba(208, 224, 225, 0.78);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(35, 45, 65, 0.08);
+}
+
+.side-ad-stack-left {
+  grid-column: 1;
+  justify-self: end;
+  margin-right: var(--side-ad-gap);
+}
+
+.side-ad-stack-right {
+  grid-column: 3;
+  margin-left: var(--side-ad-gap);
+}
+
+.app-workspace {
+  width: 100%;
+}
+
+.auth-route,
+.page-stack,
+.page-section,
+.post-detail,
+.protected-panel {
+  width: 100%;
+}
+
+.top-ad-banner {
+  position: relative;
+  display: block;
+  width: calc(100vw - 8px);
+  height: clamp(317px, 26vw, 403px);
+  margin: 0 calc(50% - 50vw + 4px) 16px;
+  overflow: hidden;
+  border: 1px solid rgba(208, 224, 225, 0.78);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(35, 45, 65, 0.08);
+}
+
+.top-ad-banner img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: calc(100% + 52px);
+  object-fit: fill;
+  transform: translateY(-14px);
+}
+
 .site-header {
-  position: sticky;
-  z-index: 30;
-  top: 0;
-  padding: 14px 0 0;
+  position: static;
+  padding: 0;
   border-bottom: 0;
   background: transparent;
   backdrop-filter: none;
@@ -129,7 +207,7 @@
 }
 
 .auth-route {
-  width: min(520px, 100%);
+  width: 100%;
 }
 
 .protected-panel {
@@ -287,6 +365,41 @@
 @media (max-width: 640px) {
   .app-shell {
     padding: 0 16px 28px;
+  }
+
+  .top-ad-banner {
+    width: calc(100vw - 8px);
+    height: 218px;
+    margin-top: 0;
+    margin-right: calc(50% - 50vw + 4px);
+    margin-bottom: 12px;
+    margin-left: calc(50% - 50vw + 4px);
+  }
+
+  .top-ad-banner img {
+    height: calc(100% + 34px);
+    transform: translateY(-9px);
+  }
+
+  .below-banner-layout {
+    grid-template-columns: 1fr;
+    width: min(var(--app-content-width), 100%);
+  }
+
+  .content-column,
+  .side-ad-stack {
+    grid-column: auto;
+  }
+
+  .side-ad-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .side-ad-stack img {
+    width: 100%;
   }
 
   .site-header-inner {
