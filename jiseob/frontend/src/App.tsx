@@ -17,6 +17,7 @@ import {
   Trash2,
   User,
   UserPlus,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -30,6 +31,7 @@ import {
   createComment,
   createReply,
   deleteComment,
+  getEvidences,
   listComments,
   updateComment,
 } from '@/api/comments';
@@ -47,8 +49,10 @@ import {
 import { getVideo } from '@/api/videos';
 import type {
   AiAnalysisStatus,
+  CommentEvidencesResponse,
   CommentResponse,
   CommentType,
+  EvidenceResponse,
   ModerationStatus,
   PaginatedResponse,
   PaginationMeta,
@@ -104,6 +108,12 @@ type LogoutState = 'idle' | 'submitting';
 type WriteNotice = {
   tone: 'destructive' | 'info' | 'success';
   message: string;
+};
+
+type EvidenceTarget = {
+  commentId: string;
+  authorNickname: string;
+  createdAt: string;
 };
 
 const POSTS_LIMIT = 20;
@@ -807,6 +817,12 @@ function PostDetail({
   >('idle');
   const [postActionNotice, setPostActionNotice] = useState<WriteNotice | null>(null);
   const [sessionLikedPostIds, setSessionLikedPostIds] = useState<string[]>([]);
+  const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
+  const [evidenceState, setEvidenceState] = useState<AsyncState<CommentEvidencesResponse>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
 
   useEffect(() => {
     let ignore = false;
@@ -931,6 +947,41 @@ function PostDetail({
         // View counting is best-effort and should not block the read-only detail page.
       });
   }, [postState]);
+
+  useEffect(() => {
+    if (!evidenceTarget) {
+      setEvidenceState({ status: 'idle', data: null, error: null });
+      return;
+    }
+
+    let ignore = false;
+
+    setEvidenceState((current) => ({
+      status: 'loading',
+      data: current.data?.commentId === evidenceTarget.commentId ? current.data : null,
+      error: null,
+    }));
+
+    getEvidences(evidenceTarget.commentId)
+      .then((data) => {
+        if (!ignore) {
+          setEvidenceState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setEvidenceState((current) => ({
+            status: 'error',
+            data: current.data,
+            error: formatApiError(error),
+          }));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [evidenceTarget]);
 
   if (postNotFound) {
     return <PostDetailNotFound navigate={navigate} />;
@@ -1093,6 +1144,13 @@ function PostDetail({
             setCommentsReloadKey((key) => key + 1);
             setPostReloadKey((key) => key + 1);
           }}
+          onOpenEvidence={(comment) =>
+            setEvidenceTarget({
+              authorNickname: comment.author.nickname,
+              commentId: comment.id,
+              createdAt: comment.createdAt,
+            })
+          }
           onRetry={() => setCommentsReloadKey((key) => key + 1)}
           postId={post.id}
           session={session}
@@ -1101,6 +1159,24 @@ function PostDetail({
       </section>
 
       <DetailSidePanel comments={commentsState.data ?? []} post={post} videoState={videoState} />
+      <EvidenceSheet
+        onClose={() => setEvidenceTarget(null)}
+        onRetry={() => {
+          if (!evidenceTarget) return;
+          setEvidenceState({ status: 'loading', data: evidenceState.data, error: null });
+          getEvidences(evidenceTarget.commentId)
+            .then((data) => setEvidenceState({ status: 'success', data, error: null }))
+            .catch((error: unknown) =>
+              setEvidenceState((current) => ({
+                status: 'error',
+                data: current.data,
+                error: formatApiError(error),
+              })),
+            );
+        }}
+        state={evidenceState}
+        target={evidenceTarget}
+      />
     </>
   );
 }
@@ -1453,6 +1529,7 @@ function PostBody({ post }: { post: PostResponse }) {
 function CommentsSection({
   navigate,
   onChanged,
+  onOpenEvidence,
   onRetry,
   postId,
   session,
@@ -1460,6 +1537,7 @@ function CommentsSection({
 }: {
   navigate: Navigate;
   onChanged: () => void;
+  onOpenEvidence: (comment: CommentResponse) => void;
   onRetry: () => void;
   postId: string;
   session: SessionState;
@@ -1593,6 +1671,7 @@ function CommentsSection({
               key={comment.id}
               navigate={navigate}
               onChanged={onChanged}
+              onOpenEvidence={onOpenEvidence}
               session={session}
             />
           ))}
@@ -1626,11 +1705,13 @@ function CommentThread({
   comment,
   navigate,
   onChanged,
+  onOpenEvidence,
   session,
 }: {
   comment: CommentResponse;
   navigate: Navigate;
   onChanged: () => void;
+  onOpenEvidence: (comment: CommentResponse) => void;
   session: SessionState;
 }) {
   const replies = comment.replies ?? [];
@@ -1642,6 +1723,7 @@ function CommentThread({
         level={0}
         navigate={navigate}
         onChanged={onChanged}
+        onOpenEvidence={onOpenEvidence}
         session={session}
       />
       {replies.map((reply) => (
@@ -1651,6 +1733,7 @@ function CommentThread({
           level={1}
           navigate={navigate}
           onChanged={onChanged}
+          onOpenEvidence={onOpenEvidence}
           session={session}
         />
       ))}
@@ -1663,12 +1746,14 @@ function CommentItem({
   level,
   navigate,
   onChanged,
+  onOpenEvidence,
   session,
 }: {
   comment: CommentResponse;
   level: 0 | 1;
   navigate: Navigate;
   onChanged: () => void;
+  onOpenEvidence: (comment: CommentResponse) => void;
   session: SessionState;
 }) {
   const isReply = level === 1;
@@ -1677,6 +1762,7 @@ function CommentItem({
   const canWrite = session.status === 'authenticated';
   const canManageComment = canWrite && session.user.id === comment.author.id && !isDeleted;
   const canReply = canWrite && !isReply && !isDeleted;
+  const canShowEvidence = canShowEvidenceAction(comment);
   const [mode, setMode] = useState<'idle' | 'reply' | 'edit'>('idle');
   const [replyContent, setReplyContent] = useState('');
   const [editContent, setEditContent] = useState(comment.content);
@@ -1833,9 +1919,9 @@ function CommentItem({
 
       {!isDeleted && (
         <div className="flex flex-wrap gap-2">
-          {comment.analysis?.evidenceCount ? (
-            <Button disabled size="sm" variant="outline">
-              근거 후보 보기
+          {canShowEvidence ? (
+            <Button onClick={() => onOpenEvidence(comment)} size="sm" variant="outline">
+              {getEvidenceActionLabel(comment)}
             </Button>
           ) : null}
           {canReply && (
@@ -1914,6 +2000,170 @@ function CommentAnalysisBadges({ comment }: { comment: CommentResponse }) {
         <Badge variant="success">근거 후보 {analysis.evidenceCount}</Badge>
       )}
     </div>
+  );
+}
+
+function EvidenceSheet({
+  onClose,
+  onRetry,
+  state,
+  target,
+}: {
+  onClose: () => void;
+  onRetry: () => void;
+  state: AsyncState<CommentEvidencesResponse>;
+  target: EvidenceTarget | null;
+}) {
+  if (!target) return null;
+
+  const data = state.data;
+  const statusLabel = data ? getRagStatusLabel(data.ragStatus) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/20" role="presentation">
+      <button
+        aria-label="근거 후보 sheet 닫기"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+        type="button"
+      />
+      <aside
+        aria-modal="true"
+        className="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-border bg-background shadow-xl"
+        role="dialog"
+      >
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-background p-4 sm:p-5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-muted-foreground">Evidence sheet</p>
+            <h2 className="mt-1 text-lg font-semibold">근거 후보</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {target.authorNickname} · {formatDateTime(target.createdAt)}
+            </p>
+          </div>
+          <Button aria-label="근거 후보 sheet 닫기" onClick={onClose} size="sm" variant="ghost">
+            <X className="size-4" aria-hidden="true" />
+          </Button>
+        </header>
+
+        <div className="grid gap-4 p-4 sm:p-5">
+          <InlineNotice
+            message="근거 후보는 관련 있을 수 있는 자막 구간이며, 사실 여부를 최종 판정하지 않습니다."
+            tone="info"
+          />
+
+          {state.status === 'loading' && !data && (
+            <div className="grid gap-3" aria-label="근거 후보 로딩 중">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-24 rounded-lg" />
+            </div>
+          )}
+
+          {state.status === 'error' && (
+            <div className="grid gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+              <InlineNotice
+                message={`근거 후보를 불러오지 못했습니다. ${state.error}`}
+                tone="destructive"
+              />
+              <Button className="w-fit" onClick={onRetry} size="sm" variant="destructive">
+                <RefreshCw className="size-4" aria-hidden="true" />
+                다시 조회
+              </Button>
+            </div>
+          )}
+
+          {data && (
+            <div className="grid gap-4" aria-busy={state.status === 'loading'}>
+              <div className="grid gap-3 rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span>RAG 상태</span>
+                  {statusLabel && <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>}
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span>근거 후보 수</span>
+                  <Badge variant={data.evidenceCount > 0 ? 'success' : 'muted'}>
+                    {data.evidenceCount.toLocaleString()}개
+                  </Badge>
+                </div>
+              </div>
+
+              <EvidenceSheetContent evidences={data.evidences} response={data} />
+
+              {state.status === 'loading' && (
+                <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                  근거 후보를 새로 불러오는 중입니다.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function EvidenceSheetContent({
+  evidences,
+  response,
+}: {
+  evidences: EvidenceResponse[];
+  response: CommentEvidencesResponse;
+}) {
+  if (response.ragStatus === 'FAILED') {
+    return (
+      <div className="grid gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm leading-6 text-destructive">
+        <p className="font-medium">근거 후보를 준비하지 못했습니다.</p>
+        <p>
+          영상 처리나 자막 검색 상태를 확인한 뒤 다시 조회해 주세요.
+          {response.ragErrorCode ? ` 오류 코드: ${response.ragErrorCode}` : ''}
+        </p>
+      </div>
+    );
+  }
+
+  if (response.ragStatus === 'PENDING' || response.ragStatus === 'PROCESSING') {
+    return (
+      <div className="rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
+        근거 후보를 준비하는 중입니다. 영상 자막과 임베딩 처리가 끝난 뒤 다시 확인할 수 있습니다.
+      </div>
+    );
+  }
+
+  if (response.ragStatus === 'NO_RESULT' || evidences.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
+        관련 있을 수 있는 자막 구간이 아직 없습니다.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      {evidences.map((evidence, index) => (
+        <EvidenceItem evidence={evidence} index={index} key={evidence.id} />
+      ))}
+    </div>
+  );
+}
+
+function EvidenceItem({ evidence, index }: { evidence: EvidenceResponse; index: number }) {
+  return (
+    <article className="grid gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">관련 있을 수 있는 자막 구간 {index + 1}</h3>
+        <Badge variant="secondary">{formatSimilarityScore(evidence.similarityScore)}</Badge>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
+        {evidence.evidenceText}
+      </p>
+      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <span>
+          {formatTranscriptTime(evidence.startTime)} - {formatTranscriptTime(evidence.endTime)}
+        </span>
+        <span>저장 {formatDateTime(evidence.createdAt)}</span>
+      </div>
+    </article>
   );
 }
 
@@ -3065,6 +3315,30 @@ function parseTagsInput(value: string) {
     .filter(Boolean);
 }
 
+function canShowEvidenceAction(comment: CommentResponse) {
+  return comment.analysis?.commentType === 'FACT_CLAIM';
+}
+
+function getEvidenceActionLabel(comment: CommentResponse) {
+  const analysis = comment.analysis;
+
+  if (!analysis) return '근거 후보';
+
+  if (analysis.evidenceCount > 0) {
+    return `근거 후보 ${analysis.evidenceCount.toLocaleString()}개`;
+  }
+
+  if (analysis.ragStatus === 'NO_RESULT') {
+    return '관련 구간 없음';
+  }
+
+  if (analysis.ragStatus === 'FAILED') {
+    return '근거 후보 실패';
+  }
+
+  return '근거 후보 상태';
+}
+
 function getSessionRestoreMessage(error: unknown) {
   if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
     return null;
@@ -3098,6 +3372,23 @@ function formatDateTime(value: string) {
 
 function formatNullableNumber(value: number | null) {
   return value === null ? '수집 대기' : value.toLocaleString();
+}
+
+function formatSimilarityScore(value: number) {
+  if (!Number.isFinite(value)) return '유사도 -';
+  return `유사도 ${Math.round(value * 100)}%`;
+}
+
+function formatTranscriptTime(value: number) {
+  if (!Number.isFinite(value) || value < 0) return '0:00';
+
+  const totalSeconds = Math.floor(value);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const tenths = Math.floor((value - totalSeconds) * 10);
+  const secondText = seconds.toString().padStart(2, '0');
+
+  return tenths > 0 ? `${minutes}:${secondText}.${tenths}` : `${minutes}:${secondText}`;
 }
 
 function countComments(comments: CommentResponse[]) {
