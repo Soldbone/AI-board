@@ -1,9 +1,9 @@
 @import "../App.css";
 
 .app-shell {
-  --app-content-width: 900px;
+  --app-content-width: 1344px;
   --side-ad-gap: 16px;
-  --side-ad-max-width: 240px;
+  --side-ad-max-width: 360px;
   padding: 0 20px 40px;
 }
 
@@ -16,9 +16,10 @@
 .below-banner-layout {
   display: grid;
   grid-template-columns:
+    minmax(0, var(--side-ad-max-width))
     minmax(0, 1fr)
-    minmax(0, var(--app-content-width))
-    minmax(0, 1fr);
+    minmax(0, var(--side-ad-max-width));
+  column-gap: var(--side-ad-gap);
   align-items: start;
   width: 100%;
   margin: 0 auto;
@@ -32,7 +33,7 @@
 .side-ad-stack {
   display: grid;
   gap: 12px;
-  width: min(var(--side-ad-max-width), calc(100% - var(--side-ad-gap)));
+  width: min(var(--side-ad-max-width), 100%);
 }
 
 .side-ad-stack img {
@@ -47,13 +48,12 @@
 
 .side-ad-stack-left {
   grid-column: 1;
-  justify-self: end;
-  margin-right: var(--side-ad-gap);
+  justify-self: start;
 }
 
 .side-ad-stack-right {
   grid-column: 3;
-  margin-left: var(--side-ad-gap);
+  justify-self: end;
 }
 
 .app-workspace {
@@ -72,7 +72,7 @@
   position: relative;
   display: block;
   width: calc(100vw - 8px);
-  height: clamp(317px, 26vw, 403px);
+  height: auto;
   margin: 0 calc(50% - 50vw + 4px) 16px;
   overflow: hidden;
   border: 1px solid rgba(208, 224, 225, 0.78);
@@ -85,9 +85,7 @@
   position: relative;
   display: block;
   width: 100%;
-  height: calc(100% + 52px);
-  object-fit: fill;
-  transform: translateY(-14px);
+  height: auto;
 }
 
 .site-header {
@@ -369,7 +367,7 @@
 
   .top-ad-banner {
     width: calc(100vw - 8px);
-    height: 218px;
+    height: auto;
     margin-top: 0;
     margin-right: calc(50% - 50vw + 4px);
     margin-bottom: 12px;
@@ -377,8 +375,8 @@
   }
 
   .top-ad-banner img {
-    height: calc(100% + 34px);
-    transform: translateY(-9px);
+    height: auto;
+    transform: none;
   }
 
   .below-banner-layout {

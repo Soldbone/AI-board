@@ -12,6 +12,7 @@ function Layout({ auth, children }) {
         <aside className="side-ad-stack side-ad-stack-left" aria-label="left side advertisements">
           <img src="/ads/miku-left-top.jpg" alt="Hatsune Miku left side advertisement" />
           <img src="/ads/miku-left-bottom.jpg" alt="Hatsune Miku widget advertisement" />
+          <img src="/ads/miku-left-bottom-extra.jpg" alt="Hatsune Miku fashion advertisement" />
         </aside>
 
         <div className="content-column">

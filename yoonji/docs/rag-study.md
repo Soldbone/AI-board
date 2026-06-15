@@ -1755,3 +1755,19 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 - reranker 또는 hybrid search를 추가해 후기 근거 품질을 높인다.
 - 구매 요약 응답을 `summary`, `pros`, `cons`, `recommendations`, `evidence_note` 같은 JSON으로 구조화한다.
 - 생성 API까지 OpenAI 호출 없이 반복 검증하려면 dev 전용 deterministic embedding/query mock client를 별도 provider로 분리할 수 있다.
+
+## Phase 3 유사 후기 추천 랭킹 보정
+
+`GET /api/v1/posts/{post_id}/similar-posts`는 `VectorStore.similarity_search` 결과를 그대로 점수순으로만 사용하지 않는다.
+
+피규어 후기 추천에서는 사용자가 기대하는 기준이 “문장이 비슷한 후기”보다 “같은 피규어 또는 같은 계열 피규어 후기”에 더 가깝다. 그래서 `backend/app/ai/rag/retriever.py`의 `retrieve_similar_review_posts`는 검색 쿼리 텍스트를 만들 때 피규어명을 먼저 배치하고, 검색 결과를 받은 뒤 다음 순서로 재랭킹한다.
+
+1. 피규어명이 정확히 같은 후기
+2. 피규어명이 부분적으로 겹치는 후기
+3. 제조사가 같은 후기
+4. 태그 또는 가격대가 비슷한 후기
+5. 벡터 유사도만 높은 후기
+
+이렇게 한 이유는 embedding 기반 vector similarity가 본문 분위기, 표현, 감정, 태그 같은 신호를 함께 반영하기 때문이다. 단순 벡터 점수만 쓰면 “마감이 좋고 가격이 비싸다”처럼 문장이 비슷한 다른 피규어 후기가 같은 피규어 후기보다 먼저 나올 수 있다.
+
+따라서 Phase 3의 유사 후기 추천에서는 `retrieval_score`를 원래 벡터 검색 점수로 남겨두고, `rerank_score`, `match_priority`, `matched_signals`를 metadata에 추가한다. API 응답의 추천 순서는 `match_priority`를 가장 먼저 보고, 그 다음 보정 점수와 원래 벡터 점수를 본다.

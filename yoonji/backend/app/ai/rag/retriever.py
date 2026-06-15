@@ -44,7 +44,12 @@ def retrieve_similar_review_posts(
     if document is None or post.board.code != BoardCode.REVIEW:
         return []
 
-    query_vector = _embed_query(document.page_content)
+    query_vector = _embed_query(_build_similar_review_query_text(document))
+    target_metadata = document.metadata
+    target_figure_name = _as_text(target_metadata.get("figure_name"))
+    target_manufacturer = _as_text(target_metadata.get("manufacturer"))
+    target_tags = _normalize_tags(target_metadata.get("tags", []))
+    target_price_range = _price_range_from_metadata(target_metadata.get("price_range"))
 
     try:
         search_results = get_vector_store().similarity_search(
@@ -52,7 +57,7 @@ def retrieve_similar_review_posts(
             query_vector=query_vector,
             board_code=BoardCode.REVIEW,
             source_types=[ContentSourceType.POST],
-            limit=max(limit * 8, limit),
+            limit=max(limit * 12, 30),
             exclude_post_id=post.id,
         )
     except VectorStoreError as exc:
@@ -75,20 +80,184 @@ def retrieve_similar_review_posts(
         if score <= 0:
             continue
 
+        ranked = _rank_similar_review_chunk(
+            chunk_metadata=chunk.metadata_json or {},
+            target_figure_name=target_figure_name,
+            target_manufacturer=target_manufacturer,
+            target_tags=target_tags,
+            target_price_range=target_price_range,
+            base_score=score,
+        )
+
         current = candidates_by_post_id.get(chunk.post_id)
-        if current is None or score > current.score:
-            candidates_by_post_id[chunk.post_id] = SimilarPostCandidate(
-                post_id=chunk.post_id,
-                score=score,
-                chunk_id=chunk.id,
-                metadata=chunk.metadata_json or {},
-            )
+        candidate = SimilarPostCandidate(
+            post_id=chunk.post_id,
+            score=ranked.score,
+            chunk_id=chunk.id,
+            metadata=ranked.metadata,
+        )
+
+        if current is None or _similar_review_candidate_sort_key(
+            candidate
+        ) > _similar_review_candidate_sort_key(current):
+            candidates_by_post_id[chunk.post_id] = candidate
 
     return sorted(
         candidates_by_post_id.values(),
-        key=lambda candidate: candidate.score,
+        key=_similar_review_candidate_sort_key,
         reverse=True,
     )[:limit]
+
+
+def _build_similar_review_query_text(document: Any) -> str:
+    figure_name = _as_text(document.metadata.get("figure_name"))
+    manufacturer = _as_text(document.metadata.get("manufacturer"))
+    query_parts: list[str] = []
+
+    if figure_name:
+        # Put product identity first so the embedding query leans toward the
+        # reviewed figure before broader writing style or sentiment.
+        query_parts.extend(
+            [
+                f"Figure name: {figure_name}",
+                f"Target figure name: {figure_name}",
+                f"Reviewed figure: {figure_name}",
+            ]
+        )
+
+    if manufacturer:
+        query_parts.append(f"Manufacturer: {manufacturer}")
+
+    query_parts.append(document.page_content)
+    return "\n\n".join(query_parts)
+
+
+@dataclass
+class _RankedSimilarReviewChunk:
+    score: float
+    priority: int
+    metadata: dict[str, Any]
+
+
+def _rank_similar_review_chunk(
+    *,
+    chunk_metadata: dict[str, Any],
+    target_figure_name: str | None,
+    target_manufacturer: str | None,
+    target_tags: set[str],
+    target_price_range: PriceRange | None,
+    base_score: float,
+) -> _RankedSimilarReviewChunk:
+    candidate_figure_name = _as_text(chunk_metadata.get("figure_name"))
+    candidate_manufacturer = _as_text(chunk_metadata.get("manufacturer"))
+    candidate_tags = _normalize_tags(chunk_metadata.get("tags", []))
+    candidate_price_range = _price_range_from_metadata(chunk_metadata.get("price_range"))
+    shared_tags = sorted(target_tags & candidate_tags)
+
+    matched_signals: list[str] = []
+    match_kind = "related_review"
+    priority = 1
+    rerank_score = base_score
+
+    if _same_text(target_figure_name, candidate_figure_name):
+        rerank_score += 0.7
+        priority = 5
+        match_kind = "same_figure_name"
+        matched_signals.append("same figure name")
+    elif _has_meaningful_text_overlap(target_figure_name, candidate_figure_name):
+        rerank_score += 0.35
+        priority = 4
+        match_kind = "related_figure_name"
+        matched_signals.append("related figure name")
+
+    if _same_text(target_manufacturer, candidate_manufacturer):
+        rerank_score += 0.18
+        if priority < 3:
+            priority = 3
+            match_kind = "same_manufacturer"
+        matched_signals.append("same manufacturer")
+
+    if shared_tags:
+        rerank_score += min(len(shared_tags), 3) * 0.06
+        if priority < 2:
+            priority = 2
+            match_kind = "shared_tags"
+        matched_signals.append("shared tags")
+
+    if _same_price_range(target_price_range, candidate_price_range):
+        rerank_score += 0.08
+        if priority < 2:
+            priority = 2
+            match_kind = "similar_price_range"
+        matched_signals.append("similar price range")
+
+    bounded_score = round(min(rerank_score, 1.0), 4)
+
+    return _RankedSimilarReviewChunk(
+        score=bounded_score,
+        priority=priority,
+        metadata={
+            **chunk_metadata,
+            "match_kind": match_kind,
+            "match_priority": priority,
+            "matched_signals": matched_signals,
+            "retrieval_score": round(base_score, 4),
+            "rerank_score": bounded_score,
+        },
+    )
+
+
+def _similar_review_candidate_sort_key(
+    candidate: SimilarPostCandidate,
+) -> tuple[int, float, float]:
+    return (
+        _safe_int(candidate.metadata.get("match_priority")),
+        candidate.score,
+        _safe_float(candidate.metadata.get("retrieval_score")),
+    )
+
+
+def _same_text(left: str | None, right: str | None) -> bool:
+    if left is None or right is None:
+        return False
+
+    return _normalize_match_text(left) == _normalize_match_text(right)
+
+
+def _has_meaningful_text_overlap(left: str | None, right: str | None) -> bool:
+    if left is None or right is None:
+        return False
+
+    normalized_left = _normalize_match_text(left)
+    normalized_right = _normalize_match_text(right)
+
+    if len(normalized_left) >= 3 and len(normalized_right) >= 3:
+        if normalized_left in normalized_right or normalized_right in normalized_left:
+            return True
+
+    left_tokens = _meaningful_tokens(normalized_left)
+    right_tokens = _meaningful_tokens(normalized_right)
+
+    return len(left_tokens & right_tokens) >= 2
+
+
+def _normalize_match_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().casefold())
+
+
+def _meaningful_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.split(r"[\s_/(),.\-\[\]]+", value)
+        if len(token) >= 2
+    }
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def retrieve_question_reference_chunks(
