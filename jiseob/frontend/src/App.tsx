@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   Eye,
@@ -13,7 +13,18 @@ import {
   Send,
   Trash2,
   UserPlus,
+  type LucideIcon,
 } from 'lucide-react';
+import { ApiRequestError } from '@/api/client';
+import { listPosts, listTags } from '@/api/posts';
+import type {
+  PaginatedResponse,
+  PaginationMeta,
+  PostListItemResponse,
+  TagResponse,
+  VideoProcessingStatus,
+  VideoSummaryResponse,
+} from '@/api/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,52 +43,21 @@ type Route =
   | { name: 'not-found' };
 
 type Navigate = (path: string) => void;
+type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
 
-const tagFilters = ['전체', '뉴스', '경제', '과학', '정책'];
+type PostsQueryState = {
+  page: number;
+  limit: number;
+  q: string;
+  tag: string;
+};
 
-const posts = [
-  {
-    id: '2024-stats',
-    title: '영상 속 2024년 통계 해석에 대해 토론해봅시다',
-    preview:
-      '영상에서 언급된 수치가 어떤 맥락에서 나온 것인지 댓글로 구간과 해석을 함께 확인합니다.',
-    author: '토론러',
-    tags: ['뉴스', '경제'],
-    comments: 18,
-    views: 124,
-    likes: 9,
-    createdAt: '방금 전',
-    videoStatus: '영상 준비됨',
-    statusTone: 'success' as const,
-  },
-  {
-    id: 'transcript-policy',
-    title: '자막이 없는 영상도 게시글 작성은 성공해야 하나요?',
-    preview: '영상 처리는 비동기 상태로 남기고 토론 생성 자체는 실패시키지 않는 정책을 확인합니다.',
-    author: 'arena-user',
-    tags: ['제품', '정책'],
-    comments: 5,
-    views: 57,
-    likes: 3,
-    createdAt: '12분 전',
-    videoStatus: '자막 처리 중',
-    statusTone: 'warning' as const,
-  },
-  {
-    id: 'science-claim',
-    title: '과학 영상의 실험 조건 설명이 댓글에서 누락되고 있습니다',
-    preview:
-      '실험 결과만 인용하기보다 조건과 한계를 함께 읽을 수 있도록 근거 후보 흐름을 정리합니다.',
-    author: 'researcher',
-    tags: ['과학'],
-    comments: 11,
-    views: 88,
-    likes: 6,
-    createdAt: '1시간 전',
-    videoStatus: '임베딩 대기 중',
-    statusTone: 'secondary' as const,
-  },
-];
+type AsyncState<TData> =
+  | { status: 'idle' | 'loading'; data: TData | null; error: null }
+  | { status: 'success'; data: TData; error: null }
+  | { status: 'error'; data: TData | null; error: string };
+
+const POSTS_LIMIT = 20;
 
 function parseRoute(pathname: string): Route {
   if (pathname === '/') return { name: 'posts' };
@@ -92,42 +72,59 @@ function parseRoute(pathname: string): Route {
   return { name: 'not-found' };
 }
 
+function getCurrentPath() {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function getSearchFromPath(path: string) {
+  const queryStart = path.indexOf('?');
+  return queryStart >= 0 ? path.slice(queryStart) : '';
+}
+
+function getPathnameFromPath(path: string) {
+  return path.split('?')[0] || '/';
+}
+
 function useRoute() {
-  const [path, setPath] = useState(() => window.location.pathname);
+  const [path, setPath] = useState(getCurrentPath);
 
   useEffect(() => {
-    const handlePopState = () => setPath(window.location.pathname);
+    const handlePopState = () => setPath(getCurrentPath());
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const navigate = (nextPath: string) => {
-    if (window.location.pathname === nextPath) return;
+    if (getCurrentPath() === nextPath) return;
     window.history.pushState(null, '', nextPath);
-    setPath(nextPath);
+    setPath(getCurrentPath());
     window.scrollTo({ top: 0 });
   };
 
-  return { route: parseRoute(path), navigate };
+  return {
+    locationSearch: getSearchFromPath(path),
+    route: parseRoute(getPathnameFromPath(path)),
+    navigate,
+  };
 }
 
 export default function App() {
-  const { route, navigate } = useRoute();
+  const { route, navigate, locationSearch } = useRoute();
 
   return (
     <div className="min-h-svh bg-background text-foreground">
       <TopNav navigate={navigate} route={route} />
       <main className="mx-auto grid w-[min(1240px,calc(100%-28px))] grid-cols-1 gap-6 py-6 lg:w-[min(1240px,calc(100%-48px))] lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8 lg:py-8">
-        {renderRoute(route, navigate)}
+        {renderRoute(route, navigate, locationSearch)}
       </main>
     </div>
   );
 }
 
-function renderRoute(route: Route, navigate: Navigate) {
+function renderRoute(route: Route, navigate: Navigate, locationSearch: string) {
   switch (route.name) {
     case 'posts':
-      return <PostsIndex navigate={navigate} />;
+      return <PostsIndex locationSearch={locationSearch} navigate={navigate} />;
     case 'post-detail':
       return <PostDetail navigate={navigate} postId={route.postId} />;
     case 'login':
@@ -150,8 +147,8 @@ function TopNav({ navigate, route }: { navigate: Navigate; route: Route }) {
     <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto flex min-h-16 w-full max-w-[1296px] flex-wrap items-center gap-3 px-4 py-3 md:flex-nowrap md:px-7 md:py-0">
         <button
-          className="flex min-w-fit items-center gap-2 text-left font-semibold"
-          onClick={() => navigate('/')}
+          className="flex min-w-fit cursor-pointer items-center gap-2 text-left font-semibold"
+          onClick={() => navigate('/?page=1&limit=20')}
           type="button"
         >
           <span className="grid size-8 place-items-center rounded-md bg-foreground text-sm text-background">
@@ -189,7 +186,103 @@ function TopNav({ navigate, route }: { navigate: Navigate; route: Route }) {
   );
 }
 
-function PostsIndex({ navigate }: { navigate: Navigate }) {
+function PostsIndex({ locationSearch, navigate }: { locationSearch: string; navigate: Navigate }) {
+  const query = useMemo(() => parsePostsQuery(locationSearch), [locationSearch]);
+  const [searchValue, setSearchValue] = useState(query.q);
+  const [postsState, setPostsState] = useState<AsyncState<PaginatedResponse<PostListItemResponse>>>(
+    {
+      status: 'idle',
+      data: null,
+      error: null,
+    },
+  );
+  const [tagsState, setTagsState] = useState<AsyncState<TagResponse[]>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [postsReloadKey, setPostsReloadKey] = useState(0);
+  const [tagsReloadKey, setTagsReloadKey] = useState(0);
+
+  useEffect(() => {
+    setSearchValue(query.q);
+  }, [query.q]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    setPostsState((current) => ({ status: 'loading', data: current.data, error: null }));
+
+    listPosts({
+      page: query.page,
+      limit: query.limit,
+      q: query.q || undefined,
+      tag: query.tag || undefined,
+    })
+      .then((data) => {
+        if (!ignore) {
+          setPostsState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setPostsState((current) => ({
+            status: 'error',
+            data: current.data,
+            error: formatApiError(error),
+          }));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [postsReloadKey, query.limit, query.page, query.q, query.tag]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    setTagsState((current) => ({ status: 'loading', data: current.data, error: null }));
+
+    listTags()
+      .then((data) => {
+        if (!ignore) {
+          setTagsState({ status: 'success', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setTagsState((current) => ({
+            status: 'error',
+            data: current.data,
+            error: formatApiError(error),
+          }));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [tagsReloadKey]);
+
+  const posts = postsState.data?.items ?? [];
+  const meta = postsState.data?.meta ?? createEmptyMeta(query);
+  const hasActiveFilters = query.q.length > 0 || query.tag.length > 0;
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    navigate(buildPostsPath(query, { page: 1, q: searchValue.trim() }));
+  };
+
+  const handleSelectTag = (tag: string) => {
+    navigate(buildPostsPath(query, { page: 1, tag }));
+  };
+
+  const handleClearFilters = () => {
+    setSearchValue('');
+    navigate(buildPostsPath(query, { page: 1, q: '', tag: '' }));
+  };
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Post list">
@@ -197,86 +290,304 @@ function PostsIndex({ navigate }: { navigate: Navigate }) {
           eyebrow="Discussion board"
           title="게시글 목록"
           description="최신 토론, 태그, 영상 처리 상태를 먼저 확인합니다."
-          badge={<Badge variant="info">Harness 1</Badge>}
+          badge={<Badge variant="info">Harness 3</Badge>}
         />
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative min-w-0 flex-1">
+        <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleSearch}>
+          <label className="relative min-w-0 flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden="true"
             />
-            <Input className="pl-9" placeholder="검색어 placeholder" readOnly />
-          </div>
-          <Button variant="outline">검색</Button>
-        </div>
-
-        <div className="flex flex-wrap gap-2" aria-label="Tag filters">
-          {tagFilters.map((tag, index) => (
-            <Button key={tag} variant={index === 0 ? 'default' : 'outline'} size="sm">
-              {tag}
+            <span className="sr-only">게시글 검색어</span>
+            <Input
+              className="pl-9"
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="제목이나 본문에서 검색"
+              value={searchValue}
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button className="shrink-0" type="submit" variant="outline">
+              검색
             </Button>
-          ))}
-        </div>
+            {hasActiveFilters && (
+              <Button className="shrink-0" onClick={handleClearFilters} variant="ghost">
+                초기화
+              </Button>
+            )}
+          </div>
+        </form>
 
-        <div className="grid gap-3">
-          {posts.map((post) => (
-            <article
-              className="grid gap-4 rounded-lg border border-border bg-card p-4 transition hover:border-neutral-300 hover:bg-neutral-50 sm:p-5"
-              key={post.id}
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <button
-                  className="min-w-0 text-left"
-                  onClick={() => navigate(`/posts/${post.id}`)}
-                  type="button"
-                >
-                  <h2 className="text-base font-semibold leading-snug sm:text-[17px]">
-                    {post.title}
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
-                    {post.preview}
-                  </p>
-                </button>
-                <Badge className="w-fit shrink-0" variant={post.statusTone}>
-                  {post.videoStatus}
-                </Badge>
-              </div>
+        <TagFilters
+          activeTag={query.tag}
+          onRetry={() => setTagsReloadKey((key) => key + 1)}
+          onSelectTag={handleSelectTag}
+          state={tagsState}
+        />
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-                <span>{post.author}</span>
-                <span>{post.createdAt}</span>
-                <Metric icon={MessageCircle} label={`댓글 ${post.comments}`} />
-                <Metric icon={Eye} label={`조회 ${post.views}`} />
-                <Metric icon={Heart} label={`좋아요 ${post.likes}`} />
-                <span>{post.tags.map((tag) => `#${tag}`).join(' ')}</span>
-              </div>
-            </article>
-          ))}
-        </div>
+        <PostsList
+          navigate={navigate}
+          onRetry={() => setPostsReloadKey((key) => key + 1)}
+          posts={posts}
+          query={query}
+          state={postsState}
+        />
+
+        {postsState.status === 'success' && posts.length > 0 && (
+          <PaginationControls
+            meta={meta}
+            onNext={() => navigate(buildPostsPath(query, { page: query.page + 1 }))}
+            onPrevious={() =>
+              navigate(buildPostsPath(query, { page: Math.max(1, query.page - 1) }))
+            }
+          />
+        )}
       </section>
 
-      <BoardSidePanel />
+      <BoardSidePanel
+        hasActiveFilters={hasActiveFilters}
+        meta={meta}
+        query={query}
+        state={postsState}
+        tagCount={tagsState.data?.length ?? 0}
+      />
     </>
   );
 }
 
-function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }) {
-  const post = useMemo(() => posts.find((item) => item.id === postId) ?? posts[0], [postId]);
+function TagFilters({
+  activeTag,
+  onRetry,
+  onSelectTag,
+  state,
+}: {
+  activeTag: string;
+  onRetry: () => void;
+  onSelectTag: (tag: string) => void;
+  state: AsyncState<TagResponse[]>;
+}) {
+  const tags = state.data ?? [];
 
+  return (
+    <section className="grid gap-2" aria-label="Tag filters">
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => onSelectTag('')}
+          size="sm"
+          variant={activeTag === '' ? 'default' : 'outline'}
+        >
+          전체
+        </Button>
+        {state.status === 'loading' && tags.length === 0
+          ? Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton className="h-8 w-16 rounded-md" key={index} />
+            ))
+          : tags.map((tag) => (
+              <Button
+                key={tag.id}
+                onClick={() => onSelectTag(tag.name)}
+                size="sm"
+                variant={activeTag === tag.name ? 'default' : 'outline'}
+              >
+                {tag.name}
+              </Button>
+            ))}
+      </div>
+      {state.status === 'error' && (
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>태그를 불러오지 못했습니다. {state.error}</span>
+          <Button className="w-fit" onClick={onRetry} size="sm" variant="destructive">
+            <RefreshCw className="size-4" aria-hidden="true" />
+            재시도
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PostsList({
+  navigate,
+  onRetry,
+  posts,
+  query,
+  state,
+}: {
+  navigate: Navigate;
+  onRetry: () => void;
+  posts: PostListItemResponse[];
+  query: PostsQueryState;
+  state: AsyncState<PaginatedResponse<PostListItemResponse>>;
+}) {
+  if (state.status === 'loading' && posts.length === 0) {
+    return <PostsLoading />;
+  }
+
+  if (state.status === 'error') {
+    return <PostsError error={state.error} onRetry={onRetry} />;
+  }
+
+  if (state.status === 'success' && posts.length === 0) {
+    return <PostsEmpty query={query} />;
+  }
+
+  return (
+    <div className="grid gap-3" aria-busy={state.status === 'loading'}>
+      {state.status === 'loading' && (
+        <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+          목록을 새로 불러오는 중입니다.
+        </div>
+      )}
+      {posts.map((post) => (
+        <PostListItem key={post.id} navigate={navigate} post={post} />
+      ))}
+    </div>
+  );
+}
+
+function PostsLoading() {
+  return (
+    <div className="grid gap-3" aria-label="게시글 목록 로딩 중">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:p-5" key={index}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="grid flex-1 gap-3">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+            <Skeleton className="h-6 w-24 rounded-full" />
+          </div>
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PostsError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <section
+      className="grid gap-4 rounded-lg border border-destructive/20 bg-destructive/5 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5"
+      aria-label="게시글 목록 오류"
+    >
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-destructive">게시글을 불러오지 못했습니다</h2>
+        <p className="mt-2 text-sm leading-6 text-destructive/80">{error}</p>
+      </div>
+      <Button className="w-fit" onClick={onRetry} variant="destructive">
+        <RefreshCw className="size-4" aria-hidden="true" />
+        재시도
+      </Button>
+    </section>
+  );
+}
+
+function PostsEmpty({ query }: { query: PostsQueryState }) {
+  const hasFilter = query.q.length > 0 || query.tag.length > 0;
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-muted p-5 text-sm leading-6 text-muted-foreground"
+      aria-label="게시글 목록 비어 있음"
+    >
+      <h2 className="text-base font-semibold text-foreground">아직 항목이 없음</h2>
+      <p className="mt-2">
+        {hasFilter
+          ? '현재 검색 조건에 맞는 게시글이 없습니다.'
+          : '아직 등록된 토론 게시글이 없습니다.'}
+      </p>
+    </section>
+  );
+}
+
+function PostListItem({ navigate, post }: { navigate: Navigate; post: PostListItemResponse }) {
+  const videoSummary = getVideoProcessingSummary(post.video);
+
+  return (
+    <article>
+      <button
+        className="grid w-full cursor-pointer gap-4 rounded-lg border border-border bg-card p-4 text-left transition hover:border-neutral-300 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5"
+        onClick={() => navigate(`/posts/${post.id}`)}
+        type="button"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold leading-snug sm:text-[17px]">{post.title}</h2>
+            <p className="mt-2 line-clamp-2 max-w-3xl text-sm leading-6 text-neutral-600">
+              {post.contentPreview || '본문 미리보기가 없습니다.'}
+            </p>
+          </div>
+          <Badge className="w-fit shrink-0" variant={videoSummary.variant}>
+            {videoSummary.label}
+          </Badge>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+          <span className="font-medium text-neutral-700">{post.author.nickname}</span>
+          <span>{formatDateTime(post.createdAt)}</span>
+          <Metric icon={MessageCircle} label={`댓글 ${post.commentCount}`} />
+          <Metric icon={Eye} label={`조회 ${post.viewCount}`} />
+          <Metric icon={Heart} label={`좋아요 ${post.likeCount}`} />
+          {post.tags.length > 0 && <span>{post.tags.map((tag) => `#${tag.name}`).join(' ')}</span>}
+        </div>
+      </button>
+    </article>
+  );
+}
+
+function PaginationControls({
+  meta,
+  onNext,
+  onPrevious,
+}: {
+  meta: PaginationMeta;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const canGoPrevious = meta.page > 1;
+  const canGoNext = meta.page < meta.totalPages;
+
+  return (
+    <nav
+      className="flex flex-col gap-3 border-t border-border pt-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
+      aria-label="Pagination"
+    >
+      <span>
+        총 {meta.total.toLocaleString()}개 · {meta.page}/{Math.max(meta.totalPages, 1)} 페이지
+      </span>
+      <div className="flex gap-2">
+        <Button disabled={!canGoPrevious} onClick={onPrevious} variant="outline">
+          이전
+        </Button>
+        <Button disabled={!canGoNext} onClick={onNext} variant="outline">
+          다음
+        </Button>
+      </div>
+    </nav>
+  );
+}
+
+function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }) {
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Post detail">
-        <Button className="w-fit" onClick={() => navigate('/')} variant="ghost" size="sm">
+        <Button
+          className="w-fit"
+          onClick={() => navigate('/?page=1&limit=20')}
+          variant="ghost"
+          size="sm"
+        >
           <ArrowLeft className="size-4" aria-hidden="true" />
           목록
         </Button>
 
         <PageHeading
           eyebrow="Post detail"
-          title={post.title}
-          description={`${post.author} · ${post.createdAt} · ${post.tags.map((tag) => `#${tag}`).join(' ')}`}
-          badge={<Badge variant={post.statusTone}>{post.videoStatus}</Badge>}
+          title="게시글 상세"
+          description={`선택한 게시글 ID: ${postId}. 상세 읽기 API 연결은 Harness 4에서 처리합니다.`}
+          badge={<Badge variant="muted">placeholder</Badge>}
         />
 
         <section
@@ -290,7 +601,7 @@ function PostDetail({ navigate, postId }: { navigate: Navigate; postId: string }
                 실제 영상 연결은 Harness 4에서 처리합니다.
               </p>
             </div>
-            <Badge variant="success">metadata 준비됨</Badge>
+            <Badge variant="muted">읽기 연결 대기</Badge>
           </div>
           <div className="grid aspect-video place-items-center rounded-lg border border-border bg-[linear-gradient(135deg,rgba(0,0,0,0.78),rgba(30,41,59,0.86))] text-white">
             <span className="grid size-16 place-items-center rounded-full border border-white/30 bg-white/10">
@@ -409,7 +720,7 @@ function PostEditorPlaceholder({ navigate }: { navigate: Navigate }) {
               <FileText className="size-4" aria-hidden="true" />
               작성 연결 대기
             </Button>
-            <Button onClick={() => navigate('/')} variant="outline">
+            <Button onClick={() => navigate('/?page=1&limit=20')} variant="outline">
               취소
             </Button>
           </div>
@@ -481,28 +792,50 @@ function AdminCommentsPlaceholder() {
   );
 }
 
-function BoardSidePanel() {
+function BoardSidePanel({
+  hasActiveFilters,
+  meta,
+  query,
+  state,
+  tagCount,
+}: {
+  hasActiveFilters: boolean;
+  meta: PaginationMeta;
+  query: PostsQueryState;
+  state: AsyncState<PaginatedResponse<PostListItemResponse>>;
+  tagCount: number;
+}) {
+  const statusLabel = getListStatusLabel(state, meta);
+
   return (
     <aside className="flex min-w-0 flex-col gap-5" aria-label="Board side panel">
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">영상 처리 상태</h2>
-          <Badge variant="warning">진행 중</Badge>
+          <h2 className="text-base font-semibold">목록 상태</h2>
+          <Badge variant={statusLabel.variant}>{statusLabel.label}</Badge>
         </div>
-        <StatusLine label="Metadata" badge="준비됨" tone="success" />
-        <StatusLine label="Transcript" badge="처리 중" tone="warning" />
-        <StatusLine label="Embedding" badge="대기 중" tone="secondary" />
+        <StatusLine label="총 게시글" badge={meta.total.toLocaleString()} tone="secondary" />
+        <StatusLine
+          label="현재 페이지"
+          badge={`${meta.page}/${Math.max(meta.totalPages, 1)}`}
+          tone="secondary"
+        />
+        <StatusLine label="태그 필터" badge={`${tagCount.toLocaleString()}개`} tone="secondary" />
       </section>
 
       <section className="grid gap-3 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">목록 상태</h2>
-          <Badge variant="muted">static</Badge>
+          <h2 className="text-base font-semibold">검색 조건</h2>
+          <Badge variant={hasActiveFilters ? 'info' : 'muted'}>
+            {hasActiveFilters ? '적용됨' : '전체'}
+          </Badge>
         </div>
-        <Skeleton className="h-3 w-3/4" />
-        <Skeleton className="h-3 w-1/2" />
         <p className="text-sm leading-6 text-muted-foreground">
-          loading, empty, error state는 Harness 3에서 실제 API 상태와 연결합니다.
+          검색어: {query.q || '없음'}
+          <br />
+          태그: {query.tag || '전체'}
+          <br />
+          페이지당 {query.limit}개
         </p>
       </section>
     </aside>
@@ -512,7 +845,10 @@ function BoardSidePanel() {
 function DetailSidePanel() {
   return (
     <aside className="flex min-w-0 flex-col gap-5" aria-label="Detail side panel">
-      <BoardSidePanel />
+      <PlaceholderSide
+        title="상세 연결 예정"
+        items={['GET /posts/:postId', 'GET /posts/:postId/comments', 'GET /videos/:videoId']}
+      />
 
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
@@ -661,7 +997,7 @@ function PageHeading({
   );
 }
 
-function Metric({ icon: Icon, label }: { icon: typeof MessageCircle; label: string }) {
+function Metric({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <Icon className="size-3.5" aria-hidden="true" />
@@ -680,7 +1016,7 @@ function NotFound({ navigate }: { navigate: Navigate }) {
           description="요청한 화면을 찾을 수 없습니다."
           badge={<Badge variant="destructive">404</Badge>}
         />
-        <Button className="w-fit" onClick={() => navigate('/')}>
+        <Button className="w-fit" onClick={() => navigate('/?page=1&limit=20')}>
           게시글 목록으로 이동
         </Button>
       </section>
@@ -690,4 +1026,138 @@ function NotFound({ navigate }: { navigate: Navigate }) {
       />
     </>
   );
+}
+
+function parsePostsQuery(search: string): PostsQueryState {
+  const params = new URLSearchParams(search);
+
+  return {
+    page: parsePositiveInteger(params.get('page'), 1),
+    limit: POSTS_LIMIT,
+    q: (params.get('q') ?? '').trim(),
+    tag: (params.get('tag') ?? '').trim(),
+  };
+}
+
+function parsePositiveInteger(value: string | null, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function buildPostsPath(current: PostsQueryState, next: Partial<PostsQueryState>) {
+  const merged = {
+    ...current,
+    ...next,
+    limit: POSTS_LIMIT,
+  };
+  const params = new URLSearchParams();
+
+  params.set('page', String(Math.max(1, merged.page)));
+  params.set('limit', String(POSTS_LIMIT));
+
+  if (merged.q.trim()) {
+    params.set('q', merged.q.trim());
+  }
+
+  if (merged.tag.trim()) {
+    params.set('tag', merged.tag.trim());
+  }
+
+  return `/?${params.toString()}`;
+}
+
+function createEmptyMeta(query: PostsQueryState): PaginationMeta {
+  return {
+    page: query.page,
+    limit: query.limit,
+    total: 0,
+    totalPages: 0,
+  };
+}
+
+function formatApiError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return '요청을 처리하지 못했습니다.';
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const now = new Date();
+  const hasDifferentYear = date.getFullYear() !== now.getFullYear();
+
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: hasDifferentYear ? 'numeric' : undefined,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getVideoProcessingSummary(video: VideoSummaryResponse): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  const statuses = [video.metadataStatus, video.transcriptStatus, video.embeddingStatus];
+
+  if (statuses.includes('FAILED')) {
+    return { label: '영상 처리 실패', variant: 'destructive' };
+  }
+
+  if (statuses.every((status) => status === 'SUCCESS')) {
+    return { label: '영상 준비됨', variant: 'success' };
+  }
+
+  if (video.transcriptStatus === 'NOT_AVAILABLE') {
+    return { label: '자막 사용할 수 없음', variant: 'muted' };
+  }
+
+  if (video.isProcessing || statuses.includes('PROCESSING')) {
+    return { label: '영상 처리 중', variant: 'warning' };
+  }
+
+  const pendingLabel = getPendingVideoLabel(video);
+  return { label: pendingLabel, variant: 'secondary' };
+}
+
+function getPendingVideoLabel(video: VideoSummaryResponse) {
+  if (video.metadataStatus === 'PENDING') return 'metadata 대기 중';
+  if (video.transcriptStatus === 'PENDING') return '자막 대기 중';
+  if (video.embeddingStatus === 'PENDING') return '임베딩 대기 중';
+
+  return '영상 처리 대기 중';
+}
+
+function getListStatusLabel(
+  state: AsyncState<PaginatedResponse<PostListItemResponse>>,
+  meta: PaginationMeta,
+): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  if (state.status === 'loading') {
+    return { label: '불러오는 중', variant: 'secondary' };
+  }
+
+  if (state.status === 'error') {
+    return { label: '오류', variant: 'destructive' };
+  }
+
+  if (meta.total === 0) {
+    return { label: '비어 있음', variant: 'muted' };
+  }
+
+  return { label: '조회됨', variant: 'success' };
 }
