@@ -6,6 +6,7 @@ declare module 'supertest' {
   type SuperTestChain = Promise<SuperTestResponse> & {
     get(path: string): SuperTestChain;
     post(path: string): SuperTestChain;
+    delete(path: string): SuperTestChain;
     set(field: string, value: string): SuperTestChain;
     send(body: unknown): SuperTestChain;
     expect(status: number): SuperTestChain;

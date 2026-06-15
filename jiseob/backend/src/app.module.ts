@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AdminModule } from './admin/admin.module';
 import { AgentModule } from './agent/agent.module';
 import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
@@ -30,6 +31,7 @@ import { VideosModule } from './videos/videos.module';
     CommentsModule,
     McpModule,
     AgentModule,
+    AdminModule,
   ],
   controllers: [HealthController],
 })
