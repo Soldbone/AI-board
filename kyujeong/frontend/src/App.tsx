@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type PostListItem = {
   id: number
   title: string
+  contentPreview?: string
   createdAt: string
   author: {
     id: number
@@ -13,6 +14,7 @@ type PostListItem = {
   commentsCount?: number
   hasAiRecommendation?: boolean
   aiRecommendationStatus?: AiRecommendationStatus | null
+  aiThumbnailUrl?: string | null
 }
 
 type PostListResponse = {
@@ -95,6 +97,7 @@ type AiRecommendation = {
   estimatedCookingTime: number | null
   difficulty: string
   content: string
+  thumbnailUrl?: string | null
   status: AiRecommendationStatus
   grounding: AiRecommendationGrounding
   createdAt: string
@@ -116,6 +119,9 @@ type AiServiceStatus = {
   dailyLimit: number | null
   pgvectorAvailable: boolean
   pgvectorInstalled: boolean
+  imageGenerationConfigured: boolean
+  imageGenerationEnabled: boolean
+  imageModel: string
   pgvectorDecision: string
 }
 
@@ -227,6 +233,9 @@ type LoginResponse = {
 type BoardPost = {
   id: number
   title: string
+  contentPreview: string
+  category: '질문' | '공유' | '후기' | '10분요리'
+  aiThumbnailUrl: string | null
   tags: string[]
   authorId: number
   author: string
@@ -237,7 +246,7 @@ type BoardPost = {
 
 const categories = ['전체', '계란', '김치', '간단요리', '자취요리', '국물요리', '10분요리']
 
-const pageSize = 10
+const pageSize = 5
 
 const tagFilterGroups = [
   '전체',
@@ -688,11 +697,127 @@ function getTagGroup(tagName: string) {
   return '전체'
 }
 
+function getPostListCategory(title: string, tags: string[]) {
+  const normalizedTitle = title.trim()
+  const normalizedTags = tags.map((tag) => tag.trim())
+
+  if (normalizedTags.includes('10분요리')) {
+    return '10분요리'
+  }
+
+  if (
+    normalizedTitle.includes('?') ||
+    normalizedTitle.includes('있을까요') ||
+    normalizedTitle.includes('가능할까요') ||
+    normalizedTitle.includes('궁금') ||
+    normalizedTitle.includes('추천') ||
+    normalizedTitle.includes('부탁') ||
+    normalizedTitle.includes('싶어요')
+  ) {
+    return '질문'
+  }
+
+  if (
+    normalizedTitle.includes('후기') ||
+    normalizedTitle.includes('먹어봤') ||
+    normalizedTitle.includes('맛있')
+  ) {
+    return '후기'
+  }
+
+  return '공유'
+}
+
+function getPostListPreview(title: string, tags: string[], contentPreview?: string) {
+  const normalizedPreview = contentPreview?.trim()
+
+  if (normalizedPreview) {
+    return normalizedPreview
+  }
+
+  if (tags.length > 0) {
+    return `${tags.slice(0, 3).join(', ')} 재료로 만들 수 있는 한 끼 아이디어를 확인해보세요.`
+  }
+
+  return `${title}에 대한 냉장고 속 재료 고민을 함께 살펴보세요.`
+}
+
+function getPostCategoryClass(category: BoardPost['category']) {
+  switch (category) {
+    case '질문':
+      return 'question'
+    case '후기':
+      return 'review'
+    case '10분요리':
+      return 'quick'
+    default:
+      return 'share'
+  }
+}
+
+function getPostDetailText(post: Pick<PostDetailItem, 'title' | 'content' | 'tags'>) {
+  return [post.title, post.content, ...(post.tags ?? [])].join(' ')
+}
+
+function inferMealSituation(post: Pick<PostDetailItem, 'title' | 'content' | 'tags'>) {
+  const text = getPostDetailText(post)
+  const mealSituations = [
+    { label: '아침', patterns: ['아침', '조식'] },
+    { label: '점심', patterns: ['점심', '런치'] },
+    { label: '저녁', patterns: ['저녁', '저녁밥', '저녁 메뉴'] },
+    { label: '야식', patterns: ['야식', '밤참'] },
+    { label: '브런치', patterns: ['브런치'] },
+    { label: '도시락', patterns: ['도시락'] },
+    { label: '간식', patterns: ['간식'] },
+    { label: '안주', patterns: ['안주'] },
+    { label: '반찬', patterns: ['반찬'] },
+  ]
+
+  return (
+    mealSituations.find((situation) =>
+      situation.patterns.some((pattern) => text.includes(pattern)),
+    )?.label ?? '미정'
+  )
+}
+
+function inferCookingTime(post: Pick<PostDetailItem, 'title' | 'content' | 'tags'>) {
+  const text = getPostDetailText(post).replace(/\s+/g, ' ')
+  const hasFlexibleTimeExpression =
+    text.includes('시간은 상관없') ||
+    text.includes('시간 상관없') ||
+    text.includes('조리 시간은 상관없') ||
+    text.includes('오래 걸려도 괜찮')
+
+  if (hasFlexibleTimeExpression) {
+    return '상관없음'
+  }
+
+  const minuteMatch = text.match(/(\d{1,3})\s*분/)
+  const hasLimitExpression =
+    /(\d{1,3})\s*분\s*(안|안에|이내|내|이하)/.test(text) ||
+    /(안|안에|이내|내|이하)\s*(\d{1,3})\s*분/.test(text)
+
+  if (minuteMatch) {
+    const minute = Number(minuteMatch[1])
+
+    return Number.isFinite(minute)
+      ? `${minute}분${hasLimitExpression ? ' 이내' : ''}`
+      : '미정'
+  }
+
+  return '미정'
+}
+
 function mapPostListItem(post: PostListItem): BoardPost {
+  const tags = post.tags ?? []
+
   return {
     id: post.id,
     title: post.title,
-    tags: post.tags ?? [],
+    contentPreview: getPostListPreview(post.title, tags, post.contentPreview),
+    category: getPostListCategory(post.title, tags),
+    aiThumbnailUrl: post.aiThumbnailUrl ?? null,
+    tags,
     authorId: post.author.id,
     author: post.author.nickname,
     comments: post.commentsCount ?? 0,
@@ -701,12 +826,106 @@ function mapPostListItem(post: PostListItem): BoardPost {
   }
 }
 
+function PostThumbnail({
+  post,
+  className = '',
+}: {
+  post: BoardPost
+  className?: string
+}) {
+  return (
+    <span
+      className={`post-thumb ${className} ${
+        post.aiThumbnailUrl ? 'has-image' : `thumb-${post.id % 5}`
+      }`}
+      aria-hidden="true"
+    >
+      {post.aiThumbnailUrl ? <img src={post.aiThumbnailUrl} alt="" /> : null}
+    </span>
+  )
+}
+
+function AiRecommendationVisual({
+  recommendation,
+  className,
+}: {
+  recommendation: AiRecommendation | null | undefined
+  className: string
+}) {
+  return (
+    <div
+      className={`${className} ${recommendation?.thumbnailUrl ? 'has-image' : ''}`}
+      aria-hidden="true"
+    >
+      {recommendation?.thumbnailUrl ? (
+        <img src={recommendation.thumbnailUrl} alt="" />
+      ) : (
+        <span />
+      )}
+    </div>
+  )
+}
+
+type SidebarIconName = 'home' | 'board' | 'tag' | 'guide' | 'mypage'
+
+function SidebarIcon({ name }: { name: SidebarIconName }) {
+  const iconProps = {
+    'aria-hidden': true,
+    className: 'sidebar-icon',
+    fill: 'none',
+    viewBox: '0 0 24 24',
+  }
+
+  switch (name) {
+    case 'home':
+      return (
+        <svg {...iconProps}>
+          <path d="M4.5 11.2 12 5l7.5 6.2" />
+          <path d="M6.8 10.2v8.3h10.4v-8.3" />
+        </svg>
+      )
+    case 'board':
+      return (
+        <svg {...iconProps}>
+          <path d="M6.5 6.5h11v11h-11z" />
+          <path d="M9.2 10h5.6" />
+          <path d="M9.2 13.2h4.2" />
+        </svg>
+      )
+    case 'tag':
+      return (
+        <svg {...iconProps}>
+          <path d="M5.4 12.1 12.1 5.4h5.1v5.1l-6.7 6.7z" />
+          <path d="M14.9 8.1h.1" />
+        </svg>
+      )
+    case 'guide':
+      return (
+        <svg {...iconProps}>
+          <path d="M7.5 5.8h6.1a3.4 3.4 0 0 1 0 6.8h-1.1v2.1" />
+          <path d="M12.5 18.4h.1" />
+        </svg>
+      )
+    case 'mypage':
+      return (
+        <svg {...iconProps}>
+          <path d="M12 12.4a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4z" />
+          <path d="M5.7 19.2a6.7 6.7 0 0 1 12.6 0" />
+        </svg>
+      )
+  }
+}
+
 function App() {
   const initialRoute = useMemo(() => getAppRouteFromPath(), [])
   const isApplyingHistoryRef = useRef(false)
+  const homeHeroRef = useRef<HTMLElement | null>(null)
+  const boardSectionRef = useRef<HTMLElement | null>(null)
   const [currentView, setCurrentView] = useState<AppView>(
     initialRoute.appView === 'post' ? 'board' : initialRoute.appView,
   )
+  const [boardNavigationTarget, setBoardNavigationTarget] =
+    useState<'home' | 'board'>('board')
   const [accessToken, setAccessToken] = useState(getSavedAccessToken)
   const [currentUser, setCurrentUser] = useState<LoginUser | null>(getSavedUser)
   const [activeCategory, setActiveCategory] = useState('전체')
@@ -882,29 +1101,32 @@ function App() {
       .filter(Boolean)
   }
 
-  function syncPostAiRecommendationStatus(
-    postId: number,
-    status: AiRecommendationStatus | null,
-  ) {
-    const aiStatus = getAiRecommendationStatusLabel(status)
+	  function syncPostAiRecommendationStatus(
+	    postId: number,
+	    status: AiRecommendationStatus | null,
+	    thumbnailUrl?: string | null,
+	  ) {
+	    const aiStatus = getAiRecommendationStatusLabel(status)
 
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
-          ? {
-              ...post,
-              aiStatus,
-            }
+	          ? {
+	              ...post,
+	              aiStatus,
+	              aiThumbnailUrl: thumbnailUrl ?? post.aiThumbnailUrl,
+	            }
           : post,
       ),
     )
     setMyPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
-          ? {
-              ...post,
-              aiStatus,
-            }
+	          ? {
+	              ...post,
+	              aiStatus,
+	              aiThumbnailUrl: thumbnailUrl ?? post.aiThumbnailUrl,
+	            }
           : post,
       ),
     )
@@ -1053,6 +1275,8 @@ function App() {
       return
     }
 
+    setDirectAiConditionInput('')
+
     const controller = new AbortController()
 
     async function loadAiStatus() {
@@ -1099,6 +1323,7 @@ function App() {
 
     const keyword = searchKeyword.trim()
 
+    setBoardNavigationTarget('board')
     setSelectedPost(null)
     setActiveCategory('전체')
     setPage(1)
@@ -1112,12 +1337,14 @@ function App() {
   }
 
   function handleCategoryChange(category: string) {
+    setBoardNavigationTarget('board')
     setActiveCategory(category)
     setPage(1)
   }
 
   function openPostsByTag(tag: string) {
     setSearchKeyword('')
+    setBoardNavigationTarget('board')
     handleCategoryChange(tag)
     setSelectedPost(null)
     setCurrentView('board')
@@ -1138,6 +1365,7 @@ function App() {
     setComments([])
     setAiRecommendation(null)
     setAiRecommendationErrorMessage('')
+    setPostAiAdditionalRequest('')
     setCurrentView('board')
 
     if (options.updateHistory ?? true) {
@@ -1171,9 +1399,13 @@ function App() {
         )
       }
 
-      if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
-        setAiRecommendation(aiRecommendationData)
-        syncPostAiRecommendationStatus(postId, aiRecommendationData.status)
+	      if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
+	        setAiRecommendation(aiRecommendationData)
+	        syncPostAiRecommendationStatus(
+	          postId,
+	          aiRecommendationData.status,
+	          aiRecommendationData.thumbnailUrl,
+	        )
       }
     } catch (error) {
       setDetailErrorMessage(
@@ -1187,6 +1419,7 @@ function App() {
   }
 
   function goBackToList(options: { updateHistory?: boolean } = {}) {
+    setBoardNavigationTarget('board')
     setSelectedPost(null)
     setComments([])
     setDetailErrorMessage('')
@@ -1198,6 +1431,7 @@ function App() {
     setPostDeleteErrorMessage('')
     setAiRecommendation(null)
     setAiRecommendationErrorMessage('')
+    setPostAiAdditionalRequest('')
     setAiModalState('closed')
     setAiProgress(0)
     setCurrentView('board')
@@ -1205,6 +1439,160 @@ function App() {
     if (options.updateHistory ?? true) {
       updateBrowserHistory({ appView: 'board' }, 'replace')
     }
+  }
+
+  function goHomeFromBrand() {
+    setBoardNavigationTarget('home')
+    setSelectedPost(null)
+    setComments([])
+    setDetailErrorMessage('')
+    setCommentErrorMessage('')
+    setCommentSubmitMessage('')
+    setCommentContent('')
+    setEditingCommentId(null)
+    setEditingCommentContent('')
+    setPostDeleteErrorMessage('')
+    setAiRecommendation(null)
+    setAiRecommendationErrorMessage('')
+    setPostAiAdditionalRequest('')
+    setSearchKeyword('')
+    setActiveCategory('전체')
+    setPage(1)
+    setAiModalState('closed')
+    setAiProgress(0)
+    setCurrentView('board')
+    updateBrowserHistory({ appView: 'board' }, 'replace')
+    scrollToBoardArea('home')
+  }
+
+  function goBoardListFromSidebar() {
+    setBoardNavigationTarget('board')
+    setSelectedPost(null)
+    setComments([])
+    setDetailErrorMessage('')
+    setCommentErrorMessage('')
+    setCommentSubmitMessage('')
+    setCommentContent('')
+    setEditingCommentId(null)
+    setEditingCommentContent('')
+    setPostDeleteErrorMessage('')
+    setAiRecommendation(null)
+    setAiRecommendationErrorMessage('')
+    setPostAiAdditionalRequest('')
+    setSearchKeyword('')
+    setActiveCategory('전체')
+    setPage(1)
+    setAiModalState('closed')
+    setAiProgress(0)
+    setCurrentView('board')
+    updateBrowserHistory({ appView: 'board' }, 'replace')
+    scrollToBoardArea('board')
+  }
+
+  function scrollToBoardArea(target: 'home' | 'board') {
+    window.requestAnimationFrame(() => {
+      const targetElement =
+        target === 'home' ? homeHeroRef.current : boardSectionRef.current
+
+      targetElement?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    })
+  }
+
+  function openWorkspaceView(view: 'tags' | 'aiGuide' | 'mypage') {
+    setBoardNavigationTarget('board')
+    setSelectedPost(null)
+    setComments([])
+    setDetailErrorMessage('')
+    setCommentErrorMessage('')
+    setCommentSubmitMessage('')
+    setCommentContent('')
+    setEditingCommentId(null)
+    setEditingCommentContent('')
+    setPostDeleteErrorMessage('')
+    setAiRecommendation(null)
+    setAiRecommendationErrorMessage('')
+    setPostAiAdditionalRequest('')
+    setAiModalState('closed')
+    setAiProgress(0)
+    setCurrentView(view)
+  }
+
+  function renderBoardWorkspace(content: ReactNode) {
+    return (
+      <>
+        <section
+          ref={homeHeroRef}
+          className="home-hero"
+          aria-label="냉장고 한끼 홈"
+        >
+          <div className="home-hero-overlay" />
+          <div className="home-hero-copy">
+            <h1>
+              <span className="hero-title-emphasis">냉장고</span> 속 재료로
+              <br />
+              <span className="hero-title-emphasis">함께</span> 만드는 한 끼
+            </h1>
+            <p>남은 재료를 올리면, 게시판과 AI가 오늘의 메뉴를 함께 찾아줘요.</p>
+          </div>
+        </section>
+
+        <div className="content-grid">
+          <aside className="home-sidebar" aria-label="홈 메뉴">
+            <button
+              className={currentView === 'board' && boardNavigationTarget === 'home' ? 'active' : ''}
+              type="button"
+              onClick={goHomeFromBrand}
+            >
+              <SidebarIcon name="home" />
+              홈
+            </button>
+            <button
+              className={currentView === 'board' && boardNavigationTarget === 'board' ? 'active' : ''}
+              type="button"
+              onClick={goBoardListFromSidebar}
+            >
+              <SidebarIcon name="board" />
+              게시판
+            </button>
+            <button
+              className={currentView === 'tags' ? 'active' : ''}
+              type="button"
+              onClick={() => openWorkspaceView('tags')}
+            >
+              <SidebarIcon name="tag" />
+              태그
+            </button>
+            <button
+              className={currentView === 'aiGuide' ? 'active' : ''}
+              type="button"
+              onClick={() => openWorkspaceView('aiGuide')}
+            >
+              <SidebarIcon name="guide" />
+              가이드
+            </button>
+            <button
+              className={currentView === 'mypage' ? 'active' : ''}
+              type="button"
+              onClick={() => {
+                if (!currentUser) {
+                  setCurrentView('login')
+                } else {
+                  openMyPage()
+                }
+              }}
+            >
+              <SidebarIcon name="mypage" />
+              마이페이지
+            </button>
+          </aside>
+
+          {content}
+        </div>
+      </>
+    )
   }
 
   useEffect(() => {
@@ -1910,7 +2298,12 @@ function App() {
       }
 
       setAiRecommendation(data)
-      syncPostAiRecommendationStatus(selectedPost.id, data.status)
+	      syncPostAiRecommendationStatus(
+	        selectedPost.id,
+	        data.status,
+	        data.thumbnailUrl,
+	      )
+      setPostAiAdditionalRequest('')
       setMyAiRecommendations((currentRecommendations) => [
         {
           ...data,
@@ -2088,6 +2481,7 @@ function App() {
       }
 
       setDirectAiRecommendation(data)
+      setDirectAiConditionInput('')
       setMyAiRecommendations((currentRecommendations) => [
         {
           ...data,
@@ -2317,24 +2711,30 @@ function App() {
     <main className="board-page">
       <section
         className={`board-shell ${isAuthView ? 'auth-shell' : ''}`}
-        aria-label="냉장고 파먹기 게시판"
+        aria-label="냉장고 한끼 게시판"
       >
         <header className="top-bar">
-          <div className="brand">
+          <button
+            className="brand brand-home-button"
+            type="button"
+            onClick={goHomeFromBrand}
+            aria-label="냉장고 한끼 홈으로 이동"
+          >
             <div className="brand-mark" aria-hidden="true">
               <span />
             </div>
-            <div>
-              <strong>냉장고 파먹기</strong>
-              <p>AI 레시피 추천 게시판</p>
+            <div className="brand-copy">
+              <span className="brand-kicker">AI RECIPE BOARD</span>
+              <strong>냉장고 한끼</strong>
+              <p>재료로 고르는 오늘의 메뉴</p>
             </div>
-          </div>
+          </button>
 
           <form className="top-search" onSubmit={handleSearchSubmit}>
             <span className="sr-only">게시글 검색</span>
             <input
               type="search"
-              placeholder="게시글 제목으로 검색하세요"
+              placeholder="재료, 태그, 게시글 제목 검색"
               value={searchKeyword}
               onChange={(event) => handleSearchKeywordChange(event.target.value)}
             />
@@ -2345,7 +2745,7 @@ function App() {
 
           <div className="user-area">
             <button
-              className="icon-button"
+              className="icon-button notification-button"
               type="button"
               aria-label="알림"
               onClick={() => {
@@ -2358,7 +2758,16 @@ function App() {
                 }
               }}
             >
-              bell
+              <svg
+                aria-hidden="true"
+                className="top-action-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <path d="M7.4 10.4a4.6 4.6 0 0 1 9.2 0v2.9l1.5 2.5H5.9l1.5-2.5z" />
+                <path d="M10.2 18.1a2 2 0 0 0 3.6 0" />
+                <path d="M12 4.4v1.2" />
+              </svg>
             </button>
             <div className="avatar" aria-hidden="true">
               {currentUser ? currentUser.nickname.slice(0, 1) : '?'}
@@ -2395,8 +2804,9 @@ function App() {
                 <div className="brand-mark" aria-hidden="true">
                   <span />
                 </div>
-                <div>
-                  <strong>냉장고 파먹기</strong>
+                <div className="brand-copy">
+                  <span className="brand-kicker">AI RECIPE BOARD</span>
+                  <strong>냉장고 한끼</strong>
                   <p>AI 레시피 추천 커뮤니티</p>
                 </div>
               </div>
@@ -2522,7 +2932,7 @@ function App() {
           <section className="login-view" aria-label="비밀번호 찾기">
             <div className="login-hero">
               <strong>계정을 다시 찾고</strong>
-              <p>냉장고 파먹기로 돌아와요.</p>
+              <p>냉장고 한끼로 돌아와요.</p>
               <div className="mail-symbol" aria-hidden="true">
                 <span />
               </div>
@@ -2564,7 +2974,9 @@ function App() {
             </form>
           </section>
         ) : currentView === 'mypage' ? (
-          <section className="mypage-view" aria-label="마이페이지">
+          renderBoardWorkspace(
+            <section className="board-main board-workspace-main" ref={boardSectionRef}>
+              <section className="mypage-view workspace-view" aria-label="마이페이지">
             <aside className="mypage-menu" aria-label="마이페이지 메뉴">
               <button
                 className={myPageSection === 'info' ? 'active' : ''}
@@ -2623,7 +3035,7 @@ function App() {
                   type="button"
                   onClick={() => setCurrentView('board')}
                 >
-                  게시판으로
+                  게시판으로 돌아가기
                 </button>
                 <span className="mypage-ready-pill">정보 수정 준비 중</span>
               </div>
@@ -2937,19 +3349,15 @@ function App() {
                   </div>
                 </div>
               ) : null}
+              </section>
             </section>
-          </section>
+            </section>,
+          )
         ) : currentView === 'tags' ? (
-          <section className="utility-view tag-view" aria-label="태그">
-            <button
-              className="back-button"
-              type="button"
-              onClick={() => setCurrentView('board')}
-            >
-              게시판으로
-            </button>
-
-            <div className="tag-page-card">
+          renderBoardWorkspace(
+            <section className="board-main board-workspace-main" ref={boardSectionRef}>
+              <section className="utility-view tag-view workspace-view" aria-label="태그">
+                <div className="tag-page-card">
               <div className="utility-heading tag-heading">
                 <div>
                   <h1>태그</h1>
@@ -3036,18 +3444,14 @@ function App() {
                   </div>
                 )}
               </section>
-            </div>
-          </section>
+                </div>
+              </section>
+            </section>,
+          )
         ) : currentView === 'aiGuide' ? (
-          <section className="utility-view guide-view" aria-label="AI 추천 가이드">
-            <button
-              className="back-button"
-              type="button"
-              onClick={() => setCurrentView('board')}
-            >
-              게시판으로
-            </button>
-
+          renderBoardWorkspace(
+            <section className="board-main board-workspace-main" ref={boardSectionRef}>
+              <section className="utility-view guide-view workspace-view" aria-label="AI 추천 가이드">
             <div className="utility-heading">
               <h1>AI 추천 가이드</h1>
               <p>재료와 상황을 바탕으로 어울리는 한 끼를 정리해드려요.</p>
@@ -3085,12 +3489,22 @@ function App() {
                     </strong>
                   </div>
                   <div>
-	                    <span>실행 제한</span>
-	                    <strong>제한 없음</strong>
-	                  </div>
-	                  <div>
-	                    <span>검색 방식</span>
-	                    <strong>
+                    <span>실행 제한</span>
+                    <strong>제한 없음</strong>
+                  </div>
+                  <div>
+                    <span>이미지 생성</span>
+                    <strong>
+                      {aiServiceStatus?.imageGenerationEnabled
+                        ? `활성화 · ${aiServiceStatus.imageModel}`
+                        : aiServiceStatus?.imageGenerationConfigured
+                          ? '키 있음 · 비활성'
+                          : '비활성'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>검색 방식</span>
+                    <strong>
 	                      {aiServiceStatus?.pgvectorInstalled
 	                        ? 'pgvector'
 	                        : aiServiceStatus?.pgvectorAvailable
@@ -3329,8 +3743,10 @@ function App() {
 	                  ) : null}
 	                </div>
               ) : null}
+              </section>
             </section>
-          </section>
+            </section>,
+          )
         ) : currentView === 'mcpCheck' ? (
           <section className="utility-view guide-view" aria-label="MCP 확인">
             <button
@@ -3338,7 +3754,7 @@ function App() {
               type="button"
               onClick={() => setCurrentView('board')}
             >
-              게시판으로
+              게시판으로 돌아가기
             </button>
 
             <div className="utility-heading">
@@ -3454,7 +3870,7 @@ function App() {
               type="button"
               onClick={() => setCurrentView('board')}
             >
-              게시판으로
+              게시판으로 돌아가기
             </button>
 
             <div className="utility-heading">
@@ -3494,8 +3910,9 @@ function App() {
                 <div className="brand-mark" aria-hidden="true">
                   <span />
                 </div>
-                <div>
-                  <strong>냉장고 파먹기</strong>
+                <div className="brand-copy">
+                  <span className="brand-kicker">AI RECIPE BOARD</span>
+                  <strong>냉장고 한끼</strong>
                   <p>AI 레시피 추천 커뮤니티</p>
                 </div>
               </div>
@@ -3968,11 +4385,11 @@ function App() {
                   <section className="recipe-info" aria-label="요리 조건">
                     <div>
                       <span className="info-label">식사 상황</span>
-                      <strong>저녁</strong>
+                      <strong>{inferMealSituation(selectedPost)}</strong>
                     </div>
                     <div>
                       <span className="info-label">조리 시간</span>
-                      <strong>10분 이내</strong>
+                      <strong>{inferCookingTime(selectedPost)}</strong>
                     </div>
                   </section>
 
@@ -4065,39 +4482,50 @@ function App() {
                 </article>
 
                 <aside className="detail-ai-panel" aria-label="AI 추천 결과">
-                  <div className="detail-ai-panel-header">
-                    <span aria-hidden="true">AI</span>
-                    <strong>AI 추천 결과</strong>
+                  <div className="detail-ai-panel-top">
+                    <div className="detail-ai-panel-header">
+                      <span aria-hidden="true">AI</span>
+                      <strong>AI 추천</strong>
+                    </div>
+                    <span
+                      className={`status-badge ${getAiRecommendationStatusClass(
+                        getAiRecommendationStatusLabel(aiRecommendation?.status),
+                      )}`}
+                    >
+                      {getAiRecommendationStatusLabel(aiRecommendation?.status)}
+                    </span>
                   </div>
-                  <span
-                    className={`status-badge ${getAiRecommendationStatusClass(
-                      getAiRecommendationStatusLabel(aiRecommendation?.status),
-                    )}`}
-                  >
-                    {getAiRecommendationStatusLabel(aiRecommendation?.status)}
-                  </span>
-                  <h2>{aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}</h2>
-                  <div className="detail-ai-visual" aria-hidden="true">
-                    <span />
+
+                  <div className="detail-ai-summary">
+                    <AiRecommendationVisual
+                      className="detail-ai-visual"
+                      recommendation={aiRecommendation}
+                    />
+                    <div>
+                      <h2>
+                        {aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}
+                      </h2>
+                      {aiRecommendation ? (
+                        <p className="ai-grounding-note compact">
+                          {getAiGroundingLabel(aiRecommendation.grounding)}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
-	                  {aiRecommendation?.status === 'STALE' ? (
-	                    <p className="ai-panel-message">
-	                      게시글이나 댓글이 바뀌어 다시 추천을 실행할 수 있습니다.
-	                    </p>
-	                  ) : null}
-	                  {aiRecommendation ? (
-	                    <p className="ai-grounding-note">
-	                      {getAiGroundingLabel(aiRecommendation.grounding)} ·{' '}
-	                      {getAiGroundingMessage(aiRecommendation.grounding)}
-	                    </p>
-	                  ) : null}
-	                  {aiRecommendation ? (
-	                    <>
-                      <section>
+
+                  {aiRecommendation?.status === 'STALE' ? (
+                    <p className="ai-panel-message">
+                      게시글이나 댓글이 바뀌어 다시 추천할 수 있어요.
+                    </p>
+                  ) : null}
+
+                  {aiRecommendation ? (
+                    <>
+                      <section className="ai-compact-section">
                         <h3>추천 이유</h3>
                         <p>{aiRecommendation.reason}</p>
                       </section>
-                      <section>
+                      <section className="ai-compact-section">
                         <h3>부족한 재료</h3>
                         <p>
                           {aiRecommendation.missingIngredients.length > 0
@@ -4105,81 +4533,100 @@ function App() {
                             : '추가로 필요한 재료가 거의 없습니다.'}
                         </p>
                       </section>
-                      <section>
-                        <h3>AI가 참고한 댓글 답변</h3>
+                      <section className="ai-compact-section">
+                        <div className="ai-section-heading">
+                          <h3>참고한 답변</h3>
+                          {aiRecommendation.referencedPosts.length > 2 ? (
+                            <span>
+                              대표 2개만 표시
+                            </span>
+                          ) : null}
+                        </div>
                         {aiRecommendation.referencedPosts.length > 0 ? (
-                          <ul className="ai-reference-list">
-                            {aiRecommendation.referencedPosts.map((post) => (
-                              <li key={post.postId}>
-                                <button
-                                  type="button"
-                                  onClick={() => loadPostDetail(post.postId)}
-                                >
-                                  {post.title}
-                                </button>
-                                <span>{Math.round(post.similarity * 100)}%</span>
-                              </li>
-                            ))}
+                          <ul className="ai-reference-list compact">
+                            {aiRecommendation.referencedPosts
+                              .slice(0, 2)
+                              .map((post) => (
+                                <li key={post.postId}>
+                                  <button
+                                    type="button"
+                                    onClick={() => loadPostDetail(post.postId)}
+                                  >
+                                    {post.title}
+                                  </button>
+                                  <span>{Math.round(post.similarity * 100)}%</span>
+                                </li>
+                              ))}
                           </ul>
-	                        ) : (
-	                          <p>
-	                            {aiRecommendation.grounding === 'GENERAL_AI'
-	                              ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
-	                              : '참고한 게시글이 아직 없습니다.'}
-	                          </p>
-	                        )}
+                        ) : (
+                          <p>
+                            {aiRecommendation.grounding === 'GENERAL_AI'
+                              ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
+                              : '참고한 게시글이 아직 없습니다.'}
+                          </p>
+                        )}
                       </section>
                     </>
                   ) : (
-                    <section>
+                    <section className="ai-compact-section">
                       <h3>추천 없음</h3>
-                      <p>이 글과 비슷한 게시글을 찾아 레시피 추천을 만들 수 있습니다.</p>
+                      <p>비슷한 게시글을 찾아 레시피 추천을 만들 수 있습니다.</p>
                     </section>
                   )}
-	                  {aiRecommendationErrorMessage ? (
-	                    <p className="ai-panel-message error">
-	                      {aiRecommendationErrorMessage}
-	                    </p>
-	                  ) : null}
-                  <div className="ai-goal-selector compact" role="group" aria-label="추천 목표">
-                    <span>추천 목표</span>
-                    <div>
-                      {aiRecommendationGoalOptions.map((option) => (
-                        <button
-                          className={
-                            postAiRecommendationGoal === option.id
-                              ? 'selected'
-                              : ''
-                          }
-                          key={option.id}
-                          type="button"
-                          onClick={() => setPostAiRecommendationGoal(option.id)}
-                          title={option.description}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
+
+                  {aiRecommendationErrorMessage ? (
+                    <p className="ai-panel-message error">
+                      {aiRecommendationErrorMessage}
+                    </p>
+                  ) : null}
+
+                  <details className="ai-refine-panel">
+                    <summary>추천 조건 바꾸기</summary>
+                    <div
+                      className="ai-goal-selector compact"
+                      role="group"
+                      aria-label="추천 목표"
+                    >
+                      <span>추천 목표</span>
+                      <div>
+                        {aiRecommendationGoalOptions.map((option) => (
+                          <button
+                            className={
+                              postAiRecommendationGoal === option.id
+                                ? 'selected'
+                                : ''
+                            }
+                            key={option.id}
+                            type="button"
+                            onClick={() => setPostAiRecommendationGoal(option.id)}
+                            title={option.description}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <label className="ai-additional-request">
-                    추가 요청
-                    <input
-                      type="text"
-                      placeholder="예: 매운맛 적게, 10분 안에, 국물 없는 메뉴"
-                      value={postAiAdditionalRequest}
-                      onChange={(event) =>
-                        setPostAiAdditionalRequest(event.target.value)
-                      }
-                    />
-                  </label>
-	                  <div className="detail-ai-actions">
-	                    {aiRecommendation ? (
-	                      <button
+                    <label className="ai-additional-request">
+                      추가 요청
+                      <input
+                        type="text"
+                        placeholder="예: 매운맛 적게, 10분 안에"
+                        value={postAiAdditionalRequest}
+                        onChange={(event) =>
+                          setPostAiAdditionalRequest(event.target.value)
+                        }
+                      />
+                    </label>
+                  </details>
+
+                  <div className="detail-ai-actions">
+                    {aiRecommendation ? (
+                      <button
                         className="ai-secondary-action"
                         type="button"
                         onClick={openAiRecommendationResultModal}
                       >
-                        AI 추천 결과 보기
+                        자세히 보기
                       </button>
                     ) : null}
                     <button
@@ -4188,9 +4635,9 @@ function App() {
                       disabled={isAiRecommendationLoading}
                     >
                       {isAiRecommendationLoading
-                        ? 'AI 추천 생성 중'
+                        ? '생성 중'
                         : aiRecommendation
-                          ? 'AI 추천 다시 실행'
+                          ? '다시 추천'
                           : 'AI 추천 실행'}
                     </button>
                   </div>
@@ -4205,7 +4652,7 @@ function App() {
               type="button"
               onClick={() => setCurrentView('board')}
             >
-              게시판으로
+              게시판으로 돌아가기
             </button>
 
             <div className="search-results-card">
@@ -4259,10 +4706,7 @@ function App() {
                         type="button"
                         onClick={() => loadPostDetail(post.id)}
                       >
-                        <span
-                          className={`post-thumb search-result-thumb thumb-${post.id % 5}`}
-                          aria-hidden="true"
-                        />
+	                        <PostThumbnail className="search-result-thumb" post={post} />
                         <span>
                           <strong>{post.title}</strong>
                           <em>{post.tags.slice(0, 3).join(' · ') || '태그 없음'}</em>
@@ -4314,62 +4758,55 @@ function App() {
             </div>
           </section>
         ) : (
+        <>
+	        <section
+	          ref={homeHeroRef}
+	          className="home-hero"
+	          aria-label="냉장고 한끼 홈"
+	        >
+	          <div className="home-hero-overlay" />
+	          <div className="home-hero-copy">
+	            <h1>
+	              <span className="hero-title-emphasis">냉장고</span> 속 재료로
+	              <br />
+	              <span className="hero-title-emphasis">함께</span> 만드는 한 끼
+	            </h1>
+	            <p>남은 재료를 올리면, 게시판과 AI가 오늘의 메뉴를 함께 찾아줘요.</p>
+	          </div>
+	        </section>
+
         <div className="content-grid">
           <aside className="home-sidebar" aria-label="홈 메뉴">
             <button
+              className={boardNavigationTarget === 'home' ? 'active' : ''}
               type="button"
-              onClick={() => {
-                setCurrentView('board')
-                setSelectedPost(null)
-              }}
-            >
-              <span aria-hidden="true">⌂</span>
-              홈
-            </button>
-            <button className="active" type="button">
-              <span aria-hidden="true">▣</span>
-              게시판
-            </button>
+              onClick={goHomeFromBrand}
+	            >
+	              <SidebarIcon name="home" />
+	              홈
+	            </button>
+	            <button
+	              className={boardNavigationTarget === 'board' ? 'active' : ''}
+	              type="button"
+	              onClick={goBoardListFromSidebar}
+	            >
+	              <SidebarIcon name="board" />
+	              게시판
+	            </button>
             <button
               type="button"
-              onClick={() => {
-                setCurrentView('tags')
-                setSelectedPost(null)
-              }}
-            >
-              <span aria-hidden="true">◇</span>
-              태그
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('aiGuide')
-                setSelectedPost(null)
-              }}
-            >
-              <span aria-hidden="true">✧</span>
-              AI 추천
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('mcpCheck')
-                setSelectedPost(null)
-              }}
-            >
-              <span aria-hidden="true">◎</span>
-              MCP 확인
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('aiGuide')
-                setSelectedPost(null)
-              }}
-            >
-              <span aria-hidden="true">?</span>
-              가이드
-            </button>
+              onClick={() => openWorkspaceView('tags')}
+	            >
+	              <SidebarIcon name="tag" />
+	              태그
+	            </button>
+	            <button
+	              type="button"
+	              onClick={() => openWorkspaceView('aiGuide')}
+	            >
+	              <SidebarIcon name="guide" />
+	              가이드
+	            </button>
             <button
               type="button"
               onClick={() => {
@@ -4378,18 +4815,18 @@ function App() {
                 } else {
                   openMyPage()
                 }
-              }}
-            >
-              <span aria-hidden="true">♙</span>
-              마이페이지
-            </button>
+	              }}
+	            >
+	              <SidebarIcon name="mypage" />
+	              마이페이지
+	            </button>
           </aside>
 
-          <section className="board-main">
+          <section className="board-main" ref={boardSectionRef}>
             <div className="board-heading">
               <div>
                 <h1>최신 게시글</h1>
-                <p>냉장고 속 재료로 만든 요리 고민을 빠르게 확인해보세요.</p>
+                <p>냉장고 속 재료와 오늘의 한 끼 고민을 빠르게 확인해보세요.</p>
               </div>
               <button className="write-button" type="button" onClick={openWriteView}>
                 글쓰기
@@ -4430,59 +4867,63 @@ function App() {
               </form>
             </div>
 
-            <div className="post-table" role="table" aria-label="게시글 목록">
-              <div className="table-row table-head" role="row">
-                <span role="columnheader">제목</span>
-                <span role="columnheader">태그</span>
-                <span role="columnheader">작성자</span>
-                <span role="columnheader">댓글</span>
-                <span role="columnheader">AI 추천</span>
-                <span role="columnheader">작성일</span>
-              </div>
-
-              {isLoading ? (
-                <div className="empty-row">게시글을 불러오는 중입니다.</div>
-              ) : errorMessage ? (
+	            <div className="post-table post-card-list" aria-label="게시글 목록">
+	              {isLoading ? (
+	                <div className="empty-row">게시글을 불러오는 중입니다.</div>
+	              ) : errorMessage ? (
                 <div className="empty-row error">{errorMessage}</div>
               ) : posts.length === 0 ? (
-                <div className="empty-row">조건에 맞는 게시글이 없습니다.</div>
-              ) : (
-                posts.map((post) => (
-                <article className="table-row" key={post.id} role="row">
-                  <button
-                    className="post-title"
-                    type="button"
-                    role="cell"
-                    onClick={() => loadPostDetail(post.id)}
-                  >
-                    <span className={`post-thumb thumb-${post.id % 5}`} aria-hidden="true" />
-                    <span>{post.title}</span>
-                  </button>
-                  <div className="tag-stack" role="cell">
-                    {post.tags.slice(0, 3).map((tag) => (
-                      <span className="tag-chip" key={tag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="author-cell" role="cell">
-                    <span className="mini-avatar">{post.author.slice(0, 1)}</span>
-                    <span className="author-name">{post.author}</span>
-                  </span>
-                  <span role="cell">{post.comments}</span>
-                  <span
-                    className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
-                    role="cell"
-                  >
-                    {post.aiStatus}
-                  </span>
-                  <time dateTime={post.createdAt} role="cell">
-                    {post.createdAt}
-                  </time>
-                </article>
-                ))
-              )}
-            </div>
+	                <div className="empty-row">조건에 맞는 게시글이 없습니다.</div>
+	              ) : (
+	                posts.map((post) => (
+	                <article className="post-preview-card" key={post.id}>
+	                  <button
+	                    className="post-preview-main"
+	                    type="button"
+	                    onClick={() => loadPostDetail(post.id)}
+	                  >
+	                    <PostThumbnail post={post} />
+	                    <span className="post-preview-content">
+	                      <span className="post-preview-title-row">
+	                        <span
+	                          className={`post-category-badge ${getPostCategoryClass(post.category)}`}
+	                        >
+	                          {post.category}
+	                        </span>
+	                        <strong>{post.title}</strong>
+	                      </span>
+	                      <span className="post-preview-text">{post.contentPreview}</span>
+	                    </span>
+	                  </button>
+	                  <div className="post-preview-footer">
+	                    <div className="tag-stack">
+	                      {post.tags.slice(0, 4).map((tag) => (
+	                        <span className="tag-chip" key={tag}>
+	                          {tag}
+	                        </span>
+	                      ))}
+	                      {post.tags.length === 0 ? (
+	                        <span className="tag-chip muted">태그 없음</span>
+	                      ) : null}
+	                    </div>
+	                    <div className="post-preview-meta">
+	                      <span className="author-cell">
+	                        <span className="mini-avatar">{post.author.slice(0, 1)}</span>
+	                        <span className="author-name">{post.author}</span>
+	                      </span>
+	                      <span>댓글 {post.comments}</span>
+	                      <span
+	                        className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+	                      >
+	                        {post.aiStatus}
+	                      </span>
+	                      <time dateTime={post.createdAt}>{post.createdAt}</time>
+	                    </div>
+	                  </div>
+	                </article>
+	                ))
+	              )}
+	            </div>
 
             <div className="pagination" aria-label="페이지 이동">
               <button
@@ -4512,6 +4953,7 @@ function App() {
             </div>
           </section>
         </div>
+        </>
         )}
         {aiModalState !== 'closed' ? (
           <div className="ai-modal-backdrop">
@@ -4608,9 +5050,10 @@ function App() {
                 ) : null}
 
                 <div className="ai-result-summary">
-                  <div className="ai-result-visual" aria-hidden="true">
-                    <span />
-                  </div>
+	                  <AiRecommendationVisual
+	                    className="ai-result-visual"
+	                    recommendation={aiRecommendation}
+	                  />
                   <div>
                     <strong>
                       {aiRecommendation?.menuName ?? '냉장고 재료 활용 레시피'}
@@ -4650,37 +5093,67 @@ function App() {
                 </dl>
 
                 {aiRecommendation ? (
-	                  <section className="ai-modal-detail">
-	                    <h3>추천 내용</h3>
-	                    <p className="ai-grounding-note">
-	                      {getAiGroundingMessage(aiRecommendation.grounding)}
-	                    </p>
-	                    <p>{aiRecommendation.content}</p>
-                    <h3>AI가 참고한 댓글 답변</h3>
-                    {aiRecommendation.referencedPosts.length > 0 ? (
-                      <ul className="ai-reference-list">
-                        {aiRecommendation.referencedPosts.map((post) => (
-                          <li key={post.postId}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                closeAiRecommendationModal()
-                                loadPostDetail(post.postId)
-                              }}
-                            >
-                              {post.title}
-                            </button>
-                            <span>{Math.round(post.similarity * 100)}%</span>
-                          </li>
-                        ))}
-                      </ul>
-	                    ) : (
-	                      <p>
-	                        {aiRecommendation.grounding === 'GENERAL_AI'
-	                          ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
-	                          : '참고한 게시글이 아직 없습니다.'}
-	                      </p>
-	                    )}
+                  <section className="ai-modal-detail">
+                    <details className="ai-result-toggle">
+                      <summary>
+                        <span>추천 내용</span>
+                        <em>조리 흐름 보기</em>
+                      </summary>
+                      <p className="ai-grounding-note">
+                        {getAiGroundingMessage(aiRecommendation.grounding)}
+                      </p>
+                      <ol className="ai-recipe-steps">
+                        {aiRecommendation.content
+                          .split(/(?=\d+\.\s*)/)
+                          .map((step) => step.trim())
+                          .filter(Boolean)
+                          .map((step, index) => (
+                            <li key={`${index}-${step}`}>
+                              {step.replace(/^\d+\.\s*/, '')}
+                            </li>
+                          ))}
+                      </ol>
+                    </details>
+
+                    <details className="ai-result-toggle">
+                      <summary>
+                        <span>참고한 답변</span>
+                        <em>
+                          {aiRecommendation.referencedPosts.length > 0
+                            ? `대표 ${Math.min(
+                                aiRecommendation.referencedPosts.length,
+                                2,
+                              )}개`
+                            : '없음'}
+                        </em>
+                      </summary>
+                      {aiRecommendation.referencedPosts.length > 0 ? (
+                        <ul className="ai-reference-list compact">
+                          {aiRecommendation.referencedPosts
+                            .slice(0, 2)
+                            .map((post) => (
+                              <li key={post.postId}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    closeAiRecommendationModal()
+                                    loadPostDetail(post.postId)
+                                  }}
+                                >
+                                  {post.title}
+                                </button>
+                                <span>{Math.round(post.similarity * 100)}%</span>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p>
+                          {aiRecommendation.grounding === 'GENERAL_AI'
+                            ? '현재 글과 일반 요리 지식을 기준으로 추천했습니다.'
+                            : '참고한 게시글이 아직 없습니다.'}
+                        </p>
+                      )}
+                    </details>
                   </section>
                 ) : null}
 

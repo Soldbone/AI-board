@@ -1,9 +1,13 @@
 :root {
   font-family:
+    'Pretendard Variable',
+    Pretendard,
+    'SUIT Variable',
+    SUIT,
+    'Noto Sans KR',
+    'Apple SD Gothic Neo',
+    'Malgun Gothic',
     system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
     sans-serif;
   color: #111827;
   background: #f7faf8;
