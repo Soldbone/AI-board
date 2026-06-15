@@ -571,3 +571,165 @@ git diff --check
 ```
 
 현재 환경에서는 SQLAlchemy가 설치된 정상 backend venv가 없어 service import와 DB 연동 실행 테스트는 하지 못했다.
+
+## MCP Phase 4. API와 프론트 연결
+
+### 1. 이번 Phase에서 구현한 기능 요약
+
+이번 Phase에서는 Phase 1~3에서 만든 MCP 공식 상품 정보 보강 흐름을 실제 후기 상세 화면과 연결했다.
+
+구현한 API는 두 개다.
+
+```text
+GET /api/v1/posts/{post_id}/product-enrichment
+POST /api/v1/posts/{post_id}/product-enrichment
+```
+
+GET은 후기 상세에서 저장된 최신 공식 상품 정보 보강 결과를 조회한다. POST는 로그인 사용자가 공식 상품 정보 조회를 요청할 때 사용한다. POST는 `202 Accepted`를 반환하고, 실제 MCP 호출과 매칭 처리는 FastAPI `BackgroundTasks`로 실행한다.
+
+프론트에서는 REVIEW 게시글 상세에만 공식 상품 정보 카드를 표시한다. 비후기 게시판에는 렌더링하지 않는다.
+
+### 2. 수정하거나 추가한 파일
+
+`backend/app/api/routes/posts.py`
+- `GET /posts/{post_id}/product-enrichment`를 추가했다.
+- `POST /posts/{post_id}/product-enrichment`를 추가했다.
+- POST는 `CurrentUser` dependency를 사용해 로그인 사용자만 호출할 수 있게 했다.
+- 새 enrichment가 `REQUESTED` 상태일 때만 `run_product_enrichment_task`를 background task로 등록한다. TTL 안의 캐시 결과가 반환되면 외부 MCP를 다시 호출하지 않는다.
+
+`frontend/src/api/productEnrichmentApi.js`
+- 공식 상품 정보 보강 API 호출 함수를 추가했다.
+- `getProductEnrichment(postId)`는 GET API를 호출한다.
+- `requestProductEnrichment(postId)`는 POST API를 호출한다.
+
+`frontend/src/components/product/ProductInfoCard.jsx`
+- 후기 상세에 표시할 공식 상품 정보 카드 컴포넌트를 추가했다.
+- 처음 렌더링할 때 저장된 enrichment를 조회한다.
+- 사용자가 `조회` 버튼을 누르면 POST API를 호출한다.
+- `REQUESTED`, `PROCESSING` 상태에서는 주기적으로 GET API를 다시 호출해 결과를 확인한다.
+- `VERIFIED`, `CANDIDATES_ONLY`, `NO_MATCH`, `FAILED`를 각각 다르게 표시한다.
+
+`frontend/src/pages/PostDetailPage.jsx`
+- REVIEW 게시글에만 `ProductInfoCard`를 렌더링하도록 연결했다.
+- 기존 유사 후기 추천(`SimilarPostList`)은 그대로 유지했다.
+
+`frontend/src/App.css`
+- 공식 상품 카드, 후보 목록, 모바일 반응형 스타일을 추가했다.
+
+### 3. API 동작 흐름
+
+GET 흐름:
+
+```text
+route
+→ product_enrichment_service.get_product_enrichment
+→ REVIEW 게시글 검증
+→ 최신 McpProductEnrichment 조회
+→ 없으면 null 반환
+```
+
+POST 흐름:
+
+```text
+route
+→ CurrentUser로 로그인 확인
+→ product_enrichment_service.request_product_enrichment
+→ REVIEW 게시글과 피규어 정보 검증
+→ TTL 안의 COMPLETED 결과가 있으면 캐시 반환
+→ 캐시가 없으면 REQUESTED row 생성
+→ BackgroundTasks에 run_product_enrichment_task 등록
+→ 202 Accepted 반환
+```
+
+이 구조의 장점은 사용자가 버튼을 눌렀을 때 브라우저가 MCP/네이버 API 응답을 오래 기다리지 않아도 된다는 점이다.
+
+### 4. 화면 상태 정책
+
+`VERIFIED`
+- 엄격한 매칭 조건을 통과한 상품이다.
+- 이미지, 제목, 가격, 브랜드, 매칭 점수, 공식 스토어 링크를 표시한다.
+
+`CANDIDATES_ONLY`
+- 공식 스마트스토어 후보는 있지만 자동 확정 조건을 통과하지 못한 상태다.
+- “정확한 공식 상품을 확정할 수 없습니다.” 문구와 후보 목록을 표시한다.
+- 후보를 공식 확정 상품처럼 보이지 않게 `VERIFIED` 카드와 다른 UI로 분리했다.
+
+`NO_MATCH`
+- 공식 후보가 없거나 근거가 부족한 상태다.
+- 간단한 안내만 표시한다.
+
+`FAILED`
+- MCP 서버 장애, 네이버 API 실패, credential 누락 같은 실패 상태다.
+- 저장된 `error_message`를 에러 메시지로 보여준다.
+
+비후기 게시판
+- `PostDetailPage`에서 `post.board.code === "REVIEW"`일 때만 컴포넌트를 렌더링한다.
+
+### 5. 왜 background task를 쓰는가
+
+MCP 공식 상품 정보 조회는 외부 MCP 서버와 네이버 API를 거칠 수 있다. 이 작업은 일반 게시글 조회보다 오래 걸릴 수 있고, 실패 가능성도 있다.
+
+그래서 POST API는 요청을 접수하고 `202 Accepted`를 반환한다. 실제 처리는 background task가 맡는다. 프론트는 `REQUESTED` 또는 `PROCESSING` 상태를 받으면 GET API를 반복 조회해 완료 상태를 확인한다.
+
+### 6. 캐시 TTL 정책
+
+Phase 3 service의 `request_product_enrichment`는 TTL 안의 `COMPLETED` 결과가 있으면 새 `REQUESTED` row를 만들지 않는다.
+
+Phase 4 route는 반환된 enrichment가 `REQUESTED`일 때만 background task를 등록한다. 따라서 캐시가 있으면 버튼을 눌러도 외부 MCP 서버를 다시 호출하지 않는다.
+
+### 7. 직접 테스트하는 방법
+
+백엔드 서버와 MCP 서버를 실행한 뒤, REVIEW 게시글 상세 화면에서 `조회` 버튼을 누른다.
+
+API 직접 호출 예시는 다음과 같다.
+
+```powershell
+curl http://localhost:8000/api/v1/posts/1/product-enrichment
+```
+
+로그인 access token이 있을 때:
+
+```powershell
+curl -X POST http://localhost:8000/api/v1/posts/1/product-enrichment `
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+예상 응답 예시:
+
+```json
+{
+  "id": 1,
+  "post_id": 1,
+  "status": "REQUESTED",
+  "match_status": "NO_MATCH",
+  "query_text": "넨도로이드 하츠네 미쿠 굿스마일 ...",
+  "confidence_score": null,
+  "matched_product_json": null,
+  "candidates_json": null,
+  "match_reasons_json": null,
+  "source_url": null,
+  "error_message": null,
+  "fetched_at": null,
+  "created_at": "2026-06-15T00:00:00Z",
+  "updated_at": "2026-06-15T00:00:00Z"
+}
+```
+
+### 8. 이번 구현의 한계와 다음 개선 방향
+
+현재 프론트는 간단한 polling으로 상태를 확인한다. 운영 단계에서는 WebSocket, SSE, notification 등으로 바꿀 수 있다.
+
+현재 POST 요청은 cache hit인 경우에도 `202 Accepted`를 반환한다. 실제로는 이미 완료된 결과이지만, API 의미를 단순하게 유지하기 위해 요청 접수 endpoint의 status code를 유지했다.
+
+다음 MCP Phase 5에서는 테스트 시나리오와 설계 문서를 정리하고, MCP 서버 장애와 캐시 TTL 동작을 실제 시나리오로 확인해야 한다.
+
+### 9. 검증 메모
+
+백엔드 문법 검사와 프론트 production build를 확인했다.
+
+```powershell
+python -m py_compile backend/app/api/routes/posts.py backend/app/services/product_enrichment_service.py backend/app/mcp/client.py backend/app/mcp/matching.py backend/app/mcp/normalizer.py
+cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
+```
+
+실제 MCP 서버와 네이버 API credential이 필요한 end-to-end 호출은 이번 환경에서 실행하지 않았다.

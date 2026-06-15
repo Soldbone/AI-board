@@ -9,6 +9,7 @@ import CommentList from "../components/comment/CommentList";
 import Button from "../components/common/Button";
 import Modal from "../components/common/Modal";
 import SimilarPostList from "../components/post/SimilarPostList";
+import ProductInfoCard from "../components/product/ProductInfoCard";
 import { useComments } from "../hooks/useComments";
 import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
 
@@ -213,10 +214,13 @@ function PostDetailPage({
       )}
 
       {post.board.code === "REVIEW" && (
-        <SimilarPostList
-          onSelectPost={onOpenPost}
-          postId={post.id}
-        />
+        <>
+          <ProductInfoCard currentUser={currentUser} postId={post.id} />
+          <SimilarPostList
+            onSelectPost={onOpenPost}
+            postId={post.id}
+          />
+        </>
       )}
 
       {post.board.code === "QUESTION" && (

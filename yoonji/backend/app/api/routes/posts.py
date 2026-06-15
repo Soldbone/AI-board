@@ -12,6 +12,7 @@ from app.schemas.ai_schema import (
     ReferenceAnswerRequest,
     SimilarPostListResponse,
 )
+from app.schemas.product_enrichment_schema import ProductEnrichmentResponse
 from app.schemas.post_schema import (
     PostCreateRequest,
     PostCreateResponse,
@@ -19,8 +20,9 @@ from app.schemas.post_schema import (
     PostListResponse,
     PostUpdateRequest,
 )
-from app.services import post_service
 from app.services import ai_service
+from app.services import post_service
+from app.services import product_enrichment_service
 
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -125,6 +127,42 @@ def request_purchase_summary(
         current_user=current_user,
         background_tasks=background_tasks,
     )
+
+
+@router.get(
+    "/{post_id}/product-enrichment",
+    response_model=ProductEnrichmentResponse | None,
+)
+def get_product_enrichment(
+    post_id: Annotated[int, Path(gt=0)],
+    db: DbSession,
+) -> ProductEnrichmentResponse | None:
+    return product_enrichment_service.get_product_enrichment(db, post_id=post_id)
+
+
+@router.post(
+    "/{post_id}/product-enrichment",
+    response_model=ProductEnrichmentResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_product_enrichment(
+    post_id: Annotated[int, Path(gt=0)],
+    db: DbSession,
+    current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
+) -> ProductEnrichmentResponse:
+    enrichment = product_enrichment_service.request_product_enrichment(
+        db,
+        post_id=post_id,
+    )
+
+    if enrichment.status == "REQUESTED":
+        background_tasks.add_task(
+            product_enrichment_service.run_product_enrichment_task,
+            enrichment.id,
+        )
+
+    return enrichment
 
 
 @router.get("/{post_id}", response_model=PostDetailResponse)
