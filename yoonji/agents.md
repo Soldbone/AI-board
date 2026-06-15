@@ -1368,15 +1368,310 @@ MVP 완료 전까지 AI 관련 endpoint를 사용자 화면에 노출하지 않�
 
 
 
+# MCP 플랜
+
+## Summary
+
+MCP 기능은 후기 게시판의 `PostFigureInfo.figure_name_text`, 제조사, 태그, 제목을 바탕으로 굿스마일 컴퍼니 네이버 스마트스토어 상품 후보를 찾고, 사용자가 입력한 피규어명은 부정확할 수 있으므로 MCP는 상품을 자동 단정하지 않고, 네이버 쇼핑 검색 API에서 후보를 찾은 뒤 **굿스마일 공식 스마트스토어 URL만** 남기고 백엔드에서 엄격한 매칭 검증을 수행한다.엄격한 매칭을 통과한 경우에만 후기 상세 페이지에 “공식 판매 정보” 카드로 보여준다.
+
+기본 정책은 API 우선, 엄격 검증, 상세 페이지 노출이다. 네이버 쇼핑 검색 API는 상품명, 링크, 이미지, 가격, 몰명, 제조사/브랜드, 카테고리 정보를 제공하므로 1차 후보 수집에 사용한다. MCP는 외부 시스템 도구를 노출하는 구조이며, 서버 tools는 입력 검증, 접근 제어, rate limit, 출력 sanitizing을 고려해야 한다. 참고: [MCP Tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools), [MCP Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [Naver Shopping Search API](https://developers.naver.com/docs/serviceapi/search/shopping/shopping.md).
+
+MCP 결과는 사용자 게시글, 댓글, `AiOutput`과 분리해 별도 저장한다. 공식 상품을 확정할 수 없으면 후보 또는 실패 상태만 보여주고, 잘못된 정보를 공식 정보처럼 표시하지 않는다.
+
+## Key Changes
+
+- `docs/architecture/mcp-design.md`에는 MCP 서버, 백엔드 MCP client, 네이버 쇼핑 API, 매칭 점수, 캐시/저장 정책을 정리한다.
+- `mcp-server`는 Python MCP SDK 기반의 Streamable HTTP 서버로 만들고, 로컬 개발 기본 URL은 `http://127.0.0.1:8765/mcp`로 둔다.
+- MCP tools는 우선 `search_gsc_smartstore_products`, `fetch_gsc_product_metadata` 두 개만 만든다.
+- 백엔드는 MCP가 반환한 후보를 그대로 믿지 않고 별도 service에서 매칭 점수를 계산한다.
+- 공식 정보는 사용자 게시글 본문/댓글/AI 답변에 섞지 않고 `McpProductEnrichment` 같은 별도 테이블에 저장한다.
+
+## Matching Rules
+
+- 굿스마일 공식 스마트스토어 판매자/URL whitelist를 반드시 통과해야 한다.
+- 캐릭터명만 일치하는 후보는 자동 확정하지 않는다.
+- 자동 확정 조건: whitelist 통과, 점수 `0.82` 이상, 2개 이상 근거 일치, 2위 후보와 점수 차이 `0.10` 이상.
+- 근거 항목은 피규어명 토큰, 작품/시리즈 태그, 상품 라인(`NENDOROID`, `FIGMA`, scale 등), 제조사/브랜드, 가격대 보조 일치를 사용한다.
+- 조건을 못 넘으면 `CANDIDATES_ONLY` 또는 `NO_MATCH`로 저장하고, 화면에는 “정확한 공식 상품을 확정할 수 없음”으로 보여준다.
+
+## Public Interfaces
+
+- `GET /api/v1/posts/{post_id}/product-enrichment`: 후기 상세의 캐시된 공식 상품 정보 조회.
+- `POST /api/v1/posts/{post_id}/product-enrichment`: 로그인 사용자가 공식 상품 정보 조회를 요청. 외부 MCP 호출은 background task로 처리하고 `202 Accepted`를 반환.
+- 응답에는 `status`, `match_status`, `confidence_score`, `matched_product`, `candidates`, `match_reasons`, `fetched_at`, `source_url`을 포함한다.
+- 환경변수: `MCP_SERVER_URL`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `GSC_SMARTSTORE_CHANNEL=gsc_korea_dt_bh`, `PRODUCT_ENRICHMENT_CACHE_TTL_HOURS=24`.
+
+## Test Plan
+
+- 정확히 같은 상품명은 `VERIFIED`가 된다.
+- 캐릭터명만 같은 다른 상품은 자동 확정되지 않는다.
+- `NENDOROID` 후기에서 scale/figma 상품 후보는 감점 또는 제외된다.
+- 굿스마일 공식 스토어가 아닌 몰 후보는 제외된다.
+- 네이버 API key 없음, API 실패, MCP 서버 실패는 `FAILED` 또는 fallback 응답으로 처리된다.
+- 후기 상세 페이지는 캐시가 있으면 재호출하지 않고, 후보만 있으면 후보 상태를 명확히 보여준다.
+
+## Assumptions
+
+- 첫 구현은 후기 게시판 `REVIEW` 상세에만 붙인다.
+- 스마트스토어 전체 페이지를 무단으로 대량 크롤링하지 않고, 네이버 공식 API를 1차 데이터 소스로 사용한다.
+- 페이지 metadata fetch는 whitelist된 상품 URL에서 필요한 메타 태그 수준으로만 제한한다.
+- MCP 결과는 “공식 정보 보강”이지 AI 생성 답변이 아니므로 `AiOutput`과 분리한다.
 
 
 
 
-# MCP 구현 
+
+
+
+# MCP 구현 Phase
 
 - 네이버 쇼핑 API로 후보를 검색한다.
 - 결과 중 `link`가 `https://smartstore.naver.com/gsc_korea_dt_bh/...` 패턴을 통과한 상품만 남긴다.
 - `mallName`, `brand`, `maker`가 있으면 보조 검증에만 사용한다.
 - 공식 스토어 URL이 아니면 상품명이 아무리 비슷해도 버린다.
 - 공식 스토어 후보 중에서도 피규어명/라인/작품명 등이 충분히 맞지 않으면 자동 확정하지 않는다.
+
+## MCP Phase 0. 설계 문서와 정책 정리
+
+작성/수정 파일:
+
+- `agents.md`
+- `docs/architecture/mcp-design.md`
+- `.env.example`
+
+구현 내용:
+
+- MCP 기능은 MVP와 RAG 이후 확장 기능으로 둔다.
+- 외부 링크 미리보기 기능과 구분한다. 사용자가 URL을 직접 입력하지 않는다.
+- 데이터 출처는 1차로 네이버 쇼핑 검색 API를 사용한다.
+- 공식 스토어 whitelist는 `https://smartstore.naver.com/gsc_korea_dt_bh`만 허용한다.
+- 네이버 API credential과 MCP 서버 주소를 환경변수로 관리한다.
+
+환경변수:
+
+```
+MCP_SERVER_URL=http://127.0.0.1:8765/mcp
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
+GSC_SMARTSTORE_CHANNEL=gsc_korea_dt_bh
+PRODUCT_ENRICHMENT_CACHE_TTL_HOURS=24
+```
+
+
+
+### MCP 문서 작성 요구사항
+
+MCP 구현을 진행하면서 `docs/mcp-study.md` 파일을 따로 만들고, 각 Phase가 끝날 때마다 이번 Phase에서 구현한 내용을 정리한다.
+
+`docs/mcp-study.md`는 단순한 작업 기록이 아니라, MCP 개념을 코드로 구현하는 과정을 학습하기 위한 문서로 작성한다.
+
+각 Phase 문서에는 다음 내용을 포함한다.
+
+
+
+- 이번 Phase에서 구현한 기능 요약
+
+- 수정하거나 추가한 파일 목록
+
+- 각 파일이 왜 필요한지에 대한 설명
+
+- MCP 서버, tool, client, backend service, API route가 각각 어떤 역할을 하는지
+
+- 네이버 쇼핑 API 또는 외부 metadata를 어떻게 가져오는지
+
+- 굿스마일 공식 스마트스토어 상품만 남기기 위해 어떤 검증을 하는지
+
+- 상품명 불일치와 잘못된 매칭을 막기 위한 매칭 규칙
+
+- 실패하거나 근거가 부족할 때 fallback을 어떻게 처리하는지
+
+- 직접 테스트하는 방법과 예상 응답 예시
+
+- 이번 구현의 한계와 다음 개선 방향
+
+
+
+특히 다음 개념은 초보자가 이해할 수 있도록 자세히 설명한다.
+
+- MCP가 무엇인지
+
+- MCP server와 MCP client의 역할
+
+- MCP tool이 외부 기능을 안전하게 노출하는 방식
+
+- FastAPI 백엔드가 MCP tool 결과를 바로 믿지 않고 service 계층에서 재검증하는 이유
+
+- 외부 상품 정보와 사용자 작성 콘텐츠를 DB에서 분리해서 저장하는 이유
+
+- 캐시 TTL을 두는 이유
+
+- whitelist와 matching score가 필요한 이유
+
+
+
+### MCP 코드 작성 방식
+
+MCP 관련 코드는 사용자가 읽으면서 구조를 학습할 수 있도록 작성한다.
+
+- 너무 축약된 코드보다 흐름이 잘 드러나는 코드를 우선한다.
+
+- 함수와 변수 이름은 역할이 분명하게 드러나도록 작성한다.
+
+- MCP tool, 외부 API client, matching 로직, FastAPI service, route의 역할을 섞지 않는다.
+
+- 외부 API 호출은 client 계층에 둔다.
+
+- 상품 후보 검증과 점수 계산은 matching/service 계층에 둔다.
+
+- route는 요청을 받고 service를 호출하는 얇은 계층으로 유지한다.
+
+- 복잡한 조건문에는 “무엇을 하는지”보다 “왜 이 검증이 필요한지”를 설명하는 짧은 주석을 단다.
+
+- 테스트하기 쉬운 작은 함수 단위로 나눈다.
+
+- 구현 후 코드와 `docs/mcp-study.md`의 설명이 서로 맞는지 확인한다.
+
+## MCP Phase 1. MCP 서버 뼈대 구현
+
+작성 파일:
+
+- `mcp-server/requirements.txt`
+- `mcp-server/main.py`
+- `mcp-server/server.py`
+- `mcp-server/clients/http_client.py`
+- `mcp-server/clients/naver_shopping_client.py`
+- `mcp-server/schemas/tool_schema.py`
+- `mcp-server/tools/shopping_metadata_tool.py`
+
+구현 도구:
+
+- `search_gsc_smartstore_products`
+  - 입력: `query`, `display`, `sort`
+  - 네이버 쇼핑 검색 API 호출
+  - 공식 스마트스토어 URL만 필터링
+  - 상품명 HTML 태그 제거 및 기본 정규화
+- `fetch_gsc_product_metadata`
+  - 입력: `product_url`
+  - whitelist URL만 허용
+  - 가능한 범위에서 title, description, image, price, availability 메타데이터 수집
+  - 실패해도 검색 API 결과만으로 동작 가능해야 한다.
+
+주의:
+
+- MCP 서버는 stdout에 일반 로그를 쓰지 않는다.
+- 모든 tool 입력을 검증한다.
+- API 실패, credential 누락, whitelist 불일치는 구조화된 오류로 반환한다.
+
+## MCP Phase 2. DB 모델과 백엔드 schema 구현
+
+작성/수정 파일:
+
+- `backend/app/models/mcp_product_enrichment.py`
+- `backend/app/models/enums.py`
+- `backend/app/schemas/product_enrichment_schema.py`
+- `backend/app/repositories/product_enrichment_repository.py`
+- migration 파일
+
+추가 enum:
+
+```
+ProductEnrichmentStatus =
+  REQUESTED | PROCESSING | COMPLETED | FAILED
+
+ProductMatchStatus =
+  VERIFIED | CANDIDATES_ONLY | NO_MATCH
+```
+
+저장 필드:
+
+- `post_id`
+- `status`
+- `match_status`
+- `query_text`
+- `confidence_score`
+- `matched_product_json`
+- `candidates_json`
+- `match_reasons_json`
+- `source_url`
+- `error_message`
+- `fetched_at`
+- `created_at`, `updated_at`
+
+정책:
+
+- 같은 후기 글에는 최신 enrichment 하나를 우선 사용한다.
+- 캐시 TTL 안에서는 외부 MCP를 다시 호출하지 않는다.
+- 확정 상품과 후보 목록을 모두 JSON으로 저장하되, 사용자 작성 콘텐츠와 섞지 않는다.
+
+## MCP Phase 3. 매칭 service 구현
+
+작성 파일:
+
+- `backend/app/services/product_enrichment_service.py`
+- `backend/app/mcp/client.py`
+- `backend/app/mcp/matching.py`
+- `backend/app/mcp/normalizer.py`
+
+매칭 규칙:
+
+- 공식 스마트스토어 URL이 아니면 즉시 제외한다.
+- 캐릭터명 단독 일치는 자동 확정하지 않는다.
+- 자동 확정 조건:
+  - whitelist 통과
+  - 점수 `0.82` 이상
+  - 일치 근거 2개 이상
+  - 1위와 2위 점수 차이 `0.10` 이상
+- 점수 근거:
+  - 피규어명 핵심 토큰 일치
+  - 상품 라인 일치: `NENDOROID`, `FIGMA`, scale 등
+  - 작품/시리즈 태그 일치
+  - 제조사/브랜드 보조 일치
+  - 가격대 보조 일치
+- 조건 미달:
+  - 후보가 있으면 `CANDIDATES_ONLY`
+  - 후보가 없으면 `NO_MATCH`
+
+## MCP Phase 4. API와 프론트 연결
+
+수정/작성 파일:
+
+- `backend/app/api/routes/posts.py`
+- `frontend/src/api/productEnrichmentApi.js`
+- `frontend/src/components/product/ProductInfoCard.jsx`
+- `frontend/src/pages/PostDetailPage.jsx`
+
+구현 API:
+
+- `GET /api/v1/posts/{post_id}/product-enrichment`
+  - 후기 상세에서 캐시된 공식 상품 정보 조회
+- `POST /api/v1/posts/{post_id}/product-enrichment`
+  - 로그인 사용자가 공식 상품 정보 조회 요청
+  - background task로 MCP 호출
+  - `202 Accepted` 반환
+
+화면 정책:
+
+- `VERIFIED`: 공식 판매 정보 카드 표시
+- `CANDIDATES_ONLY`: “정확한 공식 상품을 확정할 수 없음”과 후보 표시
+- `NO_MATCH`: 조용한 빈 상태 또는 간단한 안내 표시
+- `FAILED`: 외부 정보 조회 실패 안내
+- 비후기 게시판에는 표시하지 않는다.
+
+## MCP Phase 5. 테스트와 문서 정리
+
+수정 파일:
+
+- `docs/testing/test-scenarios.md`
+- `docs/architecture/mcp-design.md`
+- 필요 시 `docs/implementation-guide*.md`
+
+검증 시나리오:
+
+- 정확한 상품명은 `VERIFIED`가 된다.
+- 공식 스토어가 아닌 상품은 제외된다.
+- 캐릭터명만 같은 다른 피규어는 자동 확정되지 않는다.
+- `NENDOROID` 후기에서 scale/figma 후보는 감점 또는 제외된다.
+- 네이버 API key 누락 시 `FAILED`가 저장된다.
+- MCP 서버 장애 시 후기 상세 페이지는 깨지지 않는다.
+- 캐시 TTL 안에서는 반복 요청해도 외부 API를 다시 호출하지 않는다.
 
