@@ -8,6 +8,14 @@
 
 Arena는 차분한 연구실 같은 토론 도구다. 흰색/neutral surface를 기본으로 하고, 영상과 댓글의 정보 밀도를 유지하되 AI 보조 정보는 작은 상태와 panel로 절제해서 보여준다.
 
+선택된 preview preset:
+
+```text
+Arena Neutral
+```
+
+React 구현은 `frontend/preview.html`의 `Arena Neutral` 조합을 기준으로 한다. 다른 preset은 비교용으로만 유지한다.
+
 ---
 
 ## 2. UI 방향

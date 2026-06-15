@@ -13,8 +13,11 @@ Arena frontend는 backend Phase 14 이후 실제 사용자 화면을 구현하�
 - [API Usage](api_usage.md): frontend API client, auth, CSRF, polling 규칙
 - [Design System](design_system.md): shadcn/ui 기반 시각 기준과 컴포넌트 우선순위
 - [Wireframe v0](wireframe_v0.md): 첫 시안의 화면 구성과 검토 포인트
+- [Frontend Implementation Harness](frontend_implementation_harness.md): Codex가 순차적으로 구현할 하네스
 
 ## 현재 결론
+
+디자인 preset은 `frontend/preview.html`의 `Arena Neutral`을 기본값으로 확정한다.
 
 첫 구현은 게시판의 기본 정보 구조를 안정시키는 방향으로 시작한다.
 
