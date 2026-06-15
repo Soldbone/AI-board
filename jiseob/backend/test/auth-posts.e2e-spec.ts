@@ -14,10 +14,16 @@ describe('Auth and posts E2E', () => {
   });
 
   beforeEach(async () => {
+    await testApp.waitForBackgroundTasks();
     await truncateE2eDatabase(testApp.dataSource);
   });
 
+  afterEach(async () => {
+    await testApp.waitForBackgroundTasks();
+  });
+
   afterAll(async () => {
+    await testApp?.waitForBackgroundTasks();
     await testApp?.app.close();
   });
 

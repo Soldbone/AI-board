@@ -28,13 +28,16 @@ backend/test/
 
 E2E는 실제 `AppModule`을 부팅하고, `arena_e2e` PostgreSQL DB에 migration을 실행한 뒤 각 테스트 전에 application table을 truncate한다. YouTube/OpenAI/LangChain provider는 Nest testing module override로 deterministic mock을 주입한다.
 
+Phase 14 안정화 과정에서 E2E background task 정책을 보강했다. 댓글 분석, RAG, 요약, Agent run처럼 HTTP 응답 이후 내부 비동기로 이어지는 작업은 테스트 app helper에서 promise를 추적하고, 각 테스트 전후로 drain한 뒤 DB를 truncate한다. 게시글 생성 시 자동 video processing은 E2E에서 no-op으로 override해, `POST /posts` 응답의 video `PENDING` 정책을 외부 provider 타이밍과 분리해 검증한다.
+
 ## 2. 구현 결정
 
 - E2E DB 이름은 기본 `arena_e2e`이며, truncate helper는 `NODE_ENV=test`와 `arena_e2e` 계열 DB 이름일 때만 동작한다.
 - TypeORM migration glob은 Jest/ts-jest 환경에서 `src/database/migrations/*.ts`를 보도록 보정했다.
 - 로그인 응답 body에는 CSRF token이 없으므로 `arena_csrf_token` cookie에서 읽어 state-changing API에 `x-csrf-token`으로 보낸다.
-- 게시글 생성 직후 video status `PENDING` 검증을 안정화하기 위해 video provider mock은 기본적으로 resolve하지 않는다.
+- 게시글 생성 직후 video status `PENDING` 검증을 안정화하기 위해 E2E에서는 `VideoProcessingService.enqueueProcessing()`을 no-op으로 override한다.
 - RAG 성공 검증은 video status와 transcript chunk/vector fixture만 DB로 보정하고, 실제 pgvector similarity query를 통과시킨다.
+- 각 테스트 전후에는 tracked background task를 모두 기다린 뒤 DB cleanup을 수행한다.
 
 ## 3. 검증 범위
 
@@ -63,3 +66,5 @@ pnpm.cmd test:e2e
 pnpm.cmd lint
 pnpm.cmd format:check
 ```
+
+Phase 14 안정화 이후 `pnpm.cmd test:e2e`는 3회 연속 통과했다.

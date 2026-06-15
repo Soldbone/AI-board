@@ -440,6 +440,38 @@ id: string;
 - MCP write tool은 권한과 실패 상태 조건을 모두 검증한다.
 - 댓글 스레드 요약은 댓글 수 10개 이상일 때만 가능하다.
 
+### 7-3. E2E 테스트 하네스 정책
+
+Phase 13 이후 backend HTTP E2E 테스트 하네스는 `backend/test/`에 둔다.
+
+실행 명령:
+
+```powershell
+pnpm.cmd test:e2e
+```
+
+E2E 원칙:
+
+- 실제 `AppModule`을 부팅한다.
+- PostgreSQL `arena_e2e` 계열 DB에 migration을 실행한다.
+- 각 테스트 전에 application table을 truncate한다.
+- truncate helper는 `NODE_ENV=test`와 `arena_e2e` 계열 DB 이름일 때만 동작한다.
+- YouTube/OpenAI/LangChain provider는 테스트에서 deterministic mock으로 override한다.
+- 실제 API key나 외부 네트워크에 의존하는 검증은 E2E가 아니라 별도 smoke test로 분리한다.
+- E2E cleanup 전에 내부 background task를 drain해 `TRUNCATE`와 비동기 DB update가 겹치지 않게 한다.
+- 게시글 생성 응답의 video `PENDING` 정책을 안정적으로 검증하기 위해 E2E에서는 자동 video processing enqueue를 no-op으로 둔다.
+
+E2E가 검증하는 핵심 정책:
+
+- 인증/CSRF/권한 실패
+- 게시글 생성 시 video `PENDING` 반환
+- soft delete placeholder와 대댓글 유지
+- `commentCount`, duplicate like, 대댓글 depth 제한
+- AI 분석 실패 시 댓글 유지
+- FACT_CLAIM 댓글만 RAG 대상
+- 요약 최소 댓글 수 10개
+- admin GET은 CSRF 불필요, admin DELETE/retry는 CSRF 필요
+
 ---
 
 ## 8. 구현 시 금지할 것
@@ -451,7 +483,7 @@ id: string;
 - 댓글 목록에 자막 청크 전체나 RAG 근거 상세를 모두 포함하지 않는다.
 - TypeORM `synchronize: true`를 운영/공유 환경에서 사용하지 않는다.
 - 대댓글의 대댓글을 MVP에서 허용하지 않는다.
-- Redis/BullMQ를 MVP 필수 구현으로 추가하지 않는다.
+- Redis/BullMQ를 MVP 구현 범위에 추가하지 않는다.
 
 ---
 
@@ -496,24 +528,26 @@ git switch -c feature/jiseob/phase14-docs-cleanup
 
 ## 10. 구현 순서 요약
 
-1. 프로젝트 초기 설정
-2. Config / Database 설정
-3. 공통 BaseModel, ULID 유틸, enum 정의
-4. User / Auth 구현
-5. Post / Tag / Video 기본 구현
-6. Comment / Reply 구현
-7. soft delete 정책 구현
-8. Video 상태값과 서버 내부 비동기 처리 구현
-9. TranscriptChunk / pgvector migration 구현
-10. AI 댓글 분석 상태 구현
-11. RAG 근거 후보 구현
-12. MCP Agent Tool Server 구현
-13. MCP Protocol Alignment
-14. AI Agent 추론 루프 구현
-15. Summary 구현
-16. Admin 기능 구현
-17. E2E 테스트 정리
-18. README / 실행 문서 정리
+실제 Phase 문서와 구현 상태는 다음 순서를 기준으로 본다.
+
+1. Phase 1: Backend setup
+2. Phase 2: Common foundation
+3. Phase 3: User / Auth
+4. Phase 4: Post / Tag / Video
+5. Phase 5: Comment / Reply
+6. Phase 6: Video processing
+7. Phase 7: AI comment analysis
+8. Phase 8: RAG evidence
+9. Phase 9: MCP Agent Tool Server
+10. Phase 9.5: MCP Protocol Alignment
+11. Phase 10: AI Agent loop
+12. Phase 10.1: LangChain adapter
+13. Phase 11: Comment summary
+14. Phase 12: Admin comments
+15. Phase 13: E2E test harness
+16. Phase 14: README / API / ERD / runbook / demo / limitations 문서 정리
+
+Phase 14 이후 기능 작업을 시작할 때는 `README.md`, `docs/api/backend_api.md`, `docs/database/erd.md`, `docs/operations/local_runbook.md`, `docs/demo/demo_scenarios.md`, `docs/implementation/mvp_limitations_and_next_steps.md`를 먼저 확인한다.
 
 ---
 

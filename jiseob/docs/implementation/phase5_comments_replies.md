@@ -249,4 +249,4 @@ Phase 6에서 이어받을 핵심:
 - 게시글 작성 시 이미 `Video` row와 상태값이 생성된다.
 - `metadataStatus`, `transcriptStatus`, `embeddingStatus`가 모두 `PENDING`으로 시작한다.
 - YouTube API 또는 내부 비동기 처리 실패는 게시글 기능 실패와 분리해야 한다.
-- Redis/BullMQ는 MVP 필수 범위가 아니며, 우선 DB 상태값 기반으로 처리한다.
+- Redis/BullMQ는 MVP 범위가 아니며, 우선 DB 상태값 기반으로 처리한다.

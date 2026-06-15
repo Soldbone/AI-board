@@ -1,14 +1,14 @@
 # Project Progress Audit — 2026-06-15
 
-> 기준 문서: `AGENTS.md`, `arena_implementation_plan.md`, `arena_nestjs_module_structure.md`  
-> 기준 코드: `backend/src`, `frontend/src`, `docs/implementation`  
-> 목적: 현재 구현 상태와 문서/구조의 어긋남을 다음 구현자가 빠르게 파악하도록 정리한다.
+> 기준 문서: `AGENTS.md`, `arena_implementation_plan.md`, Phase 13/14 구현 문서
+> 기준 코드: `backend/src`, `backend/test`, `frontend/src`, `docs`
+> 목적: 현재 구현 상태와 다음 작업자가 먼저 볼 문서를 빠르게 정리한다.
 
 ---
 
 ## 1. 현재 진행 상태
 
-현재 백엔드는 Phase 12 관리자 기능까지 구현되어 있다.
+현재 backend 기능 구현은 Phase 13까지 완료되어 있다.
 
 완료된 주요 backend phase:
 
@@ -21,133 +21,112 @@
 - Phase 10~10.1: Agent run/step, MCP 기반 Agent loop, LangChain structured-output adapter
 - Phase 11: 댓글 스레드 요약 생성/조회, OpenAI summary provider, stale 계산
 - Phase 12: 관리자용 주의 필요 댓글 조회/삭제, 실패한 AI 댓글 분석 재시도
-
-아직 남은 MVP backend phase:
-
-- Phase 13: E2E 테스트 정리
-- Phase 14: README/API/ERD/데모 문서 정리
+- Phase 13: backend HTTP E2E 테스트 하네스와 provider mock 기반 정책 테스트
+- Phase 14: README/API/ERD/runbook/demo/한계 문서 정리
 
 Frontend 상태:
 
-- `frontend/src/App.tsx`는 현재 placeholder 화면이다.
+- `frontend/src/App.tsx`는 placeholder 화면이다.
 - MVP 사용자 화면은 아직 구현되지 않았다.
-- 따라서 현재 프로젝트 진행 상태는 “backend MVP 기능 중심”으로 보는 것이 정확하다.
+- 현재 데모와 검증은 backend API 중심으로 진행한다.
 
 ---
 
 ## 2. 구조 점검
 
-### 정상으로 확인된 부분
+정상으로 확인된 부분:
 
-- Backend module 구조는 문서의 큰 방향과 맞다.
-  - `AuthModule`, `UsersModule`, `PostsModule`, `CommentsModule`, `VideosModule`, `TagsModule`, `AiModule`, `McpModule`, `AgentModule`, `AdminModule`이 존재한다.
-- AI 기능은 `AiModule` 내부 하위 디렉터리로 분리되어 있다.
+- Backend module 구조는 MVP 방향과 맞다.
+  - `AuthModule`, `UsersModule`, `PostsModule`, `CommentsModule`, `VideosModule`, `TagsModule`, `AiModule`, `McpModule`, `AgentModule`, `AdminModule`
+- AI 기능은 `AiModule` 하위로 분리되어 있다.
   - `comment-analysis`
   - `rag`
   - `summary`
 - Agent는 `AgentModule`로 분리되어 있고, Summary는 Agent/MCP에 의존하지 않는다.
 - MCP는 일반 REST endpoint가 아니라 `POST /api/v1/mcp` tool boundary로 유지되어 있다.
 - 주요 Entity는 `BaseModel` 기반 ULID `char(26)` primary key 정책을 따른다.
-- state-changing REST API는 대체로 `JwtAuthGuard + CsrfGuard`를 사용한다.
-- Admin endpoint는 `RolesGuard`와 `@Roles(UserRole.ADMIN)`로 보호되어 있다.
-- 테스트는 backend unit/controller 중심으로 21개 spec suite가 있다.
+- state-changing REST API는 `JwtAuthGuard + CsrfGuard`를 사용한다.
+- MCP endpoint는 Bearer access token 기반이며 CSRF guard를 적용하지 않는다.
+- Admin endpoint는 `RolesGuard`와 `@Roles(UserRole.ADMIN)`로 보호된다.
+- backend E2E 테스트는 `backend/test/`에 있으며 `pnpm.cmd test:e2e`로 실행한다.
 
-### 아직 없는 구조
+아직 없는 구조:
 
-- E2E 테스트 디렉터리와 정책형 integration test는 아직 없다.
-- Frontend application screen은 아직 없다.
-
----
-
-## 3. 문서와 코드의 어긋남
-
-### README 진행 상태
-
-`README.md`는 Phase 12 기준으로 최신화되어 있다. 다음 구현자는 Phase 13 하네스 문서를 우선 읽으면 된다.
-
-정정 기준:
-
-- 현재 구현 상태: Phase 12 관리자 기능까지 완료
-- 다음 구현 순서: Phase 13 E2E 테스트 정리
-- frontend는 placeholder 상태라고 명시
-
-### Phase 13 하네스
-
-Phase 13 구현 기준 문서로 `docs/implementation/phase13_e2e_test_harness.md`를 추가했다. 실제 PostgreSQL test DB, migrations, provider mock, 인증/CSRF helper, 정책형 E2E 시나리오를 기준으로 구현하면 된다.
-
-### Branch 이름
-
-현재 브랜치 이름은 `feature/jiseob/phase10-ai-agent-loop`지만 Phase 12 커밋까지 포함되어 있다. 코드 문제는 아니지만 PR 제목이나 후속 브랜치명에서는 실제 범위를 명확히 적는 편이 좋다.
+- 실제 frontend application screen
+- Redis/BullMQ 또는 durable job queue
+- provider smoke test 자동화
+- 운영용 observability/dashboard
 
 ---
 
-## 4. 놓친 부분과 리스크
+## 3. 문서 상태
 
-### E2E test DB safety
+최신 진입점:
 
-Phase 13에서 가장 큰 리스크는 test DB reset이 개발 DB를 지우는 것이다.
+- `README.md`
+- `docs/api/backend_api.md`
+- `docs/database/erd.md`
+- `docs/operations/local_runbook.md`
+- `docs/demo/demo_scenarios.md`
+- `docs/implementation/mvp_limitations_and_next_steps.md`
 
-권장 기본값:
+구현 결과 문서:
 
-- E2E 전용 DB 이름은 `arena_e2e`로 둔다.
-- truncate helper에는 `DATABASE_NAME === 'arena_e2e'` guard를 둔다.
-- TypeORM `synchronize: true`를 쓰지 않고 migration을 실행한다.
+- `docs/implementation/phase13_e2e_test_implementation.md`
+- `docs/implementation/phase14_documentation_cleanup_implementation.md`
 
-### Provider mock 누락
-
-E2E에서 mock provider override를 누락하면 YouTube/OpenAI API key나 네트워크 상태에 의존하게 된다.
-
-Phase 13에서 mock할 대상:
-
-- `YoutubeMetadataProvider`
-- `YoutubeTranscriptProvider`
-- `EmbeddingProvider`
-- `CommentAnalyzerProvider`
-- `SummaryProvider`
-- `AgentLlmProvider`
-
-### Frontend scope
-
-MVP 문서에는 사용자 화면 요구가 있지만 현재 frontend는 placeholder다. 다음 backend Phase에서 frontend를 섞으면 컨텍스트가 커진다.
-
-권장:
-
-- Phase 12는 backend API와 tests만 구현한다.
-- Admin UI는 Phase 12 범위에 포함하지 않는다.
-- frontend는 backend MVP가 안정된 뒤 별도 Phase로 분리한다.
-
-### README/API 문서 최신화
-
-README와 API 문서가 구현 속도를 따라가지 못하면 다음 작업자의 진입 비용이 커진다.
-
-권장:
-
-- 각 Phase 완료 후 구현 결과 문서를 `docs/implementation/*_implementation.md`로 남긴다.
-- README는 “현재 구현 상태”와 “다음 구현 순서”만 짧게 최신화한다.
-- 상세 정책은 phase harness 문서에 둔다.
+오래된 phase harness 문서는 당시 구현 계획을 이해하기 위한 참고 자료다. 실제 현재 상태는 최신 구현 결과 문서와 코드를 우선한다.
 
 ---
 
-## 5. 다음 작업 기준
+## 4. E2E 기준 상태
 
-다음 구현자는 아래 문서만 먼저 읽고 Phase 13을 시작할 수 있어야 한다.
+Phase 13 E2E 하네스는 다음 정책으로 동작한다.
+
+- 실제 `AppModule`을 부팅한다.
+- `arena_e2e` 계열 PostgreSQL DB를 사용한다.
+- migration을 실행하고 application table을 truncate한다.
+- truncate helper는 `NODE_ENV=test`와 안전한 DB 이름을 확인한다.
+- YouTube/OpenAI/LangChain provider는 deterministic mock으로 override한다.
+
+검증 범위:
+
+- 인증, CSRF, 권한 실패
+- 게시글 생성과 video `PENDING`
+- 댓글/대댓글, soft delete placeholder, `commentCount`
+- AI 분석 실패와 RAG evidence endpoint
+- 댓글 스레드 요약 최소 조건
+- admin 목록/삭제/retry 정책
+
+---
+
+## 5. 남은 리스크
+
+- 서버 내부 비동기 작업은 서버 재시작 시 유실될 수 있다.
+- Redis/BullMQ는 MVP 범위에서 제외되어 있다.
+- transcript provider는 `youtube-transcript-api` CLI 기반이라 외부 변경에 취약할 수 있다.
+- AI 분석/RAG/Agent/요약은 provider 비용, timeout, rate limit, 모델 변경 영향을 받는다.
+- frontend가 placeholder라 실제 사용자 workflow 검증은 아직 불가능하다.
+
+---
+
+## 6. 다음 작업 기준
+
+다음 기능 phase를 시작하는 구현자는 아래 문서를 먼저 확인한다.
 
 필수:
 
 - `AGENTS.md`
-- `docs/implementation/phase13_e2e_test_harness.md`
-- `docs/implementation/project_progress_audit_20260615.md`
+- `README.md`
+- `docs/api/backend_api.md`
+- `docs/database/erd.md`
+- `docs/operations/local_runbook.md`
+- `docs/implementation/mvp_limitations_and_next_steps.md`
 
-필요할 때만 참고:
+데모 또는 발표 준비:
 
-- `docs/implementation/arena_nestjs_module_structure.md`
-- `docs/implementation/phase11_comment_summary_implementation.md`
-- `docs/implementation/phase12_admin_implementation.md`
-- `docs/implementation/phase7_ai_comment_analysis.md`
-- `docs/implementation/phase8_rag_evidence.md`
+- `docs/demo/demo_scenarios.md`
+- `docs/implementation/phase13_e2e_test_implementation.md`
+- `docs/implementation/phase14_documentation_cleanup_implementation.md`
 
-Phase 13이 끝나면 다음 문서를 추가하는 것이 좋다.
-
-```text
-docs/implementation/phase13_e2e_test_implementation.md
-```
+코드와 문서가 다르면 코드를 우선 확인하고, 기능 변경이 필요한 경우 별도 fix phase로 분리한다.

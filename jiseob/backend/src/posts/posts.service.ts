@@ -101,9 +101,11 @@ export class PostsService {
       };
     });
 
+    const response = await this.getPost(postId);
+
     void this.videosService.enqueueProcessing(videoId).catch(() => undefined);
 
-    return this.getPost(postId);
+    return response;
   }
 
   async findPosts(query: FindPostsQueryDto): Promise<PaginatedPostsResponse> {

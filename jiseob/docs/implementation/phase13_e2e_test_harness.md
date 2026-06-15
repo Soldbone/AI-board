@@ -6,9 +6,11 @@
 
 ---
 
-## 0. 현재 기준 상태
+## 0. 작성 당시 기준 상태
 
-현재 코드 기준:
+이 문서는 Phase 13 구현 전 handoff 문서다. 현재 상태를 확인할 때는 `phase13_e2e_test_implementation.md`, `phase14_documentation_cleanup_implementation.md`, `README.md`를 우선한다.
+
+작성 당시 코드 기준:
 
 - 백엔드는 Phase 12까지 구현되어 있다.
 - `AdminModule`과 관리자 댓글 API가 `AppModule`에 등록되어 있다.
@@ -16,7 +18,7 @@
 - `backend/test/` 디렉터리와 E2E 전용 Jest config는 아직 없다.
 - `package.json`에는 `test:e2e` script가 아직 없다.
 - 프론트엔드는 placeholder 상태이므로 Phase 13 범위는 backend HTTP E2E로 한정한다.
-- `project_progress_audit_20260615.md`는 Phase 11 기준으로 작성되어 있어 일부 내용이 오래됐다. Phase 13 구현자는 README와 Phase 12 구현 문서를 더 최신 기준으로 본다.
+- 당시 `project_progress_audit_20260615.md`는 오래된 내용이 있어 README와 Phase 12 구현 문서를 더 최신 기준으로 보도록 안내했다.
 
 먼저 볼 코드:
 

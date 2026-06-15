@@ -103,9 +103,11 @@ export class CommentsService {
       return comment.id;
     });
 
+    const response = await this.getComment(commentId);
+
     this.enqueueCommentAnalysis(commentId);
 
-    return this.getComment(commentId);
+    return response;
   }
 
   async createReply(
@@ -139,9 +141,11 @@ export class CommentsService {
       return comment.id;
     });
 
+    const response = await this.getComment(commentId);
+
     this.enqueueCommentAnalysis(commentId);
 
-    return this.getComment(commentId);
+    return response;
   }
 
   async updateComment(
@@ -163,9 +167,11 @@ export class CommentsService {
       await this.commentAnalysisService.preparePendingAnalysis(comment.id, manager);
     });
 
+    const response = await this.getComment(commentId);
+
     this.enqueueCommentAnalysis(commentId);
 
-    return this.getComment(commentId);
+    return response;
   }
 
   async deleteComment(user: AuthenticatedUser, commentId: string): Promise<void> {
