@@ -244,10 +244,14 @@ MVP Agent는 게시글 상세 화면의 토론 보조자다.
 - 초기 loop 제한은 `maxSteps=4`, 전체 timeout 30초, tool timeout 10초로 시작한다.
 - LangChain 요구를 반영할 때는 `docs/implementation/phase10_langchain_adapter_plan.md`를 따른다.
 - LangChain은 Agent LLM decision provider 내부 adapter로만 사용하고, Agent 상태 머신과 MCP JSON-RPC tool boundary는 유지한다.
+- Phase 10.1 이후 `OpenAiAgentLlmProvider`는 `ChatOpenAI.withStructuredOutput()` 기반 LangChain adapter다.
+- Agent에는 LangChain AgentExecutor, LangGraph, LangChain tool calling을 도입하지 않는다.
+- Agent 자동 테스트는 실제 OpenAI API key나 네트워크 호출을 사용하지 않고 provider를 mock한다.
 
 ### 3-10. 댓글 스레드 요약 정책
 
 - Phase 11 구현자는 `docs/implementation/phase11_comment_summary_plan.md`의 구현 하네스를 기준으로 작업한다.
+- Phase 11 구현자는 Phase 10.1 LangChain adapter까지 완료된 상태를 전제로 한다.
 - 댓글 스레드 요약은 자동 생성하지 않는다.
 - 로그인 사용자가 “AI 요약” 버튼을 눌렀을 때만 생성한다.
 - 비회원은 이미 생성된 요약만 조회할 수 있다.
@@ -259,6 +263,7 @@ MVP Agent는 게시글 상세 화면의 토론 보조자다.
 - 요약 가능한 LLM 입력은 최대 700자로 제한한다.
 - 요약 생성 이후 새 댓글이 추가되면 기존 요약은 유지하되 최신 상태가 아닐 수 있음을 표시한다.
 - stale 요약을 재생성할 때는 전체 댓글을 다시 보내지 않고 기존 요약과 새 댓글만 사용해 갱신한다.
+- Summary는 Agent loop가 아니므로 `AgentService`, `McpServerService`, MCP tool boundary에 의존하지 않는다.
 
 ### 3-11. 삭제 정책
 

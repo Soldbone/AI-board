@@ -1,18 +1,18 @@
 # Phase 11. 댓글 스레드 요약 구현 계획
 
 > 기준 단계: `arena_implementation_plan.md`의 Phase 11  
-> 선행 단계: Phase 10 `AI Agent 추론 루프 구현`  
+> 선행 단계: Phase 10 `AI Agent 추론 루프 구현`, Phase 10.1 `LangChain Agent LLM Adapter 전환`  
 > 목표: 루트 댓글 스레드가 충분히 길 때 사용자가 AI 요약을 요청하고, 누구나 최신 요약을 조회할 수 있게 한다.
 
 ---
 
 ## 0. Phase 11 구현 하네스
 
-이 문서는 Phase 11 구현자가 `AGENTS.md`와 이 문서만 읽고 바로 작업을 시작할 수 있게 하기 위한 handoff 문서다. Phase 1~10 문서는 세부 배경이 필요할 때만 참고한다.
+이 문서는 Phase 11 구현자가 `AGENTS.md`와 이 문서만 읽고 바로 작업을 시작할 수 있게 하기 위한 handoff 문서다. Phase 1~10.1 문서는 세부 배경이 필요할 때만 참고한다.
 
 ### 현재 기준 상태
 
-- Phase 10까지 완료된 상태에서 시작한다.
+- Phase 10.1까지 완료된 상태에서 시작한다.
 - `CommentsModule`은 루트 댓글과 대댓글을 최대 2단계로 관리한다.
 - `comments.parent_comment_id IS NULL`이면 루트 댓글이고, 값이 있으면 대댓글이다.
 - 댓글/대댓글 생성과 삭제는 `posts.comment_count`를 transaction 안에서 증감한다.
@@ -20,10 +20,12 @@
 - `AiModule`에는 댓글 분석과 RAG가 있고, summary 하위 디렉터리는 아직 없다.
 - 공통 enum `SummaryStatus`, `SummaryTargetType`은 이미 `backend/src/common/enums/ai-status.enum.ts`에 있다.
 - Phase 10에서 `AgentModule`은 별도 모듈로 추가되어 있으며, Phase 11 summary는 AgentModule에 의존하지 않는다.
+- Phase 10.1에서 backend package에 LangChain dependency가 추가되어 있지만, Phase 11 summary는 Agent LLM provider를 재사용하지 않는다.
+- `OpenAiAgentLlmProvider`는 LangChain adapter지만, Summary provider는 이 문서 기준으로 독립 provider로 구현한다.
 
 ### 먼저 볼 코드
 
-Phase 11 구현 전에는 아래 파일만 먼저 읽으면 된다.
+Phase 11 구현 전에는 아래 파일만 먼저 읽으면 된다. `AgentModule` 내부 코드는 Summary가 의존하지 않으므로 기본 탐색 대상에서 제외한다.
 
 ```text
 backend/src/app.module.ts
@@ -38,6 +40,7 @@ backend/src/common/enums/ai-status.enum.ts
 backend/src/common/guards/jwt-auth.guard.ts
 backend/src/common/guards/csrf.guard.ts
 backend/src/database/migrations/2026061500000-CreateAgentRuns.ts
+backend/src/database/migrations/2026061402000-CreateRagEvidences.ts
 ```
 
 ### 새로 만들 구조
@@ -333,7 +336,7 @@ type SummaryProviderResult = {
 };
 ```
 
-구현은 `OpenAiCommentAnalyzerProvider`, `OpenAiAgentLlmProvider`처럼 OpenAI Responses API를 직접 `fetch`로 호출한다.
+구현은 `OpenAiCommentAnalyzerProvider`처럼 OpenAI Responses API를 직접 `fetch`로 호출한다. Phase 10.1의 `OpenAiAgentLlmProvider`는 LangChain adapter이므로 구조만 참고하고 재사용하지 않는다.
 
 환경 변수:
 
@@ -452,9 +455,10 @@ pnpm.cmd format:check
 
 ---
 
-## 8. Phase 10 구현 상태에서 이어받을 때 주의할 점
+## 8. Phase 10.1 구현 상태에서 이어받을 때 주의할 점
 
-- Phase 10 변경사항이 아직 커밋되지 않은 상태라면 Phase 11 브랜치를 만들기 전에 먼저 커밋하거나 stash한다.
-- Phase 10의 Agent LLM provider와 Summary provider는 비슷한 OpenAI Responses API 호출 패턴을 쓰지만 서로 재사용하지 않는다.
+- Phase 10.1 변경사항이 아직 커밋되지 않은 상태라면 Phase 11 브랜치를 만들기 전에 먼저 커밋하거나 stash한다.
+- Phase 10.1의 Agent LLM provider는 LangChain adapter다. Summary provider는 Agent provider, AgentService, MCP caller를 재사용하지 않는다.
+- backend에는 LangChain dependency가 이미 있지만, Summary에 LangChain을 도입하려면 별도 Phase 문서에서 provider 계약과 테스트 정책을 먼저 갱신한다.
 - 댓글 분석 provider에는 rule-based fallback이 있지만, Summary provider에는 runtime 성공 fallback을 두지 않는다.
 - 자동 테스트는 실제 OpenAI API key를 사용하지 않는다. 실제 key smoke test가 필요하면 별도 수동 절차로 1회만 수행한다.

@@ -3,19 +3,22 @@
 > 기준 단계: Phase 10 `AI Agent 추론 루프 구현` 이후  
 > 목표: 과제 명세의 LangChain 요구를 충족하되, Arena의 MCP 경계와 Agent 실행 정책은 유지한다.  
 > 핵심 결정: Agent orchestration은 직접 구현한 상태 머신을 유지하고, LLM decision 생성 provider만 LangChain 기반 adapter로 교체한다.
+> 구현 상태: 2026-06-15 현재 완료. 이후 작업자는 이 문서를 회귀 검증과 유지보수 기준으로 사용한다.
 
 ---
 
 ## 0. Phase 10.1 구현 하네스
 
-이 문서는 Phase 10 구현 이후 Agent LLM 호출부를 LangChain 기반으로 전환할 때 필요한 handoff 문서다. 구현자는 `AGENTS.md`, `phase10_ai_agent_loop_plan.md`, 이 문서만 읽고 작업을 시작할 수 있어야 한다.
+이 문서는 Phase 10 구현 이후 Agent LLM 호출부를 LangChain 기반으로 전환하거나 회귀 검증할 때 필요한 handoff 문서다. 구현자는 `AGENTS.md`, `phase10_ai_agent_loop_plan.md`, 이 문서만 읽고 작업을 시작할 수 있어야 한다.
 
 ### 현재 기준 상태
 
 - Phase 10 Agent는 이미 `backend/src/agent`에 구현되어 있다.
 - `AgentService`는 `post.getContext -> model decision -> MCP tool call -> observe -> final` 상태 머신을 직접 실행한다.
 - `AgentMcpCallerService`는 `McpServerService.handleRequest()`를 감싸고 JSON-RPC `tools/list`, `tools/call` 결과를 정제한다.
-- `AgentLlmProvider`는 abstract provider이며, 현재 구현체 `OpenAiAgentLlmProvider`는 OpenAI Responses API를 직접 `fetch`로 호출한다.
+- `AgentLlmProvider`는 abstract provider이며, 현재 구현체 `OpenAiAgentLlmProvider`는 `ChatOpenAI.withStructuredOutput()` 기반 LangChain adapter다.
+- backend package에는 `@langchain/openai`, `@langchain/core`, `zod`가 추가되어 있다.
+- provider 테스트는 `ChatOpenAI`를 mock하며 실제 OpenAI API key나 네트워크 호출을 사용하지 않는다.
 - `AgentRun`, `AgentStep`은 DB에 실행 상태와 trace를 저장한다.
 - 자동 Agent loop allowlist는 `post.getContext`, `video.getProcessingStatus`, `transcript.searchChunks`, `youtube.fetchMetadata`다.
 - `video.retryProcessing`은 MCP tool로 존재하지만 자동 Agent loop에서는 제외되어 있다.
@@ -35,7 +38,7 @@ backend/src/mcp/mcp.types.ts
 
 ### 설치할 의존성
 
-backend package에 LangChain OpenAI adapter를 추가한다.
+현재 기준으로는 이미 설치되어 있다. 새 브랜치나 lockfile 충돌로 누락된 경우에만 backend package에 LangChain OpenAI adapter를 추가한다.
 
 ```powershell
 pnpm.cmd --filter @arena/backend add @langchain/openai @langchain/core zod
@@ -86,7 +89,7 @@ API route/response shape
 
 ## 2. 목표 아키텍처
 
-현재 구조:
+전환 전 구조:
 
 ```text
 AgentService
@@ -95,7 +98,7 @@ AgentService
 → AgentModelDecision
 ```
 
-전환 후 구조:
+전환 후 현재 구조:
 
 ```text
 AgentService
@@ -142,7 +145,7 @@ const agentDecisionSchema = z
     z.object({
       type: z.literal('tool_call'),
       toolName: z.string(),
-      arguments: z.record(z.unknown()),
+      arguments: z.record(z.string(), z.unknown()),
       rationale: z.string().optional(),
     }),
     z.object({
@@ -174,10 +177,17 @@ const model = new ChatOpenAI({
   model: this.model,
   timeout: this.getTimeoutMs(),
   maxTokens: this.getMaxOutputTokens(),
+  maxRetries: 0,
+  temperature: 0,
+  modelKwargs: {
+    store: false,
+  },
+  zdrEnabled: true,
 });
 
 const structuredModel = model.withStructuredOutput(agentDecisionSchema, {
   name: 'agent_decision',
+  strict: true,
 });
 
 const decision = await structuredModel.invoke([
@@ -200,7 +210,8 @@ AGENT_MAX_OUTPUT_TOKENS=1200
 - API key가 없으면 LangChain model을 만들지 않고 즉시 `MISSING_OPENAI_API_KEY`를 던진다.
 - LangChain raw error message는 DB/사용자 응답에 저장하지 않는다.
 - prompt 전체를 `AgentStep.modelOutput`에 저장하지 않는다.
-- `store: false`를 LangChain에서 직접 보장하기 어렵다면 문서/코드 주석으로 한계를 남긴다. 대신 prompt/trace를 DB에 저장하지 않는 정책은 반드시 유지한다.
+- 현재 구현은 `modelKwargs.store=false`와 `zdrEnabled=true`를 설정한다. 단, OpenAI 조직/프로젝트의 Zero Data Retention 자체는 코드가 아니라 플랫폼 설정에서 보장되는 영역이다.
+- DB에는 prompt 전체를 저장하지 않고, 모델 decision 또는 정제된 error만 저장한다.
 
 ---
 
@@ -250,10 +261,10 @@ pnpm.cmd format:check
 
 ## 7. 구현 순서
 
-1. backend에 `@langchain/openai`, `@langchain/core`, `zod`를 설치한다.
-2. `OpenAiAgentLlmProvider`의 direct fetch 구현을 `ChatOpenAI.withStructuredOutput()` 기반으로 교체한다.
-3. 기존 `AgentLlmProvider` interface와 `AgentModelDecision` 타입은 유지한다.
-4. `agent-llm.provider.spec.ts`를 LangChain mock 방식으로 수정한다.
+1. backend에 `@langchain/openai`, `@langchain/core`, `zod`가 있는지 확인한다.
+2. `OpenAiAgentLlmProvider`가 `ChatOpenAI.withStructuredOutput()` 기반인지 확인한다.
+3. 기존 `AgentLlmProvider` interface와 `AgentModelDecision` 타입이 유지되는지 확인한다.
+4. `agent-llm.provider.spec.ts`가 LangChain mock 방식이며 실제 API key를 쓰지 않는지 확인한다.
 5. 기존 `agent.service.spec.ts`, `agent-mcp-caller.service.spec.ts`가 그대로 통과하는지 확인한다.
 6. 검증 명령 4개를 모두 통과시킨다.
 
