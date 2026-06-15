@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import Any
@@ -21,6 +22,7 @@ from app.services.mcp_client_service import (
 load_dotenv()
 
 DEFAULT_AGENT_MODEL = "gpt-4o-mini"
+DEFAULT_AGENT_TIMEOUT_SECONDS = 12.0
 SYSTEM_PROMPT = """
 너는 동네 가게 추천 게시판의 AI Agent다.
 사용자의 지역과 요청 의도를 바탕으로 필요한 경우 MCP 도구를 호출해 장소 후보를 찾는다.
@@ -51,9 +53,37 @@ FALLBACK_KEYWORD_RULES = [
     ("옷가게", ("옷가게", "의류", "옷")),
 ]
 
+CONDITION_KEYWORD_RULES = [
+    ("조용한", ("조용", "조용한", "시끄럽지", "대화하기", "차분")),
+    ("공부", ("공부", "작업", "노트북", "콘센트")),
+    ("가성비", ("가성비", "저렴", "싼", "가격", "비싸지", "착한")),
+    ("혼밥", ("혼밥", "혼자", "1인", "일인")),
+    ("데이트", ("데이트", "분위기", "예쁜", "감성")),
+    ("주차", ("주차", "주차장", "차 가져")),
+    ("포장", ("포장", "테이크아웃", "가져가기")),
+    ("배달", ("배달", "배달되는")),
+    ("대기 적은", ("대기", "웨이팅", "줄 안", "안 기다")),
+    ("아이랑", ("아이", "아기", "가족", "유아")),
+    ("넓은", ("넓은", "자리 많은", "좌석")),
+    ("늦게까지", ("늦게", "밤", "야식")),
+]
+
 
 def get_agent_model_name() -> str:
     return os.getenv("OPENAI_AGENT_MODEL", DEFAULT_AGENT_MODEL).strip()
+
+
+def get_agent_timeout_seconds() -> float:
+    raw_timeout = os.getenv("OPENAI_AGENT_TIMEOUT_SECONDS", "")
+    if not raw_timeout:
+        return DEFAULT_AGENT_TIMEOUT_SECONDS
+
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        return DEFAULT_AGENT_TIMEOUT_SECONDS
+
+    return max(1.0, min(timeout, 30.0))
 
 
 async def load_place_search_tools():
@@ -85,7 +115,7 @@ async def create_place_recommendation_agent():
 
 
 def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> str:
-    keyword = request_data.keyword or "요청 내용에서 적절한 검색 키워드를 판단해줘"
+    keyword = build_fallback_keyword(request_data)
 
     return f"""
 지역: {request_data.region}
@@ -95,20 +125,55 @@ def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> s
 검색 결과 개수: {request_data.display}
 
 위 정보를 바탕으로 사용자가 참고할 만한 장소를 추천해줘.
+정확한 가게 후기를 묻는 요청이면 가게명 중심으로 검색해줘.
+조건을 만족하는 가게 리스트 요청이면 검색 키워드를 '조건 + 업종' 형태로 만들어줘.
 필요하면 search_local_places 도구를 사용해줘.
 """.strip()
 
 
-def build_fallback_keyword(request_data: AgentPlaceRecommendationRequest) -> str:
-    if request_data.keyword:
-        return request_data.keyword
-
-    source_text = f"{request_data.title} {request_data.content}".strip()
+def _find_business_keyword(source_text: str) -> str:
     for keyword, aliases in FALLBACK_KEYWORD_RULES:
         if any(alias in source_text for alias in aliases):
             return keyword
 
+    return ""
+
+
+def _find_condition_keywords(source_text: str, limit: int = 1) -> list[str]:
+    conditions: list[str] = []
+
+    for keyword, aliases in CONDITION_KEYWORD_RULES:
+        if keyword in conditions:
+            continue
+        if any(alias in source_text for alias in aliases):
+            conditions.append(keyword)
+        if len(conditions) >= limit:
+            break
+
+    return conditions
+
+
+def build_fallback_keyword(request_data: AgentPlaceRecommendationRequest) -> str:
+    source_text = f"{request_data.title} {request_data.content}".strip()
+    hinted_keyword = (request_data.keyword or "").strip()
+    business_keyword = _find_business_keyword(f"{source_text} {hinted_keyword}")
+    condition_keywords = _find_condition_keywords(source_text)
+
+    if business_keyword and condition_keywords:
+        return " ".join([*condition_keywords, business_keyword])
+
+    if hinted_keyword:
+        return hinted_keyword
+
+    if business_keyword:
+        return business_keyword
+
     return source_text[:30].strip() or "맛집"
+
+
+def build_tool_status(prefix: str, raw_status: Any) -> str:
+    status = str(raw_status or "success").strip() or "success"
+    return f"{prefix}_{status}"
 
 
 async def recommend_places_with_mcp_fallback(
@@ -131,7 +196,7 @@ async def recommend_places_with_mcp_fallback(
         places=tool_payload.get("places", []),
         fallback_map_url=tool_payload.get("fallback_map_url", ""),
         reasoning_summary="Agent 응답이 비어 있거나 실패하여 MCP 직접 검색으로 대체했습니다.",
-        tool_status=tool_payload.get("status", "fallback_direct_mcp"),
+        tool_status=build_tool_status("fallback_direct_mcp", tool_payload.get("status")),
     )
 
 
@@ -205,15 +270,18 @@ async def recommend_places_with_agent(
 ) -> AgentPlaceRecommendationResponse:
     try:
         agent = await create_place_recommendation_agent()
-        result = await agent.ainvoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": build_agent_user_message(request_data),
-                    }
-                ]
-            }
+        result = await asyncio.wait_for(
+            agent.ainvoke(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": build_agent_user_message(request_data),
+                        }
+                    ]
+                }
+            ),
+            timeout=get_agent_timeout_seconds(),
         )
     except Exception as exc:
         try:
@@ -243,5 +311,5 @@ async def recommend_places_with_agent(
             if used_mcp
             else "LangChain Agent가 MCP 도구 없이 응답했습니다."
         ),
-        tool_status=tool_payload.get("status", ""),
+        tool_status=build_tool_status("agent_mcp", tool_payload.get("status")),
     )
