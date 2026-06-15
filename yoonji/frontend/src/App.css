@@ -727,18 +727,26 @@ button:disabled {
   min-width: 0;
 }
 
+.detail-main-card {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid rgba(208, 224, 225, 0.78);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(35, 45, 65, 0.08);
+}
+
 .detail-header {
   display: grid;
   gap: 16px;
-  padding: 16px;
-  border: 1px solid rgba(208, 224, 225, 0.78);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 8px 22px rgba(35, 45, 65, 0.08);
-  backdrop-filter: blur(6px);
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e4e9f1;
 }
 
 .detail-header h2 {
+  margin: 0;
   font-size: 32px;
 }
 
@@ -751,10 +759,9 @@ button:disabled {
 }
 
 .detail-box {
-  padding: 18px;
-  border: 1px solid #d9e0ea;
-  border-radius: 8px;
-  background: #ffffff;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .detail-box h3 {
@@ -763,10 +770,8 @@ button:disabled {
 }
 
 .detail-content {
-  padding: 24px;
-  border: 1px solid #d9e0ea;
-  border-radius: 8px;
-  background: #ffffff;
+  padding: 18px 0 0;
+  border-top: 1px solid #e4e9f1;
   color: #202733;
   line-height: 1.8;
 }
@@ -852,6 +857,35 @@ button:disabled {
   margin: 0;
   color: #101828;
   font-size: 24px;
+}
+
+.ai-answer-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+}
+
+.ai-answer-description {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-answer-generating {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid #b9dfd9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f9f86;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.4;
+  box-shadow: 0 12px 28px rgba(15, 188, 155, 0.16);
 }
 
 .official-product-card {
@@ -985,6 +1019,101 @@ button:disabled {
 
 .ai-answer-content p:last-child {
   margin-bottom: 0;
+}
+
+.ai-question-answer-card {
+  display: grid;
+  gap: 16px;
+}
+
+.ai-question-answer-card .ai-follow-up-thread {
+  padding-top: 2px;
+}
+
+.ai-question-answer-card .ai-follow-up-form {
+  padding: 14px 0 0;
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-question-answer-card .ai-answer-content-follow-up {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-follow-up-thread {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-follow-up-turn {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-follow-up-question {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #f7fbfb;
+}
+
+.ai-follow-up-question span {
+  color: #2f5f63;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-follow-up-question p {
+  margin: 0;
+  color: #202733;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ai-answer-content-follow-up {
+  border-color: #cfe5e2;
+  background: #ffffff;
+}
+
+.ai-follow-up-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.ai-follow-up-form input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cdd6e2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #101828;
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.ai-follow-up-form input:focus {
+  border-color: #2f8f83;
+  outline: 3px solid rgba(47, 143, 131, 0.16);
+}
+
+.ai-follow-up-form input:disabled {
+  color: #667085;
+  background: #f1f3f5;
 }
 
 .ai-option-row {
@@ -1209,6 +1338,23 @@ button:disabled {
   object-fit: cover;
 }
 
+.reference-review-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  background: #edf7f5;
+  color: #2f5f63;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.reference-review-card .post-card-tags {
+  margin-top: 10px;
+}
+
 .similar-post-card span {
   color: #2f5f63;
   font-size: 13px;
@@ -1384,8 +1530,7 @@ button:disabled {
 
   .auth-panel,
   .account-panel,
-  .detail-content,
-  .detail-box {
+  .detail-main-card {
     padding: 18px;
   }
 
@@ -1417,6 +1562,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .ai-follow-up-form {
+    grid-template-columns: 1fr;
+  }
+
   .heading-actions,
   .search-actions,
   .form-actions,
@@ -1436,6 +1585,7 @@ button:disabled {
   .tag-input-controls button,
   .product-info-heading button,
   .ai-answer-heading button,
+  .ai-follow-up-form button,
   .comment-form-actions button,
   .comment-card-actions button,
   .comment-pagination button {

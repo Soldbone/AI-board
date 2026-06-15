@@ -7,7 +7,7 @@
 - 테스트 관점: 사용자가 실제 화면에서 수행하는 흐름 중심
 - 테스트 범위:
   - 핵심 기능: 회원, 게시판, 게시글, 이미지, 댓글, 태그, 검색, 권한
-  - AI 기능: 후기 유사 피규어 추천, 질문 참고 답변, 구매 고민 요약/추천
+  - AI 기능: 후기 유사 피규어 추천, 게시글 맥락 Agent 답변, 구매 고민 요약/추천
 - API prefix: `/api/v1`
 - 인증: 회원 기능은 JWT access token이 필요하다.
 - 외부 링크 정책: 사용자는 게시글 작성 시 URL을 별도 입력하지 않는다.
@@ -164,7 +164,7 @@
 기대 결과:
 
 - 질문 게시글이 `PUBLISHED` 상태로 생성된다.
-- 상세 화면에서 질문 본문, 태그, 댓글 영역, AI 참고 답변 영역이 구분되어 표시된다.
+- 상세 화면에서 질문 본문, 태그, 댓글 영역, Post Agent Answer 영역이 구분되어 표시된다.
 
 ### BOARD-08. 사용자가 구매 고민 게시글을 작성한다
 
@@ -417,56 +417,57 @@
 - 오류가 아니라 `items=[]` 또는 실제 후보 개수만 반환된다.
 - 화면은 추천 영역을 숨기거나 “추천할 게시글이 아직 없습니다” 상태를 표시한다.
 
-### AI-03. 질문 게시글 작성 후 AI 참고 답변을 생성한다
+### AI-03. 질문 게시글에서 Post Agent Answer를 실행한다
 
 | 항목 | 내용 |
 | --- | --- |
-| 목적 | 질문 게시판 AI 참고 답변 흐름 확인 |
+| 목적 | 질문 게시판의 게시글 맥락 Agent 답변 흐름 확인 |
 | 사전 조건 | 질문과 관련된 정보글/댓글이 인덱싱되어 있음 |
-| 주요 API | `POST /posts`, `POST /posts/{post_id}/ai/reference-answer`, `GET /ai/outputs/{ai_output_id}` |
+| 주요 API | `POST /posts`, `POST /posts/{post_id}/ai/agent-answer`, `GET /ai/outputs/{ai_output_id}` |
 
 절차:
 
 1. `QUESTION` 게시판에 `피규어 먼지 관리는 어떻게 하나요?` 질문을 작성한다.
-2. 해당 게시글에 AI 참고 답변 생성을 요청한다.
+2. 해당 게시글에서 Post Agent Answer 실행을 요청한다.
 3. AI 결과를 폴링한다.
-4. 게시글 상세와 AI 결과 조회 응답을 화면의 서로 다른 영역에 표시한다.
+4. 게시글 상세와 AI 결과 조회 응답을 Post Agent Answer 영역에 표시한다.
 
 기대 결과:
 
-- AI 결과의 `output_type`은 `QUESTION_REFERENCE_ANSWER`다.
+- AI 결과의 `output_type`은 `AGENT_ANSWER`다.
 - 결과의 `target_post_id`는 질문 게시글 ID다.
-- AI 답변은 일반 댓글이 아니라 AI 참고 답변 영역에 표시된다.
+- AI 답변은 일반 댓글이 아니라 Post Agent Answer 영역에 표시된다.
 - 근거 게시글 또는 댓글 링크가 함께 제공된다.
+- MCP 상품 후보 검색은 질문 게시판에서 사용되지 않는다.
 
-### AI-04. 질문 게시글이 아닌 글에 참고 답변 생성을 요청하면 실패한다
+### AI-04. 지원하지 않는 게시판에서 Agent 답변을 요청하면 실패한다
 
 | 항목 | 내용 |
 | --- | --- |
-| 목적 | AI 기능 대상 게시판 검증 |
-| 사전 조건 | `REVIEW` 게시글 존재 |
-| 주요 API | `POST /posts/{post_id}/ai/reference-answer` |
+| 목적 | Agent 기능 대상 게시판 검증 |
+| 사전 조건 | `INFO` 게시글 존재 |
+| 주요 API | `POST /posts/{post_id}/ai/agent-answer` |
 
 절차:
 
-1. `REVIEW` 게시글 ID로 참고 답변 생성을 요청한다.
+1. `INFO` 게시글 ID로 Agent 답변 생성을 요청한다.
 
 기대 결과:
 
 - `400 Bad Request` 또는 `422 Unprocessable Entity`가 반환된다.
-- 에러 메시지는 `QUESTION` 게시판 대상 기능임을 알려준다.
+- 에러 메시지는 지원하는 게시판이 `REVIEW`, `QUESTION`, `PURCHASE_HELP`임을 알려준다.
 
-### AI-05. 질문 참고 답변 근거가 부족하면 제한된 답변을 반환한다
+### AI-05. 질문 Agent 답변 근거가 부족하면 제한된 답변을 반환한다
 
 | 항목 | 내용 |
 | --- | --- |
-| 목적 | 질문 참고 답변 환각 방지 정책 확인 |
+| 목적 | 질문 Agent 답변 환각 방지 정책 확인 |
 | 사전 조건 | 질문과 관련된 과거 질문/댓글 근거가 없음 |
-| 주요 API | `POST /posts/{post_id}/ai/reference-answer`, `GET /ai/outputs/{ai_output_id}` |
+| 주요 API | `POST /posts/{post_id}/ai/agent-answer`, `GET /ai/outputs/{ai_output_id}` |
 
 절차:
 
-1. 근거가 부족한 `QUESTION` 게시글에 AI 참고 답변 생성을 요청한다.
+1. 근거가 부족한 `QUESTION` 게시글에 Agent 답변 생성을 요청한다.
 2. AI 결과를 조회한다.
 
 기대 결과:
@@ -537,7 +538,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 목적 | AI 생성 콘텐츠와 사용자 콘텐츠 구분 확인 |
-| 사전 조건 | 질문 게시글에 사용자 댓글과 AI 참고 답변이 모두 존재 |
+| 사전 조건 | 질문 게시글에 사용자 댓글과 Agent 답변이 모두 존재 |
 | 주요 API | `GET /posts/{post_id}`, `GET /posts/{post_id}/comments`, `GET /ai/outputs/{ai_output_id}` |
 
 절차:
@@ -545,12 +546,12 @@
 1. 질문 게시글 상세를 조회한다.
 2. 댓글 목록 API를 조회한다.
 3. AI output 조회 API를 조회한다.
-4. 댓글 영역과 AI 참고 답변 영역을 확인한다.
+4. 댓글 영역과 Post Agent Answer 영역을 확인한다.
 
 기대 결과:
 
 - 사용자 댓글은 댓글 목록에 표시된다.
-- AI 참고 답변은 별도 AI 영역에 표시된다.
+- Agent 답변은 별도 AI 영역에 표시된다.
 - AI 답변에는 근거 출처와 참고용 안내가 표시된다.
 - 게시글의 `comment_count`는 사용자 댓글만 반영하고 AI output 수를 더하지 않는다.
 
@@ -560,13 +561,13 @@
 | --- | --- |
 | 목적 | 재인덱싱 후 AI 답변 최신성 확인 |
 | 사전 조건 | 기존 게시글이 인덱싱되어 있고 회원 A 로그인 |
-| 주요 API | `PATCH /posts/{post_id}`, `POST /internal/indexing/posts/{post_id}`, `POST /posts/{post_id}/ai/reference-answer` |
+| 주요 API | `PATCH /posts/{post_id}`, `POST /internal/indexing/posts/{post_id}`, `POST /posts/{post_id}/ai/agent-answer` |
 
 절차:
 
 1. 기존 정보 게시글의 본문을 수정한다.
 2. 재인덱싱 작업을 실행한다.
-3. 수정된 내용과 관련된 질문 참고 답변 생성을 요청한다.
+3. 수정된 내용과 관련된 질문 Agent 답변 생성을 요청한다.
 
 기대 결과:
 
@@ -602,7 +603,7 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 
 - `REVIEW`, `QUESTION`, `PURCHASE_HELP` seed 게시글이 확인된다.
 - `ContentChunk`에 게시글/댓글 청크와 deterministic mock vector가 들어 있다.
-- 질문 참고 답변과 구매 고민 요약 `AiOutput`이 사용자 댓글과 분리되어 있다.
+- Agent 답변과 구매 고민 요약 `AiOutput`이 사용자 댓글과 분리되어 있다.
 - `AiOutputSource`가 게시글/댓글/chunk 근거를 가리킨다.
 - `GET /ai/outputs/{ai_output_id}` 응답에 `sources`가 포함된다.
 - 스크립트는 실제 OpenAI API를 호출하지 않는다.
@@ -793,7 +794,7 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 
 - AI-01 후기 유사 게시글 추천
 - AI-02 유사 후보 부족 처리
-- AI-03 질문 참고 답변
+- AI-03 질문 Post Agent Answer
 - AI-05 질문 근거 부족 답변 제한
 - AI-06 구매 고민 요약
 - AI-07 유사 가격대 구매 추천

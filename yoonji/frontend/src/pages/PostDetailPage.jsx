@@ -3,12 +3,11 @@ import { useState } from "react";
 import { API_BASE_URL } from "../api/client";
 import { deletePost } from "../api/postApi";
 import AgentAnswerBox from "../components/ai/AgentAnswerBox";
-import AiAnswerBox from "../components/ai/AiAnswerBox";
-import PurchaseSummaryBox from "../components/ai/PurchaseSummaryBox";
 import CommentForm from "../components/comment/CommentForm";
 import CommentList from "../components/comment/CommentList";
 import Button from "../components/common/Button";
 import Modal from "../components/common/Modal";
+import ReferenceReviewList from "../components/post/ReferenceReviewList";
 import SimilarPostList from "../components/post/SimilarPostList";
 import ProductInfoCard from "../components/product/ProductInfoCard";
 import { useComments } from "../hooks/useComments";
@@ -141,6 +140,7 @@ function PostDetailPage({
         <p>이 게시글을 삭제할까요? 삭제한 글은 목록과 검색 결과에서 보이지 않습니다.</p>
       </Modal>
 
+      <section className="detail-main-card">
       <header className="detail-header">
         <p className="eyebrow">{post.board.name}</p>
         <h2>{post.title}</h2>
@@ -202,6 +202,8 @@ function PostDetailPage({
         </div>
       )}
 
+      </section>
+
       {post.images.length > 0 && (
         <section className="image-grid" aria-label="post images">
           {post.images.map((image) => (
@@ -224,24 +226,16 @@ function PostDetailPage({
         </>
       )}
 
-      {post.board.code === "QUESTION" && (
-        <AiAnswerBox
-          currentUser={currentUser}
-          onSelectPost={onOpenPost}
-          postId={post.id}
-        />
-      )}
-
       {post.board.code === "PURCHASE_HELP" && (
-        <PurchaseSummaryBox
-          currentUser={currentUser}
+        <ReferenceReviewList
           onSelectPost={onOpenPost}
-          postId={post.id}
+          post={post}
         />
       )}
 
-      {["REVIEW", "QUESTION", "PURCHASE_HELP"].includes(post.board.code) && (
+      {["REVIEW", "QUESTION"].includes(post.board.code) && (
         <AgentAnswerBox
+          autoRunVersion={post.updated_at}
           boardCode={post.board.code}
           currentUser={currentUser}
           onSelectPost={onOpenPost}

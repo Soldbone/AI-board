@@ -1,17 +1,6 @@
 import axiosInstance from "./axiosInstance";
 
 
-export async function requestQuestionReferenceAnswer(postId, payload = {}) {
-  const response = await axiosInstance.post(
-    `/posts/${postId}/ai/reference-answer`,
-    {
-      top_k: payload.top_k ?? payload.topK ?? 5,
-    },
-  );
-  return response.data;
-}
-
-
 export async function requestPurchaseSummary(postId, payload = {}) {
   const response = await axiosInstance.post(
     `/posts/${postId}/ai/purchase-summary`,

@@ -5,9 +5,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-load_dotenv()
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_ROOT.parent
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(BACKEND_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 class Settings:

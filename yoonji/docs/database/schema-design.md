@@ -310,7 +310,7 @@ MVP에서는 대댓글은 제외하고, 게시글에 직접 달리는 댓글만 
 
 RAG 검색을 위해 게시글과 댓글을 잘게 나눈 문서 조각 엔티티.
 
-AI Q&A, 질문 참고 답변, 구매 고민 요약, 유사 게시글 검색의 기반 데이터가 된다.
+AI Q&A, 게시글 맥락 Agent 답변, 구매 고민 요약, 유사 게시글 검색의 기반 데이터가 된다.
 
 핵심 필드 후보:
 
@@ -379,8 +379,8 @@ AI 기능 디버깅을 위해 사용자가 실제로 입력한 질문 또는 작
 
 `output_type`
 
-- `QUESTION_REFERENCE_ANSWER`
 - `PURCHASE_SUMMARY`
+- `AGENT_ANSWER`
 
 `status`
 

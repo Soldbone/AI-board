@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getAiOutput,
   requestPurchaseSummary,
-  requestQuestionReferenceAnswer,
 } from "../api/aiApi";
 import { getApiErrorMessage } from "./usePosts";
 
@@ -84,21 +83,6 @@ export function useAiAnswer(postId) {
     [pollAiOutput],
   );
 
-  const requestReferenceAnswer = useCallback(
-    async ({ topK = 5 } = {}) => {
-      if (!postId) {
-        return null;
-      }
-
-      return requestAiOutput(() =>
-        requestQuestionReferenceAnswer(postId, {
-          top_k: topK,
-        }),
-      );
-    },
-    [postId, requestAiOutput],
-  );
-
   const requestPurchaseSummaryAnswer = useCallback(
     async ({ includeSimilarPriceRange = true, topK = 5 } = {}) => {
       if (!postId) {
@@ -130,6 +114,5 @@ export function useAiAnswer(postId) {
     isPolling,
     isRequesting,
     requestPurchaseSummaryAnswer,
-    requestReferenceAnswer,
   };
 }

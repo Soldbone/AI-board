@@ -91,8 +91,8 @@ TagStatus = ACTIVE | MERGED | BLOCKED | DELETED
 ImageStatus = TEMP | ATTACHED | DELETED | FAILED
 
 AiOutputType =
-  QUESTION_REFERENCE_ANSWER
-  | PURCHASE_SUMMARY
+  PURCHASE_SUMMARY
+  | AGENT_ANSWER
 
 AiOutputStatus =
   REQUESTED
@@ -198,10 +198,10 @@ API 요청/응답에서는 `figure_name`, `manufacturer`를 사용한다. DB 컬
 ```json
 {
   "id": 50,
-  "output_type": "QUESTION_REFERENCE_ANSWER",
+  "output_type": "AGENT_ANSWER",
   "target_post_id": 10,
   "query_text": "피규어 먼지 관리는 어떻게 해?",
-  "title": "과거 답변 기반 참고 답변",
+  "title": "AI Agent Answer",
   "content": "과거 질문과 댓글 기준으로는 부드러운 붓, 아크릴 케이스, 습도 관리가 자주 언급됩니다.",
   "status": "GENERATED",
   "grounding_status": "GROUNDED",
@@ -864,11 +864,11 @@ Response `200 OK`:
 ```json
 {
   "id": 50,
-  "output_type": "QUESTION_REFERENCE_ANSWER",
+  "output_type": "PURCHASE_SUMMARY",
   "target_post_id": 10,
-  "query_text": "피규어 먼지 관리는 어떻게 해야 해?",
-  "title": "과거 답변 기반 참고 답변",
-  "content": "과거 질문과 댓글 근거에 따르면 부드러운 붓, 아크릴 케이스, 직사광선 회피가 자주 언급됩니다.",
+  "query_text": "넨도로이드 구매를 고민 중입니다.",
+  "title": "AI 구매 요약",
+  "content": "검색된 후기 근거에 따르면 가격대와 만족도는 양호하지만 부품 관리 주의가 반복적으로 언급됩니다.",
   "status": "GENERATED",
   "grounding_status": "GROUNDED",
   "confidence_score": 0.82,
@@ -916,31 +916,7 @@ Response `200 OK`:
 
 MVP에서는 이 결과를 저장하지 않고 실시간 검색 결과로 반환한다.
 
-### 11.3 질문 게시글 참고 답변 생성
-
-`POST /api/v1/posts/{post_id}/ai/reference-answer`
-
-권한: 회원
-
-대상 게시글은 `QUESTION` 게시판이어야 한다.
-
-Request:
-
-```json
-{
-  "top_k": 5
-}
-```
-
-Response `202 Accepted`: AiOutput
-
-생성 결과:
-
-- `output_type`: `QUESTION_REFERENCE_ANSWER`
-- `target_post_id`: 질문 게시글 ID
-- 화면에서는 일반 댓글이 아니라 AI 참고 답변 영역에 표시한다.
-
-### 11.4 구매 고민 요약 생성
+### 11.3 구매 고민 요약 생성
 
 `POST /api/v1/posts/{post_id}/ai/purchase-summary`
 
@@ -966,6 +942,33 @@ Response `202 Accepted`: AiOutput
 - 유사 가격대 추천 글
 - 자주 언급된 장점과 단점
 - 근거 게시글 링크
+
+### 11.4 게시글 맥락 Agent 답변 생성
+
+`POST /api/v1/posts/{post_id}/ai/agent-answer`
+
+권한: 회원
+
+대상 게시판은 `REVIEW`, `QUESTION`, `PURCHASE_HELP`를 지원한다.
+
+Request:
+
+```json
+{
+  "message": "과거 질문과 댓글 근거를 찾아 참고 답변을 작성해 주세요.",
+  "top_k": 5,
+  "include_mcp": false
+}
+```
+
+Response `202 Accepted`: AiOutput
+
+생성 결과:
+
+- `output_type`: `AGENT_ANSWER`
+- 게시판별 허용 tool을 사용해 근거를 검색한다.
+- `QUESTION` 게시글에서는 과거 질문/댓글 근거 검색 tool을 사용한다.
+- 화면에서는 일반 댓글이 아니라 Post Agent Answer 영역에 표시한다.
 
 ### 11.5 개발용 RAG 통합 smoke check
 
@@ -1086,11 +1089,11 @@ Response `202 Accepted`
 ### 14.3 질문 작성
 
 1. `POST /api/v1/posts`
-2. `POST /api/v1/posts/{post_id}/ai/reference-answer`
+2. `POST /api/v1/posts/{post_id}/ai/agent-answer`
 3. `GET /api/v1/ai/outputs/{ai_output_id}` 폴링
 4. `GET /api/v1/posts/{post_id}`로 게시글 본문 조회
 5. `GET /api/v1/posts/{post_id}/comments`로 사용자 댓글 조회
-6. AI 참고 답변은 `GET /api/v1/ai/outputs/{ai_output_id}` 응답을 별도 AI 영역에 표시
+6. Agent 답변은 `GET /api/v1/ai/outputs/{ai_output_id}` 응답을 Post Agent Answer 영역에 표시
 
 ### 14.4 구매 고민 작성
 
@@ -1127,8 +1130,8 @@ Response `202 Accepted`
 
 - `GET /ai/outputs/{ai_output_id}`
 - `GET /posts/{post_id}/similar-posts`
-- `POST /posts/{post_id}/ai/reference-answer`
 - `POST /posts/{post_id}/ai/purchase-summary`
+- `POST /posts/{post_id}/ai/agent-answer`
 - 내부 RAG 인덱싱 작업
 
 ### 15.3 3순위
