@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
@@ -92,9 +92,44 @@ const agentDecisionSchema = z
 
 type AgentDecisionSchemaOutput = z.infer<typeof agentDecisionSchema>;
 type AgentDecisionArguments = z.infer<typeof agentDecisionArgumentsSchema>;
+const agentDecisionJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: {
+      type: 'string',
+      enum: ['tool_call', 'final'],
+    },
+    toolName: {
+      type: 'string',
+      enum: AGENT_DECISION_TOOL_NAMES,
+    },
+    arguments: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'number' },
+        videoId: { type: 'string' },
+        youtubeVideoId: { type: 'string' },
+        postId: { type: 'string' },
+      },
+      required: ['query', 'limit', 'videoId', 'youtubeVideoId', 'postId'],
+    },
+    rationale: { type: 'string' },
+    answer: { type: 'string' },
+    limitations: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+  required: ['type', 'toolName', 'arguments', 'rationale', 'answer', 'limitations'],
+  description: 'Arena agent decision',
+} as const;
 
 @Injectable()
 export class OpenAiAgentLlmProvider implements AgentLlmProvider {
+  private readonly logger = new Logger(OpenAiAgentLlmProvider.name);
   readonly model: string;
 
   constructor(private readonly configService: ConfigService) {
@@ -125,7 +160,7 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
         zdrEnabled: true,
       });
       const structuredModel = model.withStructuredOutput<AgentDecisionSchemaOutput>(
-        agentDecisionSchema,
+        agentDecisionJsonSchema,
         {
           name: 'agent_decision',
           strict: true,
@@ -143,6 +178,9 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
       }
 
       if (this.isStructuredOutputError(error)) {
+        this.logger.warn(
+          `Agent LLM structured output failed: ${this.getSafeErrorMessage(error) ?? 'unknown'}`,
+        );
         throw new AgentLlmError(
           'AGENT_LLM_INVALID_RESPONSE',
           'Agent LLM structured output이 올바르지 않습니다.',
@@ -150,6 +188,9 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
         );
       }
 
+      this.logger.warn(
+        `Agent LLM invocation failed: ${this.getSafeErrorMessage(error) ?? 'unknown'}`,
+      );
       throw new AgentLlmError(
         'AGENT_LLM_FAILED',
         'Agent LLM 호출에 실패했습니다.',
@@ -302,5 +343,17 @@ export class OpenAiAgentLlmProvider implements AgentLlmProvider {
 
   private getErrorMessage(error: unknown): string | undefined {
     return error instanceof Error ? error.message : undefined;
+  }
+
+  private getSafeErrorMessage(error: unknown): string | undefined {
+    const message = this.getErrorMessage(error);
+
+    if (!message) {
+      return undefined;
+    }
+
+    return message
+      .replace(/sk-[a-zA-Z0-9_-]+/g, '[redacted-api-key]')
+      .replace(/Bearer\s+[a-zA-Z0-9._-]+/gi, 'Bearer [redacted-token]');
   }
 }
