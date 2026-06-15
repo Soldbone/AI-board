@@ -607,9 +607,176 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 - `GET /ai/outputs/{ai_output_id}` 응답에 `sources`가 포함된다.
 - 스크립트는 실제 OpenAI API를 호출하지 않는다.
 
-## 5. 우선순위별 실행 묶음
+## 5. MCP 공식 상품 정보 보강 테스트 시나리오
 
-### 5.1 1차 MVP 필수 회귀 테스트
+### MCP-01. 정확한 공식 상품명은 VERIFIED가 된다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | 공식 스마트스토어 상품 자동 확정 검증 |
+| 사전 조건 | `REVIEW` 게시글에 정확한 피규어명, 제조사, 피규어 타입, 작품 태그가 입력되어 있음 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 정확한 상품명을 가진 후기 게시글을 준비한다.
+2. 로그인 사용자로 공식 상품 정보 조회를 요청한다.
+3. background task 완료 후 enrichment를 조회한다.
+
+기대 결과:
+
+- `status=COMPLETED`가 저장된다.
+- `match_status=VERIFIED`가 저장된다.
+- `confidence_score`가 `0.82` 이상이다.
+- `matched_product_json.link` 또는 `source_url`이 `https://smartstore.naver.com/gsc_korea_dt_bh/...` 형태다.
+- `match_reasons_json`에 피규어명, 상품 라인, 공식 URL 근거가 포함된다.
+
+### MCP-02. 공식 스토어가 아닌 상품은 제외된다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | whitelist 필터링 검증 |
+| 사전 조건 | 네이버 검색 결과에 비공식 몰 후보와 공식 몰 후보가 섞여 있음 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 네이버 검색 결과에 비공식 몰 상품이 포함되는 검색어로 후기 게시글을 준비한다.
+2. 공식 상품 정보 조회를 요청한다.
+3. 저장된 후보 목록을 확인한다.
+
+기대 결과:
+
+- `candidates_json`에는 공식 스마트스토어 URL 후보만 남는다.
+- 비공식 쇼핑몰 URL은 `candidates_json`에 저장되지 않는다.
+- 공식 후보가 없으면 `status=COMPLETED`, `match_status=NO_MATCH`가 저장된다.
+
+### MCP-03. 캐릭터명만 같은 다른 피규어는 자동 확정되지 않는다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | 캐릭터명 단독 일치 오탐 방지 |
+| 사전 조건 | 같은 캐릭터지만 다른 라인/상품 후보가 검색됨 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 캐릭터명은 같지만 정확한 상품 라인이나 작품 태그 근거가 부족한 후기 게시글을 준비한다.
+2. 공식 상품 정보 조회를 요청한다.
+3. enrichment 결과를 조회한다.
+
+기대 결과:
+
+- `match_status`는 `VERIFIED`가 아니다.
+- 공식 후보가 있으면 `CANDIDATES_ONLY`가 저장된다.
+- `matched_product_json`은 `null`이다.
+- 화면에는 “정확한 공식 상품을 확정할 수 없음”과 후보가 표시된다.
+
+### MCP-04. NENDOROID 후기에서 scale/figma 후보는 감점 또는 제외된다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | 상품 라인 불일치 검증 |
+| 사전 조건 | 후기의 `figure_type=NENDOROID`, 검색 후보에 scale 또는 figma 상품이 포함됨 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 넨도로이드 후기 게시글을 준비한다.
+2. 공식 상품 정보 조회를 요청한다.
+3. 후보별 `match_reasons`를 확인한다.
+
+기대 결과:
+
+- scale/figma 후보에는 `PRODUCT_LINE_MISMATCH` 근거가 포함된다.
+- 해당 후보는 감점된다.
+- 라인 불일치 후보가 자동으로 `VERIFIED` 되지 않는다.
+
+### MCP-05. 네이버 API key 누락 시 FAILED가 저장된다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | credential 누락 fallback 검증 |
+| 사전 조건 | MCP 서버 실행, `NAVER_CLIENT_ID` 또는 `NAVER_CLIENT_SECRET`이 비어 있음 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 네이버 API credential을 비운 상태로 MCP 서버를 실행한다.
+2. 공식 상품 정보 조회를 요청한다.
+3. background task 완료 후 enrichment를 조회한다.
+
+기대 결과:
+
+- `status=FAILED`가 저장된다.
+- `error_message` 또는 `match_reasons_json`에 credential 누락 사유가 포함된다.
+- 후기 상세 화면에는 실패 안내가 표시된다.
+- 게시글 상세 페이지 전체는 깨지지 않는다.
+
+### MCP-06. MCP 서버 장애 시 후기 상세 페이지는 깨지지 않는다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | MCP 서버 장애 fallback 검증 |
+| 사전 조건 | 백엔드 서버 실행, MCP 서버 미실행 또는 잘못된 `MCP_SERVER_URL` |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}` |
+
+절차:
+
+1. MCP 서버를 끄거나 `MCP_SERVER_URL`을 잘못 설정한다.
+2. 공식 상품 정보 조회를 요청한다.
+3. 후기 상세 API와 enrichment API를 각각 조회한다.
+4. 프론트 후기 상세 페이지를 확인한다.
+
+기대 결과:
+
+- enrichment는 `FAILED`로 저장된다.
+- `GET /posts/{post_id}`는 정상 응답한다.
+- 프론트는 상품 정보 영역에만 실패 안내를 보여준다.
+- 댓글, 이미지, 본문, 유사 후기 영역은 정상적으로 표시된다.
+
+### MCP-07. 캐시 TTL 안에서는 외부 MCP를 다시 호출하지 않는다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | 반복 조회 시 외부 API 재호출 방지 |
+| 사전 조건 | 같은 REVIEW 게시글에 `COMPLETED` enrichment가 있고 `fetched_at`이 TTL 안에 있음 |
+| 주요 API | `POST /posts/{post_id}/product-enrichment`, `GET /posts/{post_id}/product-enrichment` |
+
+절차:
+
+1. 공식 상품 정보 조회를 한 번 완료한다.
+2. `PRODUCT_ENRICHMENT_CACHE_TTL_HOURS` 안에서 같은 게시글에 다시 POST 요청한다.
+3. 반환된 enrichment ID와 `fetched_at`을 확인한다.
+
+기대 결과:
+
+- 새 외부 MCP 호출이 발생하지 않는다.
+- 기존 `COMPLETED` enrichment가 반환된다.
+- `fetched_at`이 유지된다.
+- 화면은 기존 결과를 재사용한다.
+
+### MCP-08. 비후기 게시판에는 공식 상품 정보 카드가 표시되지 않는다
+
+| 항목 | 내용 |
+| --- | --- |
+| 목적 | REVIEW 전용 화면 정책 검증 |
+| 사전 조건 | `INFO`, `QUESTION`, `PURCHASE_HELP` 게시글 존재 |
+| 주요 화면 | 게시글 상세 화면 |
+
+절차:
+
+1. 후기 게시판이 아닌 게시글 상세 화면을 연다.
+2. 공식 상품 정보 영역이 있는지 확인한다.
+
+기대 결과:
+
+- 공식 상품 정보 카드가 렌더링되지 않는다.
+- 사용자는 비후기 게시글에서 상품 정보 조회 버튼을 볼 수 없다.
+
+## 6. 우선순위별 실행 묶음
+
+### 6.1 1차 MVP 필수 회귀 테스트
 
 - BOARD-01 비회원 탐색
 - BOARD-02 회원가입/로그인
@@ -622,7 +789,7 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 - BOARD-16 페이징/정렬
 - BOARD-18 인증 보호
 
-### 5.2 AI MVP 필수 회귀 테스트
+### 6.2 AI MVP 필수 회귀 테스트
 
 - AI-01 후기 유사 게시글 추천
 - AI-02 유사 후보 부족 처리
@@ -634,14 +801,27 @@ backend\.venv\Scripts\python.exe scripts\ai_phase6_check.py
 - AI-10 재인덱싱 최신성
 - AI-11 개발용 RAG seed 통합 smoke check
 
-### 5.3 운영자/확장 기능 테스트
+### 6.3 MCP 필수 회귀 테스트
+
+- MCP-01 정확한 공식 상품명 VERIFIED
+- MCP-02 공식 스토어 외 후보 제외
+- MCP-03 캐릭터명 단독 일치 자동 확정 방지
+- MCP-04 상품 라인 불일치 감점
+- MCP-05 네이버 API key 누락 실패 저장
+- MCP-06 MCP 서버 장애 시 상세 페이지 보호
+- MCP-07 캐시 TTL 재호출 방지
+- MCP-08 비후기 게시판 미표시
+
+### 6.4 운영자/확장 기능 테스트
 
 - 신고 및 운영자 관리 기능은 별도 확장 phase에서 검증한다.
 
-## 6. 테스트 완료 기준
+## 7. 테스트 완료 기준
 
 - 1차 MVP 필수 회귀 테스트가 모두 통과한다.
 - 게시글, 댓글, 이미지, 태그, 검색, 페이징의 주요 사용자 흐름에 치명 오류가 없다.
 - AI 답변은 근거 출처를 제공하거나 근거 부족을 명확히 안내한다.
 - AI 생성 콘텐츠는 사용자 작성 콘텐츠와 화면 및 데이터에서 구분된다.
+- MCP 공식 상품 정보는 공식 스마트스토어 whitelist와 매칭 점수 조건을 통과한 경우에만 `VERIFIED`로 표시된다.
+- MCP 실패는 공식 상품 정보 영역에만 표시되고 게시글 상세 페이지 전체를 깨뜨리지 않는다.
 - 사용자가 URL을 별도 입력하지 않아도 게시글 작성이 가능하다.

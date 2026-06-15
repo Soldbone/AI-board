@@ -733,3 +733,86 @@ cmd.exe /c C:\Progra~1\nodejs\node.exe node_modules\vite\bin\vite.js build
 ```
 
 실제 MCP 서버와 네이버 API credential이 필요한 end-to-end 호출은 이번 환경에서 실행하지 않았다.
+
+## MCP Phase 5. 테스트와 문서 정리
+
+### 1. 이번 Phase에서 구현한 기능 요약
+
+이번 Phase에서는 MCP 기능을 새로 확장하기보다, 지금까지 구현한 MCP 서버, 백엔드 저장/매칭/API, 프론트 표시 정책을 테스트하고 유지보수할 수 있도록 문서를 정리했다.
+
+정리한 문서는 두 가지다.
+
+- `docs/architecture/mcp-design.md`: MCP 공식 상품 정보 보강 기능의 설계 문서
+- `docs/testing/test-scenarios.md`: MCP-01부터 MCP-08까지 테스트 시나리오
+
+### 2. 수정한 파일
+
+`docs/architecture/mcp-design.md`
+- 비어 있던 MCP 설계 문서를 채웠다.
+- 목표와 비목표, 전체 구조, 파일 구조, 환경변수, MCP tool 계약, DB 저장 정책, 매칭 규칙, API, 프론트 상태 정책, 실패 처리, 테스트 계획을 정리했다.
+- 특히 공식 스마트스토어 whitelist와 `0.82` 점수, 근거 2개 이상, 1위/2위 점수 차이 `0.10` 조건을 명확히 적었다.
+
+`docs/testing/test-scenarios.md`
+- MCP 공식 상품 정보 보강 테스트 섹션을 추가했다.
+- `MCP-01`부터 `MCP-08`까지 검증 시나리오를 작성했다.
+- 우선순위별 실행 묶음에 MCP 필수 회귀 테스트를 추가했다.
+- 테스트 완료 기준에 MCP whitelist, 매칭 점수, 장애 fallback 기준을 추가했다.
+
+### 3. MCP 테스트 시나리오 요약
+
+`MCP-01`
+- 정확한 상품명이 `VERIFIED`가 되는지 확인한다.
+
+`MCP-02`
+- 공식 스마트스토어가 아닌 상품이 후보에서 제외되는지 확인한다.
+
+`MCP-03`
+- 캐릭터명만 같은 다른 피규어가 자동 확정되지 않는지 확인한다.
+
+`MCP-04`
+- 넨도로이드 후기에서 scale/figma 후보가 감점되는지 확인한다.
+
+`MCP-05`
+- 네이버 API key가 없을 때 `FAILED`가 저장되는지 확인한다.
+
+`MCP-06`
+- MCP 서버 장애가 후기 상세 페이지 전체를 깨뜨리지 않는지 확인한다.
+
+`MCP-07`
+- 캐시 TTL 안에서 반복 요청해도 외부 MCP를 다시 호출하지 않는지 확인한다.
+
+`MCP-08`
+- 비후기 게시판에는 공식 상품 정보 카드가 표시되지 않는지 확인한다.
+
+### 4. 왜 설계 문서와 테스트 문서가 필요한가
+
+MCP 기능은 외부 API와 공식 상품 정보라는 민감한 출처를 다룬다. 잘못 매칭하면 비공식 상품을 공식 상품처럼 보여줄 수 있다.
+
+그래서 구현 코드만 있는 것보다 다음 기준을 문서로 남기는 것이 중요하다.
+
+- 어떤 URL을 공식으로 인정하는지
+- 어떤 점수와 근거가 있어야 자동 확정하는지
+- 실패하면 어떤 상태로 저장하는지
+- 화면에서 후보와 확정 상품을 어떻게 구분하는지
+- 캐시 TTL이 왜 필요한지
+
+이 기준이 있어야 다음 Phase나 유지보수 때 매칭 점수를 바꿔도 기능의 안전 경계를 유지할 수 있다.
+
+### 5. 이번 Phase의 한계와 다음 개선 방향
+
+이번 Phase에서는 실제 E2E 자동화 스크립트를 추가하지 않았다. 대신 수동/반자동 검증 시나리오를 문서화했다.
+
+추후 개선 방향은 다음과 같다.
+
+- `ProductMetadataMcpClient`를 fake client로 바꿔 끼우는 service 단위 테스트 추가
+- `match_product_candidates`에 대한 순수 함수 unit test 추가
+- MCP 서버 장애와 credential 누락을 재현하는 integration test 추가
+- 프론트 `ProductInfoCard` 상태별 렌더링 테스트 추가
+
+### 6. 검증 메모
+
+문서 변경 후 Markdown 구조와 MCP 관련 키워드를 확인했다.
+
+```powershell
+rg -n "MCP-|product-enrichment|VERIFIED|CANDIDATES_ONLY|NO_MATCH" docs
+```
