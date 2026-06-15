@@ -15,6 +15,8 @@ from app.models.enums import (
     FigureType,
     GroundingStatus,
     ImageStatus,
+    ProductEnrichmentStatus,
+    ProductMatchStatus,
     PostSourceType,
     PostStatus,
     PriceRange,
@@ -23,6 +25,7 @@ from app.models.enums import (
     UserRole,
     UserStatus,
 )
+from app.models.mcp_product_enrichment import McpProductEnrichment
 from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
 from app.models.post_image import PostImage
@@ -48,9 +51,12 @@ __all__ = [
     "FigureType",
     "GroundingStatus",
     "ImageStatus",
+    "McpProductEnrichment",
     "Post",
     "PostFigureInfo",
     "PostImage",
+    "ProductEnrichmentStatus",
+    "ProductMatchStatus",
     "PostSourceType",
     "PostStatus",
     "PostTag",

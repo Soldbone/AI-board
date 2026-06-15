@@ -124,6 +124,19 @@ class GroundingStatus(str, Enum):
     NO_EVIDENCE = "NO_EVIDENCE"
 
 
+class ProductEnrichmentStatus(str, Enum):
+    REQUESTED = "REQUESTED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class ProductMatchStatus(str, Enum):
+    VERIFIED = "VERIFIED"
+    CANDIDATES_ONLY = "CANDIDATES_ONLY"
+    NO_MATCH = "NO_MATCH"
+
+
 def enum_column_type(enum_class: type[Enum], name: str) -> SQLAlchemyEnum:
     return SQLAlchemyEnum(
         enum_class,

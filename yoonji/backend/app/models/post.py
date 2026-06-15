@@ -67,3 +67,7 @@ class Post(Base):
         "AiOutput",
         back_populates="target_post",
     )
+    product_enrichments: Mapped[list["McpProductEnrichment"]] = relationship(
+        "McpProductEnrichment",
+        back_populates="post",
+    )
