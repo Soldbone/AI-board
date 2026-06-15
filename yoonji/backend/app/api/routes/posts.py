@@ -7,6 +7,7 @@ from app.ai.rag import indexing_service
 from app.ai.usecases import similar_posts
 from app.models.enums import BoardCode
 from app.schemas.ai_schema import (
+    AgentAnswerRequest,
     AiOutputResponse,
     PurchaseSummaryRequest,
     ReferenceAnswerRequest,
@@ -121,6 +122,27 @@ def request_purchase_summary(
     background_tasks: BackgroundTasks,
 ) -> AiOutputResponse:
     return ai_service.request_purchase_summary(
+        db,
+        post_id=post_id,
+        payload=payload,
+        current_user=current_user,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/{post_id}/ai/agent-answer",
+    response_model=AiOutputResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_agent_answer(
+    post_id: Annotated[int, Path(gt=0)],
+    payload: AgentAnswerRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
+) -> AiOutputResponse:
+    return ai_service.request_agent_answer(
         db,
         post_id=post_id,
         payload=payload,

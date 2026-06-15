@@ -109,6 +109,7 @@ class ContentChunkStatus(str, Enum):
 class AiOutputType(str, Enum):
     QUESTION_REFERENCE_ANSWER = "QUESTION_REFERENCE_ANSWER"
     PURCHASE_SUMMARY = "PURCHASE_SUMMARY"
+    AGENT_ANSWER = "AGENT_ANSWER"
 
 
 class AiOutputStatus(str, Enum):

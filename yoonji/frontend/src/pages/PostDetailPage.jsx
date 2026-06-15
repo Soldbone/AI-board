@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { API_BASE_URL } from "../api/client";
 import { deletePost } from "../api/postApi";
+import AgentAnswerBox from "../components/ai/AgentAnswerBox";
 import AiAnswerBox from "../components/ai/AiAnswerBox";
 import PurchaseSummaryBox from "../components/ai/PurchaseSummaryBox";
 import CommentForm from "../components/comment/CommentForm";
@@ -233,6 +234,15 @@ function PostDetailPage({
 
       {post.board.code === "PURCHASE_HELP" && (
         <PurchaseSummaryBox
+          currentUser={currentUser}
+          onSelectPost={onOpenPost}
+          postId={post.id}
+        />
+      )}
+
+      {["REVIEW", "QUESTION", "PURCHASE_HELP"].includes(post.board.code) && (
+        <AgentAnswerBox
+          boardCode={post.board.code}
           currentUser={currentUser}
           onSelectPost={onOpenPost}
           postId={post.id}

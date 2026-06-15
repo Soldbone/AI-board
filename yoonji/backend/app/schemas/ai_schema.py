@@ -24,6 +24,22 @@ class PurchaseSummaryRequest(BaseModel):
     include_similar_price_range: bool = True
 
 
+class AgentAnswerRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    include_mcp: bool = True
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, value: str) -> str:
+        stripped = value.strip()
+
+        if not stripped:
+            raise ValueError("must not be blank")
+
+        return stripped
+
+
 class ContentChunkCreate(BaseModel):
     source_type: ContentSourceType
     chunk_text: str = Field(min_length=1)
