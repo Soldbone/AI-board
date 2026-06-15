@@ -7,6 +7,12 @@
     <style>
       :root {
         --radius: 8px;
+        --layout-gap: 32px;
+        --stack-gap: 24px;
+        --panel-padding: 18px;
+        --control-height: 36px;
+        --control-x: 14px;
+        --item-gap: 14px;
         --background: #ffffff;
         --foreground: #171717;
         --card: #ffffff;
@@ -14,16 +20,194 @@
         --muted-foreground: #737373;
         --border: #e5e5e5;
         --input: #e5e5e5;
+        --subtle: #fafafa;
+        --card-hover: #fcfcfc;
+        --hover-border: #c9c9c9;
+        --body-muted: #525252;
         --primary: #171717;
         --primary-foreground: #fafafa;
         --destructive: #dc2626;
+        --destructive-bg: #fef2f2;
         --success: #15803d;
         --success-bg: #f0fdf4;
         --warning: #b45309;
         --warning-bg: #fffbeb;
         --info: #2563eb;
         --info-bg: #eff6ff;
+        --video-start: rgba(0, 0, 0, 0.78);
+        --video-end: rgba(30, 41, 59, 0.86);
+        --video-accent: rgba(37, 99, 235, 0.3);
         color-scheme: light;
+      }
+
+      body[data-theme='zinc'] {
+        --radius: 6px;
+        --layout-gap: 28px;
+        --stack-gap: 20px;
+        --panel-padding: 16px;
+        --control-height: 34px;
+        --control-x: 13px;
+        --item-gap: 12px;
+        --background: #fafafa;
+        --foreground: #09090b;
+        --card: #ffffff;
+        --muted: #f4f4f5;
+        --muted-foreground: #52525b;
+        --border: #d4d4d8;
+        --input: #d4d4d8;
+        --subtle: #f4f4f5;
+        --card-hover: #f8f8f9;
+        --hover-border: #a1a1aa;
+        --body-muted: #3f3f46;
+        --primary: #18181b;
+        --primary-foreground: #fafafa;
+        --destructive: #dc2626;
+        --destructive-bg: #fef2f2;
+        --success: #166534;
+        --success-bg: #f0fdf4;
+        --warning: #a16207;
+        --warning-bg: #fefce8;
+        --info: #1d4ed8;
+        --info-bg: #eff6ff;
+        --video-start: rgba(9, 9, 11, 0.86);
+        --video-end: rgba(39, 39, 42, 0.88);
+        --video-accent: rgba(29, 78, 216, 0.28);
+      }
+
+      body[data-theme='stone'] {
+        --radius: 10px;
+        --layout-gap: 34px;
+        --stack-gap: 26px;
+        --panel-padding: 20px;
+        --control-height: 38px;
+        --control-x: 15px;
+        --item-gap: 15px;
+        --background: #fdfcfb;
+        --foreground: #292524;
+        --card: #ffffff;
+        --muted: #f5f5f4;
+        --muted-foreground: #78716c;
+        --border: #e7e5e4;
+        --input: #e7e5e4;
+        --subtle: #fafaf9;
+        --card-hover: #fffdfa;
+        --hover-border: #d6d3d1;
+        --body-muted: #57534e;
+        --primary: #292524;
+        --primary-foreground: #fafaf9;
+        --destructive: #b91c1c;
+        --destructive-bg: #fef2f2;
+        --success: #3f6212;
+        --success-bg: #f7fee7;
+        --warning: #b45309;
+        --warning-bg: #fffbeb;
+        --info: #475569;
+        --info-bg: #f8fafc;
+        --video-start: rgba(41, 37, 36, 0.82);
+        --video-end: rgba(68, 64, 60, 0.86);
+        --video-accent: rgba(120, 113, 108, 0.32);
+      }
+
+      body[data-theme='mauve'] {
+        --radius: 9px;
+        --layout-gap: 32px;
+        --stack-gap: 24px;
+        --panel-padding: 18px;
+        --control-height: 36px;
+        --control-x: 14px;
+        --item-gap: 14px;
+        --background: #fdfcff;
+        --foreground: #1f1b24;
+        --card: #ffffff;
+        --muted: #f7f2fa;
+        --muted-foreground: #74687d;
+        --border: #e7ddec;
+        --input: #e7ddec;
+        --subtle: #fbf7fd;
+        --card-hover: #fffaff;
+        --hover-border: #d8c6e0;
+        --body-muted: #574d60;
+        --primary: #5b456b;
+        --primary-foreground: #ffffff;
+        --destructive: #b42318;
+        --destructive-bg: #fff1f0;
+        --success: #2f6f4e;
+        --success-bg: #effaf4;
+        --warning: #9a5b13;
+        --warning-bg: #fff8e6;
+        --info: #5b4bb7;
+        --info-bg: #f2f0ff;
+        --video-start: rgba(31, 27, 36, 0.82);
+        --video-end: rgba(65, 50, 76, 0.86);
+        --video-accent: rgba(91, 75, 183, 0.28);
+      }
+
+      body[data-theme='olive'] {
+        --radius: 8px;
+        --layout-gap: 30px;
+        --stack-gap: 22px;
+        --panel-padding: 17px;
+        --control-height: 35px;
+        --control-x: 13px;
+        --item-gap: 13px;
+        --background: #fcfdf8;
+        --foreground: #1f241b;
+        --card: #fffef8;
+        --muted: #f3f5e9;
+        --muted-foreground: #69715f;
+        --border: #dfe4d2;
+        --input: #dfe4d2;
+        --subtle: #f8faef;
+        --card-hover: #fffff4;
+        --hover-border: #cdd6bc;
+        --body-muted: #525a47;
+        --primary: #3f4f2b;
+        --primary-foreground: #fcfdf8;
+        --destructive: #b91c1c;
+        --destructive-bg: #fef2f2;
+        --success: #4d7c0f;
+        --success-bg: #f7fee7;
+        --warning: #a16207;
+        --warning-bg: #fefce8;
+        --info: #365f63;
+        --info-bg: #eef8f8;
+        --video-start: rgba(31, 36, 27, 0.82);
+        --video-end: rgba(63, 79, 43, 0.88);
+        --video-accent: rgba(77, 124, 15, 0.28);
+      }
+
+      body[data-theme='mist'] {
+        --radius: 12px;
+        --layout-gap: 36px;
+        --stack-gap: 26px;
+        --panel-padding: 20px;
+        --control-height: 38px;
+        --control-x: 15px;
+        --item-gap: 15px;
+        --background: #f8fbfc;
+        --foreground: #102027;
+        --card: #ffffff;
+        --muted: #eef4f6;
+        --muted-foreground: #667780;
+        --border: #d9e5e9;
+        --input: #d9e5e9;
+        --subtle: #f3f8fa;
+        --card-hover: #fbfdfe;
+        --hover-border: #c2d3da;
+        --body-muted: #4f626b;
+        --primary: #234c5d;
+        --primary-foreground: #f8fbfc;
+        --destructive: #c0392b;
+        --destructive-bg: #fff1f0;
+        --success: #1d6f61;
+        --success-bg: #edfdf8;
+        --warning: #875509;
+        --warning-bg: #fff8e7;
+        --info: #2a5f9e;
+        --info-bg: #eef6ff;
+        --video-start: rgba(16, 32, 39, 0.8);
+        --video-end: rgba(35, 76, 93, 0.84);
+        --video-accent: rgba(42, 95, 158, 0.28);
       }
 
       * {
@@ -43,6 +227,9 @@
           'Segoe UI',
           sans-serif;
         letter-spacing: 0;
+        transition:
+          background 180ms ease,
+          color 180ms ease;
       }
 
       a {
@@ -66,7 +253,7 @@
         z-index: 10;
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: var(--item-gap);
         min-height: 64px;
         padding: 0 28px;
         border-bottom: 1px solid var(--border);
@@ -98,7 +285,7 @@
         align-items: center;
         flex: 1;
         max-width: 520px;
-        height: 38px;
+        height: var(--control-height);
         padding: 0 12px;
         border: 1px solid var(--input);
         border-radius: var(--radius);
@@ -119,8 +306,8 @@
         align-items: center;
         justify-content: center;
         gap: 8px;
-        height: 36px;
-        padding: 0 14px;
+        height: var(--control-height);
+        padding: 0 var(--control-x);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         background: var(--background);
@@ -144,18 +331,95 @@
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 360px;
-        gap: 32px;
+        gap: var(--layout-gap);
         width: min(1240px, calc(100% - 48px));
         margin: 0 auto;
-        padding: 32px 0 56px;
+        padding: var(--layout-gap) 0 56px;
       }
 
       .main-stack,
       .side-stack {
         display: flex;
         flex-direction: column;
-        gap: 24px;
+        gap: var(--stack-gap);
         min-width: 0;
+      }
+
+      .preset-panel {
+        display: grid;
+        gap: 14px;
+        padding: var(--panel-padding);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+      }
+
+      .preset-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .preset-title {
+        display: grid;
+        gap: 4px;
+      }
+
+      .preset-description {
+        color: var(--body-muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .preset-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .preset-option {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--control-height);
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 550;
+        white-space: nowrap;
+        cursor: pointer;
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          color 160ms ease,
+          transform 160ms ease;
+      }
+
+      .preset-option:hover {
+        border-color: var(--hover-border);
+        background: var(--card-hover);
+      }
+
+      .preset-option.is-active {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: var(--primary-foreground);
+      }
+
+      .preset-option.is-active:hover {
+        background: var(--primary);
+        color: var(--primary-foreground);
+        transform: translateY(-1px);
+      }
+
+      .preset-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
       }
 
       .page-head {
@@ -253,7 +517,7 @@
 
       .badge.destructive {
         border-color: color-mix(in srgb, var(--destructive) 18%, var(--border));
-        background: #fef2f2;
+        background: var(--destructive-bg);
         color: var(--destructive);
       }
 
@@ -283,8 +547,8 @@
       }
 
       .post-item:hover {
-        border-color: #c9c9c9;
-        background: #fcfcfc;
+        border-color: var(--hover-border);
+        background: var(--card-hover);
         transform: translateY(-1px);
       }
 
@@ -303,7 +567,7 @@
 
       .post-preview {
         max-width: 760px;
-        color: #525252;
+        color: var(--body-muted);
         font-size: 14px;
         line-height: 1.6;
       }
@@ -319,7 +583,7 @@
       .panel {
         display: grid;
         gap: 16px;
-        padding: 18px;
+        padding: var(--panel-padding);
       }
 
       .video-frame {
@@ -329,8 +593,8 @@
         border: 1px solid var(--border);
         border-radius: var(--radius);
         background:
-          linear-gradient(135deg, rgba(0, 0, 0, 0.78), rgba(30, 41, 59, 0.86)),
-          radial-gradient(circle at 75% 30%, rgba(37, 99, 235, 0.3), transparent 32%);
+          linear-gradient(135deg, var(--video-start), var(--video-end)),
+          radial-gradient(circle at 75% 30%, var(--video-accent), transparent 32%);
         color: #ffffff;
       }
 
@@ -373,7 +637,7 @@
       }
 
       .input {
-        height: 38px;
+        height: var(--control-height);
         padding: 0 11px;
       }
 
@@ -396,7 +660,7 @@
 
       .comment.reply {
         margin-left: 28px;
-        background: #fafafa;
+        background: var(--subtle);
       }
 
       .comment-head {
@@ -427,7 +691,7 @@
       }
 
       .comment-body {
-        color: #303030;
+        color: var(--foreground);
         font-size: 14px;
         line-height: 1.65;
       }
@@ -467,7 +731,7 @@
         padding: 12px;
         border-radius: var(--radius);
         background: var(--muted);
-        color: #404040;
+        color: var(--body-muted);
         font-size: 13px;
         line-height: 1.6;
       }
@@ -483,7 +747,7 @@
         padding: 16px;
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        background: #fbfbfb;
+        background: var(--subtle);
       }
 
       .evidence-item {
@@ -516,7 +780,7 @@
       .component-sample {
         display: grid;
         gap: 12px;
-        padding: 14px;
+        padding: calc(var(--panel-padding) - 4px);
       }
 
       .divider {
@@ -553,6 +817,7 @@
         }
 
         .page-head,
+        .preset-head,
         .post-top,
         .comment-head,
         .admin-row {
@@ -568,7 +833,7 @@
       }
     </style>
   </head>
-  <body>
+  <body data-theme="neutral">
     <div class="app-shell">
       <header class="topbar">
         <a class="brand" href="#">
@@ -591,6 +856,90 @@
             </div>
             <span class="badge info">Wireframe v0</span>
           </div>
+
+          <section class="preset-panel" aria-labelledby="preset-title">
+            <div class="preset-head">
+              <div class="preset-title">
+                <p class="eyebrow">Style presets</p>
+                <h2 id="preset-title">shadcn/ui token 조합 비교</h2>
+                <p class="preset-description" data-preset-description>
+                  현재 기준. 흰 배경, neutral border, 8px radius, balanced density.
+                </p>
+              </div>
+              <div class="preset-meta" aria-label="Current style metadata">
+                <span class="badge" data-preset-radius>radius 8px</span>
+                <span class="badge" data-preset-density>balanced</span>
+              </div>
+            </div>
+            <div class="preset-options" aria-label="Style preset options">
+              <button
+                class="preset-option is-active"
+                type="button"
+                data-preset="neutral"
+                data-radius="radius 8px"
+                data-density="balanced"
+                data-description="현재 기준. 흰 배경, neutral border, 8px radius, balanced density."
+                aria-pressed="true"
+              >
+                Arena Neutral
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="zinc"
+                data-radius="radius 6px"
+                data-density="compact"
+                data-description="더 선명한 foreground와 차가운 neutral. 운영형 dashboard 느낌."
+                aria-pressed="false"
+              >
+                Zinc Focus
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="stone"
+                data-radius="radius 10px"
+                data-density="comfortable"
+                data-description="약간 따뜻한 surface. 긴 토론 글 읽기에 부드러운 톤."
+                aria-pressed="false"
+              >
+                Stone Editorial
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="mauve"
+                data-radius="radius 9px"
+                data-density="balanced"
+                data-description="절제된 mauve accent. 토론과 공론장 느낌을 약하게 부여."
+                aria-pressed="false"
+              >
+                Mauve Civic
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="olive"
+                data-radius="radius 8px"
+                data-density="focused"
+                data-description="green/olive 계열 success tone 강화. 근거 후보와 research 느낌."
+                aria-pressed="false"
+              >
+                Olive Research
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="mist"
+                data-radius="radius 12px"
+                data-density="comfortable"
+                data-description="낮은 대비의 회청색 surface. AI panel과 side context가 차분해 보이는 톤."
+                aria-pressed="false"
+              >
+                Mist Studio
+              </button>
+            </div>
+          </section>
 
           <div class="chips" aria-label="Tag filters">
             <span class="chip active">전체</span>
@@ -820,5 +1169,36 @@
         </aside>
       </main>
     </div>
+    <script>
+      const presetButtons = document.querySelectorAll('[data-preset]');
+      const presetDescription = document.querySelector('[data-preset-description]');
+      const presetRadius = document.querySelector('[data-preset-radius]');
+      const presetDensity = document.querySelector('[data-preset-density]');
+
+      function applyPreset(theme) {
+        const selected = [...presetButtons].find((button) => button.dataset.preset === theme);
+
+        if (!selected) {
+          return;
+        }
+
+        document.body.dataset.theme = theme;
+        presetDescription.textContent = selected.dataset.description;
+        presetRadius.textContent = selected.dataset.radius;
+        presetDensity.textContent = selected.dataset.density;
+
+        presetButtons.forEach((button) => {
+          const isActive = button === selected;
+          button.classList.toggle('is-active', isActive);
+          button.setAttribute('aria-pressed', String(isActive));
+        });
+      }
+
+      presetButtons.forEach((button) => {
+        button.addEventListener('click', () => applyPreset(button.dataset.preset));
+      });
+
+      applyPreset('neutral');
+    </script>
   </body>
 </html>
