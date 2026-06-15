@@ -2,7 +2,7 @@
 
 AI 기반 유튜브 이슈 토론 게시판 MVP입니다.
 
-현재 백엔드는 Phase 9.5까지 구현되어 있습니다. 게시글/댓글/영상 처리/RAG 근거 후보/MCP Agent Tool Server가 준비되어 있고, 다음 단계는 Phase 10 AI Agent 추론 루프입니다.
+현재 백엔드는 Phase 11까지 구현되어 있습니다. 게시글/댓글/영상 처리/RAG 근거 후보/MCP Agent Tool Server, AI Agent 추론 루프, 댓글 스레드 요약 API가 준비되어 있고, 다음 단계는 Phase 12 관리자 기능입니다. 프론트엔드는 아직 placeholder 화면입니다.
 
 ## 기술 스택
 
@@ -35,8 +35,11 @@ shadcn/ui 컴포넌트는 `frontend/src/components/ui`에 둡니다. 별도 UI �
 - Phase 8: FACT_CLAIM 댓글에 대한 pgvector 기반 RAG 근거 후보 검색 API
 - Phase 9: Agent가 호출할 MCP JSON-RPC tool server
 - Phase 9.5: MCP `tools/list`, `tools/call` 응답 shape를 `content`, `structuredContent`, `isError` 구조로 정렬
+- Phase 10: MCP tool boundary를 사용하는 AI Agent 추론 루프
+- Phase 10.1: LangChain `ChatOpenAI.withStructuredOutput()` 기반 Agent LLM adapter
+- Phase 11: 댓글 스레드 AI 요약 생성/조회 API
 
-Phase 10 구현자는 `AGENTS.md`와 `docs/implementation/phase10_ai_agent_loop_plan.md`의 구현 하네스를 먼저 읽으면 됩니다.
+Phase 12 구현자는 `AGENTS.md`와 `docs/implementation/phase12_admin_harness.md`의 구현 하네스를 먼저 읽으면 됩니다.
 
 ## 로컬 개발환경 요구사항
 
@@ -100,6 +103,13 @@ EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 COMMENT_ANALYSIS_MODEL=gpt-4.1-mini
 COMMENT_ANALYSIS_TIMEOUT_MS=8000
+AGENT_MODEL=gpt-4.1-mini
+AGENT_TIMEOUT_MS=30000
+AGENT_MAX_OUTPUT_TOKENS=1200
+SUMMARY_MODEL=gpt-4.1-mini
+SUMMARY_TIMEOUT_MS=30000
+SUMMARY_MAX_OUTPUT_TOKENS=900
+SUMMARY_MAX_INPUT_CHARS=700
 
 YOUTUBE_TRANSCRIPT_COMMAND=youtube_transcript_api
 TRANSCRIPT_LANGUAGES=ko,en
@@ -107,7 +117,7 @@ TRANSCRIPT_CHUNK_SIZE=1000
 TRANSCRIPT_CHUNK_OVERLAP=200
 ```
 
-`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 health check에는 필요하지 않지만 영상 metadata, embedding, 댓글 분석, RAG, MCP tool smoke test에는 필요합니다.
+`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. `YOUTUBE_API_KEY`, `OPENAI_API_KEY`는 health check에는 필요하지 않지만 영상 metadata, embedding, 댓글 분석, RAG, MCP tool, Agent, 요약 smoke test에는 필요합니다.
 
 영상 처리에서는 `youtube-transcript-api` Python CLI를 transcript provider로 사용합니다. 로컬에서 직접 backend를 실행한다면 Python 환경에 CLI를 설치해야 하고, Docker 실행 환경에서는 backend 이미지에 Python과 `youtube-transcript-api`를 설치해 컨테이너 안에서 `youtube_transcript_api` 명령을 실행할 수 있게 합니다.
 
@@ -227,15 +237,37 @@ Authorization: Bearer <accessToken>
 
 Phase 9.5 이후 `tools/list`는 `{ tools: [...] }`를 반환하고, `tools/call`은 `content`, `structuredContent`, `isError`를 포함한 MCP tool result를 반환합니다. malformed request, unknown method, unknown tool 같은 protocol 오류만 JSON-RPC error envelope로 반환하고, provider/business failure는 정제된 `isError: true` tool result로 반환합니다.
 
+## AI Agent
+
+Agent endpoint는 게시글 상세 화면의 토론 보조자 역할을 합니다.
+
+```http
+POST /api/v1/posts/:postId/agent/runs
+GET  /api/v1/agent/runs/:runId
+```
+
+Agent는 `post.getContext`, `video.getProcessingStatus`, `transcript.searchChunks`, `youtube.fetchMetadata`를 기본 allowlist로 사용합니다. 사용자를 대신해 게시글이나 댓글을 작성하지 않고, 근거 후보와 한계를 함께 설명합니다.
+
+## 댓글 스레드 요약
+
+댓글 스레드 요약은 루트 댓글과 직계 대댓글이 충분히 길 때 사용자가 요청해서 생성합니다.
+
+```http
+POST /api/v1/comments/:rootCommentId/summary
+GET  /api/v1/comments/:rootCommentId/summary
+```
+
+생성 API는 로그인 사용자와 CSRF를 요구하고, 조회 API는 비회원도 기존 요약을 볼 수 있습니다. 삭제되지 않은 댓글 수가 10개 미만이면 요약을 생성하지 않습니다.
+
 ## 다음 구현 순서
 
-`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 9 MCP Agent Tool Server까지 구현되었고, Phase 9.5 MCP Protocol Alignment까지 진행했습니다.
+`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 11 댓글 스레드 요약까지 구현되었습니다.
 
-다음 단계는 Phase 10 AI Agent 추론 루프 구현입니다.
+다음 단계는 Phase 12 관리자 기능 구현입니다.
 
-1. Agent enum과 `AgentRun` / `AgentStep` entity migration 추가
-2. `AgentModule`, Agent run 생성/조회 API 구현
-3. `McpServerService.handleRequest()` 기반 내부 MCP caller 작성
-4. LLM function calling adapter와 작은 `plan -> tool call -> observe -> final` loop 구현
-5. max step, timeout, 반복 tool call 방지, 실패 정제 정책 추가
-6. Agent 답변의 근거 후보와 한계 표현 테스트/문서화
+1. `AdminModule`, `AdminCommentsController`, `AdminCommentsService` 추가
+2. `GET /api/v1/admin/comments?moderationStatus=NEEDS_REVIEW`
+3. `DELETE /api/v1/admin/comments/:commentId`
+4. `POST /api/v1/admin/comments/:commentId/analysis/retry`
+5. `JwtAuthGuard + RolesGuard`, state-changing API의 `CsrfGuard` 적용
+6. 관리자 삭제와 AI 분석 재시도 정책 테스트/문서화
