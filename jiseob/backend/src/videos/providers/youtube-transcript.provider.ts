@@ -82,6 +82,12 @@ export class YoutubeTranscriptCliProvider implements YoutubeTranscriptProvider {
 
   private pickRawSegments(parsedOutput: unknown, youtubeVideoId: string): TranscriptCliSegment[] {
     if (Array.isArray(parsedOutput)) {
+      const firstItem = parsedOutput[0];
+
+      if (Array.isArray(firstItem)) {
+        return firstItem as TranscriptCliSegment[];
+      }
+
       return parsedOutput as TranscriptCliSegment[];
     }
 
