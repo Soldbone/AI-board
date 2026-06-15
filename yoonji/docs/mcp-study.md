@@ -390,3 +390,184 @@ python -m py_compile backend/app/models/enums.py backend/app/models/mcp_product_
 ```
 
 현재 Codex 런타임에는 `sqlalchemy`와 `alembic`이 설치되어 있지 않고, `backend/.venv`는 로컬 Python 경로가 깨져 있어 실제 ORM import 테스트와 Alembic 실행 테스트는 진행하지 못했다.
+
+## MCP Phase 3. 매칭 service 구현
+
+### 1. 이번 Phase에서 구현한 기능 요약
+
+이번 Phase에서는 MCP 서버가 반환한 공식 스마트스토어 후보를 백엔드에서 다시 검증하고 점수화하는 계층을 만들었다.
+
+핵심 흐름은 다음과 같다.
+
+```text
+후기 게시글
+→ 피규어명, 제조사, 라인, 가격대, 태그로 검색 query 구성
+→ MCP server의 search_gsc_smartstore_products 호출
+→ 공식 스마트스토어 URL whitelist 재검증
+→ 후보별 matching score 계산
+→ 자동 확정 조건 검사
+→ McpProductEnrichment에 COMPLETED / FAILED 저장
+```
+
+이번 Phase에서도 API route와 프론트 연결은 하지 않았다. Phase 4에서 route가 `product_enrichment_service`를 호출하고 background task를 붙이면 된다.
+
+### 2. 수정하거나 추가한 파일
+
+`backend/app/mcp/__init__.py`
+- `app.mcp`를 명시적인 Python package로 만들었다.
+
+`backend/app/mcp/client.py`
+- 백엔드가 MCP 서버와 통신하기 위한 작은 JSON-RPC client다.
+- `MCP_SERVER_URL` 기본값은 `http://127.0.0.1:8765/mcp`이다.
+- `search_gsc_smartstore_products`, `fetch_gsc_product_metadata` tool을 호출한다.
+- HTTP 오류, JSON-RPC 오류, 응답 파싱 실패를 `McpClientError`로 구조화한다.
+
+`backend/app/mcp/normalizer.py`
+- 매칭 전에 필요한 정규화 함수를 모았다.
+- URL whitelist 검증, 상품명 토큰화, 상품 라인 감지, 가격대 변환을 담당한다.
+- 외부 API client나 DB 저장 로직은 넣지 않았다.
+
+`backend/app/mcp/matching.py`
+- 후보별 점수를 계산하고 `VERIFIED`, `CANDIDATES_ONLY`, `NO_MATCH`를 결정한다.
+- 자동 확정 조건을 한 곳에 모아 두었다.
+- 점수 근거는 `match_reasons_json`에 저장할 수 있는 dict 목록으로 만든다.
+
+`backend/app/services/product_enrichment_service.py`
+- 게시글 검증, 캐시 TTL 확인, enrichment row 생성, MCP 호출, 매칭 결과 저장을 조율한다.
+- route가 아니라 service에 둔 이유는 Phase 4에서 GET/POST API와 background task가 같은 흐름을 재사용해야 하기 때문이다.
+
+### 3. MCP client의 역할
+
+`ProductMetadataMcpClient`는 MCP 서버의 tool을 호출하는 통신 계층이다.
+
+이 client는 상품 매칭을 판단하지 않는다. `search_gsc_smartstore_products` tool 응답을 받아 백엔드 service에 넘기고, 필요할 때 `fetch_gsc_product_metadata`로 상세 metadata만 추가로 가져온다.
+
+MCP server는 외부 API 접근을 안전하게 감싸는 쪽이고, backend service는 우리 서비스 정책으로 검증하는 쪽이다. 이 구분 때문에 MCP 응답을 바로 화면에 확정 정보로 보여주지 않는다.
+
+### 4. 매칭 규칙
+
+공식 스마트스토어 URL이 아니면 즉시 제외한다.
+
+허용 URL은 다음 조건을 통과해야 한다.
+
+```text
+scheme = https
+host = smartstore.naver.com
+path = /gsc_korea_dt_bh 또는 /gsc_korea_dt_bh/...
+```
+
+후보별 기본 점수는 공식 URL 통과 점수 `0.20`에서 시작한다.
+
+추가 점수는 다음 근거로 계산한다.
+
+- 피규어명 핵심 토큰 일치: 최대 `0.34`, 전체 이름 phrase가 들어 있으면 추가 `0.08`
+- 상품 라인 일치: `0.22`
+- 상품 라인 불일치: `-0.18`
+- 작품/시리즈 태그 일치: `0.16`
+- 제조사/브랜드 보조 일치: `0.10`
+- 가격대 보조 일치: `0.05`
+
+자동 확정 조건은 모두 통과해야 한다.
+
+```text
+score >= 0.82
+identity evidence count >= 2
+1위와 2위 score 차이 >= 0.10
+```
+
+`identity evidence`는 피규어명, 상품 라인, 작품/시리즈 태그, 제조사/브랜드처럼 상품 정체성을 설명하는 근거다. 가격대는 보조 근거이므로 identity evidence로 세지 않는다.
+
+### 5. 캐릭터명 단독 일치를 막는 방식
+
+캐릭터명만 겹치는 후보는 자동 확정하지 않는다.
+
+예를 들어 제목에 "미쿠"만 겹치면 피규어명 토큰 점수 일부는 받을 수 있지만, 상품 라인이나 작품 태그나 제조사 같은 다른 identity evidence가 없으면 `identity_evidence_count`가 부족하다.
+
+또한 `score >= 0.82`를 넘겨야 하므로 캐릭터명 일부 일치만으로는 `VERIFIED`가 되기 어렵다. 조건을 못 넘으면 후보가 있는 경우 `CANDIDATES_ONLY`로 저장된다.
+
+### 6. service 흐름
+
+`request_product_enrichment`
+- Phase 4의 POST API에서 사용할 함수다.
+- 게시글이 존재하는지, `REVIEW` 게시판인지, 후기 피규어 정보가 있는지 확인한다.
+- TTL 안의 `COMPLETED` 결과가 있으면 새 MCP 호출을 만들지 않고 캐시를 반환한다.
+- 캐시가 없으면 `REQUESTED` 상태의 `McpProductEnrichment` row를 만든다.
+
+`run_product_enrichment_task`
+- Phase 4 background task에서 사용할 함수다.
+- 별도 DB session을 열고 `process_product_enrichment`를 실행한다.
+
+`process_product_enrichment`
+- enrichment를 `PROCESSING`으로 바꾼다.
+- MCP search tool을 호출한다.
+- tool 실패나 credential 누락은 `FAILED`로 저장한다.
+- 후보가 있으면 `matching.py`로 점수를 계산한다.
+- `VERIFIED`이면 상세 metadata를 best effort로 붙인다.
+- 최종 결과를 `COMPLETED`로 저장한다.
+
+### 7. 실패와 fallback 처리
+
+MCP HTTP 실패, JSON-RPC 오류, 응답 파싱 실패는 `McpClientError`로 바뀐다.
+
+service는 이 오류를 잡아서 `McpProductEnrichment`를 `FAILED`로 저장한다. 이때 `match_reasons_json`에는 오류 code, message, details를 남긴다.
+
+공식 후보가 없는 것은 외부 시스템 오류가 아니다. 그래서 `FAILED`가 아니라 `COMPLETED + NO_MATCH`로 저장한다.
+
+공식 후보가 있지만 자동 확정 조건을 넘지 못하면 `COMPLETED + CANDIDATES_ONLY`로 저장한다.
+
+### 8. 직접 테스트하는 방법
+
+Phase 4 API가 붙기 전에는 service 함수를 직접 호출해서 확인할 수 있다.
+
+```python
+from app.db.database import SessionLocal
+from app.services import product_enrichment_service
+
+db = SessionLocal()
+try:
+    response = product_enrichment_service.request_product_enrichment(db, post_id=1)
+    product_enrichment_service.process_product_enrichment(
+        db,
+        enrichment_id=response.id,
+    )
+    db.commit()
+finally:
+    db.close()
+```
+
+필요한 환경변수는 다음과 같다.
+
+```powershell
+$env:MCP_SERVER_URL = "http://127.0.0.1:8765/mcp"
+$env:GSC_SMARTSTORE_CHANNEL = "gsc_korea_dt_bh"
+$env:PRODUCT_ENRICHMENT_CACHE_TTL_HOURS = "24"
+```
+
+MCP 서버 쪽에는 네이버 API credential이 필요하다.
+
+```powershell
+$env:NAVER_CLIENT_ID = "발급받은_클라이언트_ID"
+$env:NAVER_CLIENT_SECRET = "발급받은_클라이언트_SECRET"
+```
+
+### 9. 이번 구현의 한계와 다음 개선 방향
+
+아직 API route와 프론트가 연결되지 않았다. Phase 4에서는 다음을 구현해야 한다.
+
+- `GET /api/v1/posts/{post_id}/product-enrichment`
+- `POST /api/v1/posts/{post_id}/product-enrichment`
+- POST 요청 시 `BackgroundTasks`로 `run_product_enrichment_task` 실행
+- 후기 상세 화면에서 `VERIFIED`, `CANDIDATES_ONLY`, `NO_MATCH`, `FAILED`를 상태별로 표시
+
+현재 점수 계산은 규칙 기반이다. 운영 단계에서는 실제 데이터로 오탐 케이스를 모아 라인 감지, 작품명 태그, 제조사 alias, 가격대 점수를 조정할 수 있다.
+
+### 10. 검증 메모
+
+파일 문법 검사와 whitespace 검사는 통과했다.
+
+```powershell
+python -m py_compile backend/app/mcp/client.py backend/app/mcp/normalizer.py backend/app/mcp/matching.py backend/app/services/product_enrichment_service.py
+git diff --check
+```
+
+현재 환경에서는 SQLAlchemy가 설치된 정상 backend venv가 없어 service import와 DB 연동 실행 테스트는 하지 못했다.
