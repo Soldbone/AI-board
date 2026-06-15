@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
+from sqlalchemy.orm import Session
 
 from app.schemas.agent import (
     AgentPlaceRecommendationRequest,
@@ -17,16 +18,19 @@ from app.services.mcp_client_service import (
     get_mcp_stdio_server_config,
     search_places_with_mcp,
 )
+from app.services.rag_service import find_similar_posts
 
 
 load_dotenv()
 
 DEFAULT_AGENT_MODEL = "gpt-4o-mini"
 DEFAULT_AGENT_TIMEOUT_SECONDS = 12.0
+RAG_CONTEXT_LIMIT = 3
 SYSTEM_PROMPT = """
 너는 동네 가게 추천 게시판의 AI Agent다.
 사용자의 지역과 요청 의도를 바탕으로 필요한 경우 MCP 도구를 호출해 장소 후보를 찾는다.
 지역 정보는 사용자가 제공한 region을 최우선으로 사용한다.
+게시판 내부 RAG 참고 글이 제공되면 실제 사용자 후기/질문 맥락으로 우선 참고한다.
 사용자가 맛집, 카페, 미용실, 옷가게 등 실제 장소 추천을 원하면 search_local_places 도구를 사용한다.
 도구 호출은 한 요청에서 최대 1번만 사용한다.
 응답은 한국어로 짧고 실용적으로 작성한다.
@@ -115,7 +119,15 @@ async def create_place_recommendation_agent():
 
 
 def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> str:
+    return build_agent_user_message_with_context(request_data=request_data)
+
+
+def build_agent_user_message_with_context(
+    request_data: AgentPlaceRecommendationRequest,
+    rag_context: str = "",
+) -> str:
     keyword = build_fallback_keyword(request_data)
+    rag_section = rag_context or "게시판 내부 RAG 참고 글: 없음"
 
     return f"""
 지역: {request_data.region}
@@ -124,11 +136,61 @@ def build_agent_user_message(request_data: AgentPlaceRecommendationRequest) -> s
 검색 키워드 힌트: {keyword}
 검색 결과 개수: {request_data.display}
 
+{rag_section}
+
 위 정보를 바탕으로 사용자가 참고할 만한 장소를 추천해줘.
+게시판 내부 RAG 참고 글이 있으면 실제 동네 이용자 맥락으로 먼저 반영해줘.
 정확한 가게 후기를 묻는 요청이면 가게명 중심으로 검색해줘.
 조건을 만족하는 가게 리스트 요청이면 검색 키워드를 '조건 + 업종' 형태로 만들어줘.
 필요하면 search_local_places 도구를 사용해줘.
 """.strip()
+
+
+def build_agent_rag_context(
+    db: Session | None,
+    request_data: AgentPlaceRecommendationRequest,
+) -> str:
+    if db is None:
+        return ""
+
+    tag_names = [request_data.keyword] if request_data.keyword else []
+
+    try:
+        similar_posts = find_similar_posts(
+            db=db,
+            title=request_data.title,
+            content=request_data.content,
+            tag_names=tag_names,
+            limit=RAG_CONTEXT_LIMIT,
+        )
+    except Exception:
+        return ""
+
+    if not similar_posts:
+        return ""
+
+    lines = ["게시판 내부 RAG 참고 글:"]
+
+    for index, post in enumerate(similar_posts, start=1):
+        meta_parts = [
+            value
+            for value in (
+                post.get("region"),
+                post.get("store_name"),
+                post.get("category"),
+            )
+            if value
+        ]
+        meta_text = " / ".join(meta_parts) if meta_parts else "추가 정보 없음"
+        matched_keywords = ", ".join(post.get("matched_keywords", [])[:5]) or "없음"
+
+        lines.append(
+            f"{index}. {post.get('title', '')} | {meta_text} | "
+            f"매칭 키워드: {matched_keywords} | "
+            f"내용: {post.get('content_preview', '')}"
+        )
+
+    return "\n".join(lines)
 
 
 def _find_business_keyword(source_text: str) -> str:
@@ -267,7 +329,10 @@ def _extract_tool_payload(result: dict[str, Any]) -> dict[str, Any]:
 
 async def recommend_places_with_agent(
     request_data: AgentPlaceRecommendationRequest,
+    db: Session | None = None,
 ) -> AgentPlaceRecommendationResponse:
+    rag_context = build_agent_rag_context(db=db, request_data=request_data)
+
     try:
         agent = await create_place_recommendation_agent()
         result = await asyncio.wait_for(
@@ -276,7 +341,10 @@ async def recommend_places_with_agent(
                     "messages": [
                         {
                             "role": "user",
-                            "content": build_agent_user_message(request_data),
+                            "content": build_agent_user_message_with_context(
+                                request_data=request_data,
+                                rag_context=rag_context,
+                            ),
                         }
                     ]
                 }
@@ -307,8 +375,12 @@ async def recommend_places_with_agent(
         places=places,
         fallback_map_url=tool_payload.get("fallback_map_url", ""),
         reasoning_summary=(
-            "LangChain Agent가 MCP 장소 검색 도구를 사용했습니다."
+            "LangChain Agent가 RAG 참고 글과 MCP 장소 검색 도구를 함께 사용했습니다."
+            if used_mcp and rag_context
+            else "LangChain Agent가 MCP 장소 검색 도구를 사용했습니다."
             if used_mcp
+            else "LangChain Agent가 RAG 참고 글을 바탕으로 응답했습니다."
+            if rag_context
             else "LangChain Agent가 MCP 도구 없이 응답했습니다."
         ),
         tool_status=build_tool_status("agent_mcp", tool_payload.get("status")),
