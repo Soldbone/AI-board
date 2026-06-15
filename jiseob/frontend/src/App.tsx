@@ -50,7 +50,7 @@ import {
   unlikePost,
   updatePost,
 } from '@/api/posts';
-import { getVideo } from '@/api/videos';
+import { getVideo, retryVideoProcessing } from '@/api/videos';
 import type {
   AgentEvidenceCandidateResponse,
   AgentRunResponse,
@@ -150,6 +150,8 @@ type AdminCommentActionState = {
   action: 'delete' | 'retry';
   commentId: string;
 } | null;
+
+type VideoRetryStatus = 'idle' | 'submitting';
 
 const POSTS_LIMIT = 20;
 const ADMIN_COMMENTS_LIMIT = 20;
@@ -858,6 +860,8 @@ function PostDetail({
   const [postReloadKey, setPostReloadKey] = useState(0);
   const [commentsReloadKey, setCommentsReloadKey] = useState(0);
   const [videoReloadKey, setVideoReloadKey] = useState(0);
+  const [videoRetryStatus, setVideoRetryStatus] = useState<VideoRetryStatus>('idle');
+  const [videoRetryNotice, setVideoRetryNotice] = useState<WriteNotice | null>(null);
   const [postActionStatus, setPostActionStatus] = useState<
     'idle' | 'deleting' | 'liking' | 'unliking'
   >('idle');
@@ -965,6 +969,11 @@ function PostDetail({
       ignore = true;
     };
   }, [videoId, videoReloadKey]);
+
+  useEffect(() => {
+    setVideoRetryStatus('idle');
+    setVideoRetryNotice(null);
+  }, [videoId]);
 
   useEffect(() => {
     if (postState.status !== 'success') return;
@@ -1145,6 +1154,32 @@ function PostDetail({
     }
   };
 
+  const handleRetryVideoProcessing = async () => {
+    if (!videoId || videoRetryStatus === 'submitting') return;
+
+    if (session.status !== 'authenticated') {
+      navigate(buildLoginPath(getCurrentPath()));
+      return;
+    }
+
+    setVideoRetryStatus('submitting');
+    setVideoRetryNotice(null);
+
+    try {
+      await retryVideoProcessing(videoId);
+      setVideoRetryNotice({
+        tone: 'success',
+        message: '영상 처리 재시도를 요청했습니다.',
+      });
+      setVideoReloadKey((key) => key + 1);
+      setPostReloadKey((key) => key + 1);
+    } catch (error: unknown) {
+      handleWriteError(error, navigate, setVideoRetryNotice);
+    } finally {
+      setVideoRetryStatus('idle');
+    }
+  };
+
   return (
     <>
       <section className="flex min-w-0 flex-col gap-6" aria-label="Post detail">
@@ -1178,7 +1213,10 @@ function PostDetail({
 
         <PostVideoSection
           fallbackVideo={post.video}
+          isProcessingRetrying={videoRetryStatus === 'submitting'}
           onRetry={() => setVideoReloadKey((key) => key + 1)}
+          onRetryProcessing={handleRetryVideoProcessing}
+          processingRetryNotice={videoRetryNotice}
           state={videoState}
         />
 
@@ -1420,16 +1458,23 @@ function PostDetailHeader({
 
 function PostVideoSection({
   fallbackVideo,
+  isProcessingRetrying,
   onRetry,
+  onRetryProcessing,
+  processingRetryNotice,
   state,
 }: {
   fallbackVideo: VideoSummaryResponse;
+  isProcessingRetrying: boolean;
   onRetry: () => void;
+  onRetryProcessing: () => void;
+  processingRetryNotice: WriteNotice | null;
   state: AsyncState<VideoResponse>;
 }) {
   const video = state.data;
   const videoForStatus = video ?? fallbackVideo;
   const summary = getVideoProcessingSummary(videoForStatus);
+  const canRetryProcessing = canRetryVideoProcessing(videoForStatus);
 
   return (
     <section
@@ -1443,10 +1488,30 @@ function PostVideoSection({
             영상 메타데이터와 처리 상태를 읽기 전용으로 표시합니다.
           </p>
         </div>
-        <Badge className="w-fit shrink-0" variant={summary.variant}>
-          {summary.label}
-        </Badge>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Badge className="w-fit" variant={summary.variant}>
+            {summary.label}
+          </Badge>
+          {canRetryProcessing && (
+            <Button
+              disabled={isProcessingRetrying}
+              onClick={onRetryProcessing}
+              size="sm"
+              variant="destructive"
+            >
+              <RefreshCw
+                className={cn('size-4', isProcessingRetrying && 'animate-spin')}
+                aria-hidden="true"
+              />
+              {isProcessingRetrying ? '재시도 요청 중' : '영상 처리 재시도'}
+            </Button>
+          )}
+        </div>
       </div>
+
+      {processingRetryNotice && (
+        <InlineNotice message={processingRetryNotice.message} tone={processingRetryNotice.tone} />
+      )}
 
       {state.status === 'error' && (
         <div className="flex flex-col gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
@@ -4743,6 +4808,14 @@ function getVideoProcessingSummary(video: VideoSummaryResponse): {
 
   const pendingLabel = getPendingVideoLabel(video);
   return { label: pendingLabel, variant: 'secondary' };
+}
+
+function canRetryVideoProcessing(video: VideoSummaryResponse) {
+  return (
+    video.metadataStatus === 'FAILED' ||
+    video.transcriptStatus === 'FAILED' ||
+    (video.embeddingStatus === 'FAILED' && video.transcriptStatus !== 'NOT_AVAILABLE')
+  );
 }
 
 function getPendingVideoLabel(video: VideoSummaryResponse) {
