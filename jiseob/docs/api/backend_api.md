@@ -185,8 +185,9 @@
 
 ### GET `/posts`
 
-- 인증: 불필요
-- query: `page` 기본 1, `limit` 기본 20/최대 50, `q`, `tag`
+- 인증: 불필요. Bearer access token이 있으면 사용자별 `likedByMe`를 계산한다.
+- query: `page` 기본 1, `limit` 기본 20/최대 50, `q`, `tag`, `sort`
+- `sort`: `latest` 기본, `comments`, `likes`, `views`. 모두 내림차순이며 동률은 `createdAt DESC`, `id DESC`다.
 - 성공: `200 OK`
 
 ```json
@@ -200,6 +201,7 @@
       "commentCount": 0,
       "viewCount": 0,
       "likeCount": 0,
+      "likedByMe": null,
       "author": {
         "id": "01J00000000000000000000000",
         "nickname": "arena-user"
@@ -247,7 +249,7 @@
 
 ### GET `/posts/:postId`
 
-- 인증: 불필요
+- 인증: 불필요. Bearer access token이 있으면 사용자별 `likedByMe`를 계산한다.
 - 성공: `200 OK`, 목록 item shape에 `content`가 추가된 `PostResponse`
 - 주요 실패: `404`
 

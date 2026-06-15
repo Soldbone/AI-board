@@ -60,6 +60,9 @@ MVP frontend는 access token을 memory 우선으로 보관한다.
 - 앱 새로고침 시 `/auth/refresh` 또는 `/users/me` 흐름으로 복구를 시도한다.
 - refresh token은 httpOnly cookie이므로 JS에서 직접 읽지 않는다.
 - CSRF token은 cookie 또는 `/auth/csrf` 응답 기준으로 동기화한다.
+- access token 만료로 인증 요청이 `401`을 받으면 frontend API client가 refresh를 한 번 시도한 뒤 원 요청을 재시도한다.
+- refresh 실패 시 memory token을 지우고 앱 세션을 비회원 상태로 정리한다.
+- 게시글 목록/상세처럼 선택적 인증인 공개 조회는 refresh 실패 후 비회원 요청으로 한 번 더 조회한다.
 
 검토 사항:
 
@@ -131,6 +134,7 @@ auth.ts
   logout()
   getCsrf()
   getMe()
+  deleteMe()
 
 posts.ts
   listPosts()

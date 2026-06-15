@@ -26,7 +26,7 @@
 API:
 
 ```http
-GET /api/v1/posts?page=&limit=&q=&tag=
+GET /api/v1/posts?page=&limit=&q=&tag=&sort=
 GET /api/v1/tags
 ```
 
@@ -35,7 +35,7 @@ GET /api/v1/tags
 - 상단 navigation
 - 검색 input
 - tag filter
-- 정렬은 MVP에서 제외
+- 정렬 filter: 최신순, 댓글순, 좋아요순, 조회순
 - 게시글 list
 - pagination
 - empty state
@@ -47,6 +47,7 @@ GET /api/v1/tags
 - 작성자 nickname
 - tag
 - 댓글 수, 조회 수, 좋아요 수
+- 로그인 사용자의 좋아요 여부
 - video 처리 상태 badge
 - 생성일
 
