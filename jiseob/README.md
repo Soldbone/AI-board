@@ -2,7 +2,7 @@
 
 AI 기반 유튜브 이슈 토론 게시판 MVP입니다.
 
-현재 백엔드는 Phase 11까지 구현되어 있습니다. 게시글/댓글/영상 처리/RAG 근거 후보/MCP Agent Tool Server, AI Agent 추론 루프, 댓글 스레드 요약 API가 준비되어 있고, 다음 단계는 Phase 12 관리자 기능입니다. 프론트엔드는 아직 placeholder 화면입니다.
+현재 백엔드는 Phase 12까지 구현되어 있습니다. 게시글/댓글/영상 처리/RAG 근거 후보/MCP Agent Tool Server, AI Agent 추론 루프, 댓글 스레드 요약 API, 관리자 댓글 관리 API가 준비되어 있고, 다음 단계는 Phase 13 E2E 테스트 정리입니다. 프론트엔드는 아직 placeholder 화면입니다.
 
 ## 기술 스택
 
@@ -38,8 +38,9 @@ shadcn/ui 컴포넌트는 `frontend/src/components/ui`에 둡니다. 별도 UI �
 - Phase 10: MCP tool boundary를 사용하는 AI Agent 추론 루프
 - Phase 10.1: LangChain `ChatOpenAI.withStructuredOutput()` 기반 Agent LLM adapter
 - Phase 11: 댓글 스레드 AI 요약 생성/조회 API
+- Phase 12: 관리자용 주의 필요 댓글 조회/삭제와 AI 댓글 분석 재시도 API
 
-Phase 12 구현자는 `AGENTS.md`와 `docs/implementation/phase12_admin_harness.md`의 구현 하네스를 먼저 읽으면 됩니다.
+Phase 13 구현자는 `AGENTS.md`와 `docs/implementation/project_progress_audit_20260615.md`를 먼저 읽으면 됩니다.
 
 ## 로컬 개발환경 요구사항
 
@@ -259,15 +260,34 @@ GET  /api/v1/comments/:rootCommentId/summary
 
 생성 API는 로그인 사용자와 CSRF를 요구하고, 조회 API는 비회원도 기존 요약을 볼 수 있습니다. 삭제되지 않은 댓글 수가 10개 미만이면 요약을 생성하지 않습니다.
 
+## 관리자 기능
+
+관리자 endpoint는 `UserRole.ADMIN`만 접근할 수 있습니다. Phase 12에서는 admin 생성 API를 만들지 않고, 로컬/데모 환경에서는 DB에서 role을 수동으로 변경합니다.
+
+```sql
+UPDATE users
+SET role = 'ADMIN'
+WHERE email = 'admin@example.com'
+  AND deleted_at IS NULL;
+```
+
+지원 API:
+
+```http
+GET    /api/v1/admin/comments?moderationStatus=NEEDS_REVIEW&page=1&limit=20
+DELETE /api/v1/admin/comments/:commentId
+POST   /api/v1/admin/comments/:commentId/analysis/retry
+```
+
+목록 조회는 `JwtAuthGuard + RolesGuard`를 사용하고, DELETE/retry POST는 `JwtAuthGuard + CsrfGuard + RolesGuard`를 사용합니다.
+
 ## 다음 구현 순서
 
-`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 11 댓글 스레드 요약까지 구현되었습니다.
+`AGENTS.md`와 `docs/implementation/arena_implementation_plan.md` 기준으로 Phase 12 관리자 기능까지 구현되었습니다.
 
-다음 단계는 Phase 12 관리자 기능 구현입니다.
+다음 단계는 Phase 13 E2E 테스트 정리입니다.
 
-1. `AdminModule`, `AdminCommentsController`, `AdminCommentsService` 추가
-2. `GET /api/v1/admin/comments?moderationStatus=NEEDS_REVIEW`
-3. `DELETE /api/v1/admin/comments/:commentId`
-4. `POST /api/v1/admin/comments/:commentId/analysis/retry`
-5. `JwtAuthGuard + RolesGuard`, state-changing API의 `CsrfGuard` 적용
-6. 관리자 삭제와 AI 분석 재시도 정책 테스트/문서화
+1. 정책형 E2E 테스트 범위 확정
+2. 인증/CSRF/권한 실패 케이스 정리
+3. 게시글/댓글/영상 처리/AI API 주요 happy path 정리
+4. 테스트 실행 환경과 fixture 전략 문서화
