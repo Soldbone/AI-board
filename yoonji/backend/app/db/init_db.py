@@ -1,3 +1,5 @@
+from sqlalchemy import text
+
 from app.db.base import Base
 from app.db.database import SessionLocal, engine
 import app.models
@@ -66,4 +68,34 @@ def seed_boards() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    apply_legacy_schema_fixes()
     seed_boards()
+
+
+def apply_legacy_schema_fixes() -> None:
+    """Keep old local create_all databases compatible with the current model.
+
+    create_all() creates missing tables, but it does not alter columns that
+    already exist. Earlier phases used stricter user columns, while the current
+    API allows signup without email/profile data.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF to_regclass('public.users') IS NOT NULL THEN
+                        ALTER TABLE public.users
+                            ALTER COLUMN email DROP NOT NULL,
+                            ALTER COLUMN profile_image_url DROP NOT NULL,
+                            ALTER COLUMN last_login_at DROP NOT NULL;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )

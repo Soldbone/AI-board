@@ -11,7 +11,7 @@ const INITIAL_FORM = {
 };
 
 
-function SignupPage({ onSignup }) {
+function SignupPage({ onSignup, onSignupSuccess }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -27,15 +27,22 @@ function SignupPage({ onSignup }) {
     setIsSubmitting(true);
     setMessage("");
     setErrorMessage("");
+    let createdUser = null;
 
     try {
-      const user = await onSignup(form);
+      createdUser = await onSignup(form);
       setForm(INITIAL_FORM);
-      setMessage(`${user.nickname} 계정이 생성되었습니다.`);
+      if (!onSignupSuccess) {
+        setMessage(`${createdUser.nickname} 계정이 생성되었습니다.`);
+      }
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
+    }
+
+    if (createdUser && onSignupSuccess) {
+      onSignupSuccess(createdUser);
     }
   }
 

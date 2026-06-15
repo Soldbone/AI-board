@@ -13,6 +13,7 @@ function Layout({ auth, children }) {
           <img src="/ads/miku-left-top.jpg" alt="Hatsune Miku left side advertisement" />
           <img src="/ads/miku-left-bottom.jpg" alt="Hatsune Miku widget advertisement" />
           <img src="/ads/miku-left-bottom-extra.jpg" alt="Hatsune Miku fashion advertisement" />
+          <img src="/ads/miku-left-extra-2.png" alt="Hatsune Miku singing figure advertisement" />
         </aside>
 
         <div className="content-column">
@@ -26,6 +27,8 @@ function Layout({ auth, children }) {
         <aside className="side-ad-stack side-ad-stack-right" aria-label="right side advertisements">
           <img src="/ads/miku-side-top.jpg" alt="Hatsune Miku side advertisement" />
           <img src="/ads/miku-side-bottom.jpg" alt="Hatsune Miku poster advertisement" />
+          <img src="/ads/miku-side-extra.jpg" alt="Hatsune Miku customization advertisement" />
+          <img src="/ads/miku-side-extra-2.jpg" alt="Hatsune Miku cat ear figure advertisement" />
         </aside>
       </div>
     </div>

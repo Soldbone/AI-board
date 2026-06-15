@@ -230,16 +230,18 @@ function LoginRoute({ auth }) {
 
 
 function SignupRoute({ auth }) {
+  const navigate = useNavigate();
+
   if (auth.isAuthenticated) {
     return <Navigate replace to="/mypage" />;
   }
 
   return (
     <div className="auth-route">
-      <SignupPage onSignup={auth.signup} />
-      {auth.errorMessage && (
-        <p className="form-message error">{auth.errorMessage}</p>
-      )}
+      <SignupPage
+        onSignup={auth.signup}
+        onSignupSuccess={() => navigate("/login", { replace: true })}
+      />
     </div>
   );
 }
