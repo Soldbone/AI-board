@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from backend.app.api.dependencies import get_current_user
+from backend.app.core.config import Settings, get_settings
 from backend.app.db.session import get_db
 from backend.app.models.user import User
 from backend.app.schemas.common import MessageResponse, PageResponse, PaginationParams
@@ -29,9 +30,10 @@ def create_post(
     payload: PostCreateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PostRead:
     """로그인한 사용자의 아이디어/리뷰 게시글을 생성한다."""
-    return post_service.create_post(db, current_user, payload)
+    return post_service.create_post(db, current_user, payload, settings)
 
 
 @router.get("/{post_id}", response_model=PostRead)
@@ -46,9 +48,10 @@ def update_post(
     payload: PostUpdateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PostRead:
     """작성자만 게시글 내용과 태그/미디어를 수정한다."""
-    return post_service.update_post(db, post_id, current_user, payload)
+    return post_service.update_post(db, post_id, current_user, payload, settings)
 
 
 @router.delete("/{post_id}", response_model=MessageResponse)

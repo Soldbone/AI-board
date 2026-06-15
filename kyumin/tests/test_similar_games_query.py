@@ -2,13 +2,21 @@ import asyncio
 
 import pytest
 
+from backend.app.core.config import Settings
 from backend.app.models.post import Post, PostTag, Tag
+from backend.app.services import similar_games
 from backend.app.services.mcp_client import McpClientError
-from backend.app.services.similar_games import SimilarGameQuery, build_similar_game_query, collect_similar_games
+from backend.app.services.similar_games import (
+    SimilarGameQuery,
+    build_similar_game_query,
+    close_video_games_client,
+    collect_similar_games,
+    get_video_games_client,
+)
 
 
-def test_korean_idea_terms_become_english_mcp_search_hints() -> None:
-    """한국어 아이디어 제목/장르/태그를 RAWG 검색용 영어 힌트로 바꾼다."""
+def test_korean_idea_terms_are_kept_without_manual_translation() -> None:
+    """한국어 아이디어 제목/장르/태그는 수동 영어 사전 없이 원문 중심으로 검색한다."""
     post = Post(
         board_type="idea",
         title="감자를 키우는 로그라이크",
@@ -24,12 +32,8 @@ def test_korean_idea_terms_become_english_mcp_search_hints() -> None:
 
     query = build_similar_game_query(post)
 
-    assert query.genre == "RPG"
-    assert query.search_titles[0].startswith("roguelike")
-    assert "potato" in query.search_titles[0]
-    assert "deckbuilding" in query.search_titles[0]
-    assert "farming" in query.search_titles[0]
-    assert "감자를 키우는 로그라이크" in query.search_titles
+    assert query.genre == "로그라이크"
+    assert query.search_titles == ["감자를 키우는 로그라이크"]
 
 
 def test_english_idea_terms_are_kept_for_mcp_search() -> None:
@@ -68,3 +72,83 @@ def test_mcp_payload_error_is_not_hidden_as_empty_result() -> None:
 
     with pytest.raises(McpClientError, match="401"):
         asyncio.run(collect_similar_games(FakeMcpClient(), query))
+
+
+def test_video_games_mcp_client_is_reused_for_same_settings() -> None:
+    """요청마다 새 MCP 클라이언트를 만들지 않고 같은 설정의 클라이언트를 유지한다."""
+
+    async def run_check() -> None:
+        settings = Settings(
+            rawg_api_key="test-rawg-key",
+            video_games_mcp_command="python",
+            video_games_mcp_args="-m videogames_mcp_server",
+            mcp_request_timeout_seconds=1.0,
+        )
+
+        await close_video_games_client()
+        first_client = await get_video_games_client(settings)
+        second_client = await get_video_games_client(settings)
+
+        assert first_client is second_client
+        await close_video_games_client()
+
+    asyncio.run(run_check())
+
+
+def test_video_games_mcp_client_starts_on_startup_when_configured(monkeypatch) -> None:
+    """MCP 설정이 모두 있으면 백엔드 startup 단계에서 서버 프로세스를 미리 시작한다."""
+    started_clients = []
+
+    class FakeMcpClient:
+        def __init__(self, command, args, cwd, env, protocol_version, timeout_seconds):
+            self.command = command
+            self.args = args
+            self.cwd = cwd
+            self.env = env
+            self.protocol_version = protocol_version
+            self.timeout_seconds = timeout_seconds
+
+        async def ensure_started(self):
+            started_clients.append(self)
+
+        async def close(self):
+            return None
+
+    async def run_check() -> None:
+        settings = Settings(
+            rawg_api_key="test-rawg-key",
+            video_games_mcp_command="python",
+            video_games_mcp_args="-m videogames_mcp_server",
+            mcp_request_timeout_seconds=1.0,
+        )
+
+        monkeypatch.setattr(similar_games, "StdioMcpClient", FakeMcpClient)
+
+        await close_video_games_client()
+        did_start = await similar_games.start_video_games_client_if_configured(settings)
+
+        assert did_start is True
+        assert len(started_clients) == 1
+        assert started_clients[0].command == "python"
+        assert started_clients[0].args == ["-m", "videogames_mcp_server"]
+        await close_video_games_client()
+
+    asyncio.run(run_check())
+
+
+def test_video_games_mcp_client_startup_skips_when_settings_are_missing() -> None:
+    """MCP 환경변수가 비어 있으면 다른 백엔드 기능을 위해 startup을 막지 않는다."""
+
+    async def run_check() -> None:
+        await close_video_games_client()
+        settings = Settings(
+            rawg_api_key="",
+            video_games_mcp_command="",
+            video_games_mcp_args="",
+        )
+        did_start = await similar_games.start_video_games_client_if_configured(settings)
+
+        assert did_start is False
+        await close_video_games_client()
+
+    asyncio.run(run_check())

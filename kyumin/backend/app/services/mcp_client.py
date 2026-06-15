@@ -30,6 +30,8 @@ class StdioMcpClient:
         self.timeout_seconds = timeout_seconds
         self.next_request_id = 1
         self.process: asyncio.subprocess.Process | None = None
+        self._start_lock = asyncio.Lock()
+        self._request_lock = asyncio.Lock()
 
     async def __aenter__(self) -> "StdioMcpClient":
         await self.start()
@@ -40,6 +42,12 @@ class StdioMcpClient:
 
     async def start(self) -> None:
         """MCP 서버 프로세스를 띄우고 initialize/initialized 순서로 세션을 준비한다."""
+        if self.is_running():
+            return
+
+        if self.process is not None:
+            await self.close()
+
         process_env = os.environ.copy()
         process_env.update(self.env)
         try:
@@ -68,33 +76,61 @@ class StdioMcpClient:
         )
         await self.notify("notifications/initialized")
 
-    async def close(self) -> None:
-        """요청이 끝난 뒤 stdin을 닫고 MCP 서버 프로세스를 정리한다."""
-        if self.process is None:
+    async def ensure_started(self) -> None:
+        """공유 클라이언트가 첫 도구 호출 때만 MCP 서버 프로세스를 시작하게 한다."""
+        if self.is_running():
             return
 
-        if self.process.stdin is not None and not self.process.stdin.is_closing():
-            self.process.stdin.close()
+        async with self._start_lock:
+            if self.is_running():
+                return
+
+            await self.close()
+            try:
+                await self.start()
+            except McpClientError:
+                await self.close()
+                raise
+
+    def is_running(self) -> bool:
+        """현재 MCP 서버 프로세스가 살아 있는지 확인한다."""
+        return self.process is not None and self.process.returncode is None
+
+    async def close(self) -> None:
+        """앱 종료나 통신 실패 시 stdin을 닫고 MCP 서버 프로세스를 정리한다."""
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+
+        if process.stdin is not None and not process.stdin.is_closing():
+            process.stdin.close()
 
         try:
-            await asyncio.wait_for(self.process.wait(), timeout=2)
+            await asyncio.wait_for(process.wait(), timeout=2)
         except asyncio.TimeoutError:
-            self.process.terminate()
+            process.terminate()
             try:
-                await asyncio.wait_for(self.process.wait(), timeout=2)
+                await asyncio.wait_for(process.wait(), timeout=2)
             except asyncio.TimeoutError:
-                self.process.kill()
-                await self.process.wait()
+                process.kill()
+                await process.wait()
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """MCP `tools/call` 요청으로 특정 도구를 실행하고 구조화 결과를 꺼낸다."""
-        result = await self.request(
-            "tools/call",
-            {
-                "name": tool_name,
-                "arguments": arguments,
-            },
-        )
+        await self.ensure_started()
+        try:
+            result = await self.request(
+                "tools/call",
+                {
+                    "name": tool_name,
+                    "arguments": arguments,
+                },
+            )
+        except McpClientError:
+            await self.close()
+            raise
+
         if result.get("isError"):
             raise McpClientError(extract_text_error(result) or "mcp_tool_call_failed")
 
@@ -102,17 +138,18 @@ class StdioMcpClient:
 
     async def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """응답 ID가 있는 JSON-RPC 요청을 보내고 같은 ID의 응답을 기다린다."""
-        request_id = self.next_request_id
-        self.next_request_id += 1
-        await self.write_message(
-            {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": method,
-                "params": params,
-            }
-        )
-        return await self.read_response(request_id)
+        async with self._request_lock:
+            request_id = self.next_request_id
+            self.next_request_id += 1
+            await self.write_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": method,
+                    "params": params,
+                }
+            )
+            return await self.read_response(request_id)
 
     async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         """응답을 기다리지 않는 MCP notification 메시지를 보낸다."""
@@ -131,8 +168,11 @@ class StdioMcpClient:
             raise McpClientError("mcp_server_not_started")
 
         payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
-        self.process.stdin.write(payload.encode("utf-8"))
-        await self.process.stdin.drain()
+        try:
+            self.process.stdin.write(payload.encode("utf-8"))
+            await self.process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError) as error:
+            raise McpClientError("mcp_server_closed") from error
 
     async def read_response(self, request_id: int) -> dict[str, Any]:
         """stdout에서 JSON-RPC 응답을 읽고 요청 ID가 맞는 결과만 반환한다."""

@@ -324,6 +324,12 @@ h2 {
   color: #667085;
 }
 
+.rag-generated-feedback {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .key-state {
   margin-bottom: 0;
   color: #4b5563;
@@ -740,6 +746,7 @@ h2 {
   .rag-title-row,
   .post-open-button,
   .detail-grid,
+  .rag-generated-feedback,
   .agent-result-grid,
   .comment-review-grid,
   .review-comment-grid,

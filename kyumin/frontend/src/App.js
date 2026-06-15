@@ -1008,6 +1008,7 @@
     const isEditing = Boolean(initialPost);
     const [form, setForm] = useState(() => buildPostFormState(initialPost));
     const [ragItems, setRagItems] = useState([]);
+    const [ragFeedback, setRagFeedback] = useState(null);
     const [ragSearched, setRagSearched] = useState(false);
     const [ragLoading, setRagLoading] = useState(false);
     const [ragError, setRagError] = useState("");
@@ -1029,12 +1030,18 @@
 
       setRagError("");
       setRagItems([]);
+      setRagFeedback(null);
       setRagSearched(true);
       setRagLoading(true);
 
       try {
         const result = await window.PotatoApi.recommendPostsByTitle({ title: form.title });
         setRagItems(result.items || []);
+        setRagFeedback({
+          summary: result.summary || "",
+          duplicateRisk: result.duplicate_risk || "",
+          suggestion: result.suggestion || "",
+        });
       } catch (requestError) {
         if (
           handleProtectedApiError(
@@ -1124,6 +1131,7 @@
         ),
         h(RagRecommendationPanel, {
           items: ragItems,
+          feedback: ragFeedback,
           searched: ragSearched,
           loading: ragLoading,
           error: ragError,
@@ -1161,10 +1169,14 @@
   }
 
   // RAG 미리확인 결과를 글쓰기 흐름 안에서 바로 보여준다.
-  function RagRecommendationPanel({ items, searched, loading, error }) {
+  function RagRecommendationPanel({ items, feedback, searched, loading, error }) {
     if (!searched) {
       return null;
     }
+
+    const hasFeedback = Boolean(
+      feedback && (feedback.summary || feedback.duplicateRisk || feedback.suggestion)
+    );
 
     return h(
       "section",
@@ -1197,6 +1209,17 @@
                 )
               )
             )
+          )
+        : null,
+      hasFeedback
+        ? h(
+            "div",
+            { className: "rag-generated-feedback" },
+            feedback.summary ? h(DetailField, { label: "AI 요약", value: feedback.summary }) : null,
+            feedback.duplicateRisk
+              ? h(DetailField, { label: "중복 가능성", value: feedback.duplicateRisk })
+              : null,
+            feedback.suggestion ? h(DetailField, { label: "개선 제안", value: feedback.suggestion }) : null
           )
         : null
     );

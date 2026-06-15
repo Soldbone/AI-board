@@ -45,11 +45,11 @@ async def find_similar_games(
 
 
 @router.post("/agent/review-idea", response_model=AgentReviewResponse)
-def review_idea(
+async def review_idea(
     payload: AgentReviewRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AgentReviewResponse:
     """게임 아이디어 게시글에 대해 RAG/MCP 참고자료를 모아 Agent 분석을 실행한다."""
-    return idea_agent.review_idea_post(db, current_user, payload.post_id, settings)
+    return await idea_agent.review_idea_post(db, current_user, payload.post_id, settings)
