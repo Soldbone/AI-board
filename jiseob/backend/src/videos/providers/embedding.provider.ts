@@ -15,6 +15,8 @@ type OpenAiEmbeddingsResponse = {
   }>;
 };
 
+const OPENAI_EMBEDDING_TIMEOUT_MS = 30_000;
+
 @Injectable()
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   constructor(private readonly configService: ConfigService) {}
@@ -37,6 +39,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     const dimension = Number(this.configService.get<string>('EMBEDDING_DIMENSION') ?? '1536');
     const response = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
+      signal: AbortSignal.timeout(OPENAI_EMBEDDING_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

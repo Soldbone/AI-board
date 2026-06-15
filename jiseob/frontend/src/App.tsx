@@ -970,6 +970,26 @@ function PostDetail({
     };
   }, [videoId, videoReloadKey]);
 
+  const videoForPolling = videoState.data ?? post?.video ?? null;
+
+  useEffect(() => {
+    if (!videoForPolling || !isVideoProcessingInProgress(videoForPolling)) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setVideoReloadKey((key) => key + 1);
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    videoForPolling?.embeddingStatus,
+    videoForPolling?.id,
+    videoForPolling?.isProcessing,
+    videoForPolling?.metadataStatus,
+    videoForPolling?.transcriptStatus,
+  ]);
+
   useEffect(() => {
     setVideoRetryStatus('idle');
     setVideoRetryNotice(null);
@@ -4802,7 +4822,7 @@ function getVideoProcessingSummary(video: VideoSummaryResponse): {
     return { label: '자막 사용할 수 없음', variant: 'muted' };
   }
 
-  if (video.isProcessing || statuses.includes('PROCESSING')) {
+  if (isVideoProcessingInProgress(video)) {
     return { label: '영상 처리 중', variant: 'warning' };
   }
 
@@ -4811,11 +4831,21 @@ function getVideoProcessingSummary(video: VideoSummaryResponse): {
 }
 
 function canRetryVideoProcessing(video: VideoSummaryResponse) {
+  if (isVideoProcessingInProgress(video)) {
+    return false;
+  }
+
   return (
     video.metadataStatus === 'FAILED' ||
     video.transcriptStatus === 'FAILED' ||
     (video.embeddingStatus === 'FAILED' && video.transcriptStatus !== 'NOT_AVAILABLE')
   );
+}
+
+function isVideoProcessingInProgress(video: VideoSummaryResponse) {
+  const statuses = [video.metadataStatus, video.transcriptStatus, video.embeddingStatus];
+
+  return video.isProcessing || statuses.includes('PROCESSING');
 }
 
 function getPendingVideoLabel(video: VideoSummaryResponse) {

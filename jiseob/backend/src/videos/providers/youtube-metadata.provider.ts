@@ -37,6 +37,8 @@ type YoutubeVideosListResponse = {
   }>;
 };
 
+const YOUTUBE_METADATA_TIMEOUT_MS = 30_000;
+
 @Injectable()
 export class YoutubeDataApiMetadataProvider implements YoutubeMetadataProvider {
   constructor(private readonly configService: ConfigService) {}
@@ -56,7 +58,9 @@ export class YoutubeDataApiMetadataProvider implements YoutubeMetadataProvider {
     url.searchParams.set('id', youtubeVideoId);
     url.searchParams.set('key', apiKey);
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(YOUTUBE_METADATA_TIMEOUT_MS),
+    });
     const body = (await response.json().catch(() => ({}))) as YoutubeVideosListResponse;
 
     if (!response.ok) {
