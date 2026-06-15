@@ -227,6 +227,116 @@ describe('AiRecommendationsService', () => {
     expect(recommendation.referencedPosts).toEqual([]);
   });
 
+  it('should remove missing ingredients that are not mentioned in the recommendation', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '애호박 계란 볶음',
+      reason: '애호박과 계란을 함께 볶으면 부드럽고 담백합니다.',
+      availableIngredients: ['애호박', '계란'],
+      usedIngredients: ['애호박', '계란'],
+      missingIngredients: ['밥', '면', '마늘', '간장'],
+      estimatedCookingTime: 15,
+      difficulty: '쉬움',
+      content:
+        '애호박을 반달 모양으로 썰고 계란을 풀어 함께 볶아 접시에 담습니다.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 2,
+        postId: null,
+        requestedById: 1,
+        menuName: '애호박 계란 볶음',
+        reason: '애호박과 계란을 함께 볶으면 부드럽고 담백합니다.',
+        availableIngredients: ['애호박', '계란'],
+        missingIngredients: [],
+        estimatedCookingTime: 15,
+        difficulty: '쉬움',
+        content:
+          '애호박을 반달 모양으로 썰고 계란을 풀어 함께 볶아 접시에 담습니다.',
+        thumbnailUrl: null,
+        status: 'ACTIVE',
+        grounding: 'GENERAL_AI',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    const recommendation = await service.createDirect(
+      {
+        ingredients: ['애호박', '계란'],
+        conditions: '반찬 추천 부탁드려요',
+      },
+      1,
+    );
+
+    expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          missingIngredients: [],
+        }),
+      }),
+    );
+    expect(recommendation.missingIngredients).toEqual([]);
+  });
+
+  it('should calculate missing ingredients from used ingredients', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '애호박 양파 계란 볶음',
+      reason: '애호박과 계란에 양파를 더해 단맛을 살립니다.',
+      availableIngredients: ['애호박', '계란'],
+      usedIngredients: ['애호박', '계란', '양파'],
+      missingIngredients: [],
+      estimatedCookingTime: 15,
+      difficulty: '쉬움',
+      content: '애호박과 양파를 볶다가 계란을 풀어 함께 익힙니다.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 3,
+        postId: null,
+        requestedById: 1,
+        menuName: '애호박 양파 계란 볶음',
+        reason: '애호박과 계란에 양파를 더해 단맛을 살립니다.',
+        availableIngredients: ['애호박', '계란'],
+        missingIngredients: ['양파'],
+        estimatedCookingTime: 15,
+        difficulty: '쉬움',
+        content: '애호박과 양파를 볶다가 계란을 풀어 함께 익힙니다.',
+        thumbnailUrl: null,
+        status: 'ACTIVE',
+        grounding: 'GENERAL_AI',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    const recommendation = await service.createDirect(
+      {
+        ingredients: ['애호박', '계란'],
+        conditions: '반찬 추천 부탁드려요',
+      },
+      1,
+    );
+
+    expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          missingIngredients: ['양파'],
+        }),
+      }),
+    );
+    expect(recommendation.missingIngredients).toEqual(['양파']);
+  });
+
   it('should ignore weakly similar posts and use general AI grounding', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
       {
@@ -569,7 +679,7 @@ describe('AiRecommendationsService', () => {
         menuName: '명란 크래미 주먹밥',
         reason: '비슷한 커뮤니티 글을 참고했습니다.',
         availableIngredients: ['명란', '크래미'],
-        missingIngredients: ['계란', '밥', '참기름'],
+        missingIngredients: ['밥'],
         estimatedCookingTime: 10,
         difficulty: '쉬움',
         content: '명란과 크래미를 밥에 섞어 한입 크기로 뭉쳐주세요.',
@@ -612,15 +722,15 @@ describe('AiRecommendationsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           availableIngredients: expect.arrayContaining(['명란', '크래미']),
-          missingIngredients: expect.arrayContaining(['계란', '밥', '참기름']),
+          missingIngredients: ['밥'],
           grounding: 'COMMUNITY_RAG',
         }),
       }),
     );
     expect(recommendation.grounding).toBe('COMMUNITY_RAG');
-    expect(recommendation.missingIngredients).toEqual(['계란', '밥', '참기름']);
+    expect(recommendation.missingIngredients).toEqual(['밥']);
     expect(recommendation.missingIngredients).not.toEqual(
-      expect.arrayContaining(['퇴근', '안에']),
+      expect.arrayContaining(['계란', '참기름', '퇴근', '안에']),
     );
   });
 
@@ -663,7 +773,7 @@ describe('AiRecommendationsService', () => {
       missingIngredients: [],
       estimatedCookingTime: 15,
       difficulty: '쉬움',
-      content: '아보카도와 병아리콩을 섞어 샐러드를 만듭니다.',
+      content: '아보카도와 병아리콩에 토마토와 치즈를 더해 샐러드를 만듭니다.',
     });
     jest
       .spyOn(prismaService.aiRecipeRecommendation, 'create')

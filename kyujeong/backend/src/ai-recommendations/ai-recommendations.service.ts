@@ -200,12 +200,25 @@ const NON_INGREDIENT_TERMS = new Set([
   '방법',
   '만들기',
   '만들',
+  '볶음',
+  '볶음밥',
+  '주먹밥',
+  '샐러드',
+  '찌개',
+  '국',
+  '반찬',
   '먹는',
   '먹고',
   '먹을',
   '먹기',
   '무엇',
   '무슨',
+  '후기',
+  '조합',
+  '추가',
+  '더하면',
+  '더해',
+  '더해서',
   '싶어요',
   '좋아요',
   '느낌',
@@ -389,9 +402,7 @@ export class AiRecommendationsService {
       );
     const recommendationDraft = this.completeRecommendationDraft(
       rawRecommendationDraft,
-      grounding,
       targetIngredients,
-      similarPosts,
     );
     const thumbnailUrl = await this.createRecommendationThumbnailUrl(
       recommendationDraft.menuName,
@@ -511,9 +522,7 @@ export class AiRecommendationsService {
       );
     const recommendationDraft = this.completeRecommendationDraft(
       rawRecommendationDraft,
-      grounding,
       targetIngredients,
-      similarPosts,
     );
     const thumbnailUrl = await this.createRecommendationThumbnailUrl(
       recommendationDraft.menuName,
@@ -667,27 +676,89 @@ export class AiRecommendationsService {
 
   private completeRecommendationDraft(
     recommendationDraft: RecipeRecommendationDraft,
-    grounding: RecommendationGrounding,
     targetIngredients: string[],
-    similarPosts: SimilarPost[],
   ): RecipeRecommendationDraft {
-    if (grounding !== 'COMMUNITY_RAG' || similarPosts.length === 0) {
-      return recommendationDraft;
-    }
-
-    const targetIngredientSet = new Set(targetIngredients);
-    const evidenceMissingIngredients = similarPosts.flatMap(
-      (similarPost) => similarPost.missingIngredients,
+    const targetIngredientSet = new Set(
+      targetIngredients.flatMap((ingredient) =>
+        this.getIngredientComparisonTokens(ingredient),
+      ),
     );
-    const missingIngredients = [
-      ...recommendationDraft.missingIngredients,
-      ...evidenceMissingIngredients,
-    ].filter((ingredient) => !targetIngredientSet.has(ingredient));
+    const recipeText = [
+      recommendationDraft.menuName,
+      recommendationDraft.reason,
+      recommendationDraft.content,
+    ]
+      .join(' ')
+      .toLowerCase();
+    const draftUsedIngredients = recommendationDraft.usedIngredients ?? [];
+    const usedIngredients = this.normalizeRecipeIngredientEntries(
+      draftUsedIngredients.length
+        ? draftUsedIngredients
+        : this.extractIngredientTerms(recipeText),
+    ).filter((ingredient) =>
+      this.isIngredientUsedInRecipeText(ingredient, recipeText),
+    );
+    const missingIngredients = usedIngredients.filter((ingredient) =>
+      this
+        .getIngredientComparisonTokens(ingredient)
+        .every((token) => !targetIngredientSet.has(token)),
+    );
 
     return {
       ...recommendationDraft,
+      usedIngredients,
       missingIngredients: [...new Set(missingIngredients)].slice(0, 4),
     };
+  }
+
+  private normalizeRecipeIngredientEntries(ingredients: string[]) {
+    return [
+      ...new Set(
+        ingredients
+          .flatMap((ingredient) =>
+            ingredient
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N},/·\s]/gu, ' ')
+          .split(/\s*(?:,|\/|·|또는|혹은|및)\s*/gu),
+          )
+          .map((ingredient) => this.normalizeIngredientToken(ingredient))
+          .filter((ingredient) => this.isRecipeIngredientEntryToken(ingredient))
+          .map((ingredient) => this.normalizeIngredientAlias(ingredient)),
+      ),
+    ].slice(0, 12);
+  }
+
+  private getIngredientComparisonTokens(ingredient: string) {
+    return [
+      ...new Set(
+        [
+          ...this.normalizeRecipeIngredientEntries([ingredient]),
+          ...this.extractIngredientTerms(ingredient),
+          this.normalizeIngredientToken(ingredient),
+        ]
+          .filter((token) => this.isRecipeIngredientEntryToken(token))
+          .map((token) => this.normalizeIngredientAlias(token)),
+      ),
+    ];
+  }
+
+  private isRecipeIngredientEntryToken(token: string) {
+    return (
+      this.isKnownIngredientToken(token) ||
+      this.isPotentialDirectIngredientToken(token)
+    );
+  }
+
+  private isIngredientUsedInRecipeText(ingredient: string, recipeText: string) {
+    const recipeIngredientMentions = new Set(this.extractIngredientTerms(recipeText));
+
+    return this.getIngredientComparisonTokens(ingredient).some((token) => {
+      if (token.length < 2) {
+        return recipeIngredientMentions.has(token);
+      }
+
+      return recipeIngredientMentions.has(token) || recipeText.includes(token);
+    });
   }
 
   private async upsertRagDocument(
@@ -998,17 +1069,18 @@ export class AiRecommendationsService {
   private extractIngredientTerms(text: string) {
     const normalizedText = text.toLowerCase();
     const ingredients = new Set<string>();
+    const normalizedTokens = normalizedText
+      .replace(/[^\p{L}\p{N},\s]/gu, ' ')
+      .split(/[,\s]+/)
+      .map((token) => this.normalizeIngredientToken(token));
 
     KNOWN_INGREDIENTS.forEach((ingredient) => {
-      if (normalizedText.includes(ingredient)) {
+      if (ingredient.length > 1 && normalizedText.includes(ingredient)) {
         ingredients.add(this.normalizeIngredientAlias(ingredient));
       }
     });
 
-    normalizedText
-      .replace(/[^\p{L}\p{N},\s]/gu, ' ')
-      .split(/[,\s]+/)
-      .map((token) => this.normalizeIngredientToken(token))
+    normalizedTokens
       .filter((token) => this.isKnownIngredientToken(token))
       .forEach((token) =>
         ingredients.add(this.normalizeIngredientAlias(token)),
@@ -1104,7 +1176,7 @@ export class AiRecommendationsService {
 
     for (const suffix of suffixes) {
       if (
-        normalizedToken.length > suffix.length + 1 &&
+        normalizedToken.length > suffix.length &&
         normalizedToken.endsWith(suffix)
       ) {
         normalizedToken = normalizedToken.slice(0, -suffix.length);
@@ -1135,7 +1207,7 @@ export class AiRecommendationsService {
   private isPotentialInferredIngredientToken(token: string) {
     return (
       this.isPotentialDirectIngredientToken(token) &&
-      !/(하다|해요|해주세요|됩니다|되나요|싶어요|주세요|나요|어요|습니다|는데|다면)$/.test(
+      !/(하다|하면|해요|해주세요|됩니다|되나요|싶어요|주세요|나요|어요|습니다|는데|다면)$/.test(
         token,
       )
     );

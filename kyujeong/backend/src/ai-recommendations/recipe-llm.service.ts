@@ -11,6 +11,7 @@ export type RecipeRecommendationDraft = {
   menuName: string;
   reason: string;
   availableIngredients: string[];
+  usedIngredients?: string[];
   missingIngredients: string[];
   estimatedCookingTime: number | null;
   difficulty: string;
@@ -154,6 +155,7 @@ export class RecipeLlmService {
         menuName: 'string',
         reason: 'string',
         availableIngredients: ['string'],
+        usedIngredients: ['string'],
         missingIngredients: ['string'],
         estimatedCookingTime: 'number or null',
         difficulty: '쉬움 | 보통 | 어려움',
@@ -174,9 +176,10 @@ export class RecipeLlmService {
         'Treat targetPost.availableIngredients as the user-owned ingredients when present.',
         'Prefer ingredients mentioned by the target post.',
         'availableIngredients must only include ingredients the user already has.',
-        'missingIngredients should list optional or necessary ingredients for the chosen recipe that the user does not appear to have.',
+        'usedIngredients must include every ingredient actually used in the final recommended recipe, including owned and missing ingredients.',
+        'missingIngredients must be the ingredients from usedIngredients that are not present in targetPost.availableIngredients.',
+        'Do not include serving sides, optional garnish, community-only ingredients, or general context words in usedIngredients unless they are actually used in content.',
         'Do not force missingIngredients. Return an empty array when the recipe works well with the available ingredients.',
-        'If community evidence has missingIngredients that are useful for the chosen recipe and absent from targetPost.availableIngredients, include them in missingIngredients instead of saying there are none.',
         isGeneralAi
           ? 'Do not say that community posts were referenced.'
           : 'Use commentEvidence from the similar community posts as the supporting evidence.',
@@ -207,6 +210,7 @@ export class RecipeLlmService {
         '게시글의 재료와 조건을 기준으로 만들기 쉬운 메뉴입니다.',
       ),
       availableIngredients: this.readStringArray(parsed.availableIngredients),
+      usedIngredients: this.readStringArray(parsed.usedIngredients),
       missingIngredients: this.readStringArray(parsed.missingIngredients),
       estimatedCookingTime:
         typeof parsed.estimatedCookingTime === 'number'
@@ -251,11 +255,8 @@ export class RecipeLlmService {
         .filter(Boolean)
         .join(' '),
       availableIngredients: ingredients.slice(0, 6),
-      missingIngredients: this.pickMissingIngredients(
-        targetPost,
-        ingredients,
-        similarPosts,
-      ),
+      usedIngredients: ingredients.slice(0, 6),
+      missingIngredients: [],
       estimatedCookingTime: this.extractMinutes(targetPost.content) ?? 10,
       difficulty: '쉬움',
       content: [
@@ -417,31 +418,6 @@ export class RecipeLlmService {
     }
 
     return `${primaryIngredient} 냉파 한 접시`;
-  }
-
-  private pickMissingIngredients(
-    targetPost: RecipeContext,
-    ingredients: string[],
-    similarPosts: SimilarPostContext[],
-  ) {
-    const text = `${targetPost.title} ${targetPost.content}`;
-    const ownedIngredients = new Set(ingredients);
-    const evidenceMissingIngredients = similarPosts.flatMap(
-      (post) => post.missingIngredients ?? [],
-    );
-    const missingIngredients = evidenceMissingIngredients.filter(
-      (ingredient) => !ownedIngredients.has(ingredient),
-    );
-
-    if (!text.includes('밥') && !ingredients.includes('밥')) {
-      missingIngredients.push('밥 또는 면');
-    }
-
-    if (!text.includes('간장') && !text.includes('소금')) {
-      missingIngredients.push('기본 양념');
-    }
-
-    return [...new Set(missingIngredients)].slice(0, 3);
   }
 
   private extractMinutes(content: string) {
