@@ -51,8 +51,10 @@ import {
 } from '@/api/posts';
 import { getVideo } from '@/api/videos';
 import type {
+  AgentEvidenceCandidateResponse,
   AgentRunResponse,
   AgentRunStatus,
+  AgentToolUseResponse,
   AiAnalysisStatus,
   CommentEvidencesResponse,
   CommentResponse,
@@ -3608,6 +3610,7 @@ function AgentRunStatusPanel({
         <Badge variant="muted">step {getAgentStepCount(run).toLocaleString()}</Badge>
       </div>
       <p className="text-sm leading-6 text-muted-foreground">{getAgentRunStatusMessage(run)}</p>
+      <AgentRunResultContent run={run} />
       {runState.status === 'error' && (
         <InlineNotice
           message={`Agent 상태를 불러오지 못했습니다. ${runState.error}`}
@@ -3630,6 +3633,120 @@ function AgentRunStatusPanel({
         </p>
       )}
     </div>
+  );
+}
+
+function AgentRunResultContent({ run }: { run: AgentPanelRun }) {
+  if (!isAgentRunResponse(run)) {
+    return (
+      <p className="rounded-md bg-background p-3 text-sm leading-6 text-muted-foreground">
+        Agent run 상세 결과를 기다리는 중입니다.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      {run.status === 'SUCCESS' && run.answer && (
+        <section className="grid gap-2 rounded-md bg-background p-3">
+          <h3 className="text-sm font-semibold">답변</h3>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
+            {run.answer}
+          </p>
+        </section>
+      )}
+
+      {run.status === 'FAILED' && (
+        <section className="grid gap-2 rounded-md bg-destructive/5 p-3 text-sm leading-6 text-destructive">
+          <h3 className="font-semibold">실패</h3>
+          <p>
+            Agent 답변을 생성하지 못했습니다.
+            {run.errorCode ? ` 오류 코드: ${run.errorCode}` : ''}
+          </p>
+        </section>
+      )}
+
+      {run.evidenceCandidates.length > 0 && (
+        <AgentEvidenceCandidateList candidates={run.evidenceCandidates} />
+      )}
+
+      {run.usedTools.length > 0 && <AgentToolUseList tools={run.usedTools} />}
+
+      {run.limitations.length > 0 && <AgentLimitations limitations={run.limitations} />}
+    </div>
+  );
+}
+
+function AgentToolUseList({ tools }: { tools: AgentToolUseResponse[] }) {
+  return (
+    <section className="grid gap-2 rounded-md bg-background p-3">
+      <h3 className="text-sm font-semibold">사용한 tool</h3>
+      <div className="grid gap-2">
+        {tools.map((tool) => {
+          const statusLabel = getAgentRunStatusLabel(tool.status);
+
+          return (
+            <div
+              className="flex min-w-0 items-center justify-between gap-2 text-sm"
+              key={`${tool.stepIndex}-${tool.toolName}`}
+            >
+              <span className="min-w-0 truncate">
+                {tool.stepIndex}. {tool.toolName}
+              </span>
+              <Badge className="shrink-0" variant={statusLabel.variant}>
+                {statusLabel.label}
+              </Badge>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function AgentEvidenceCandidateList({
+  candidates,
+}: {
+  candidates: AgentEvidenceCandidateResponse[];
+}) {
+  return (
+    <section className="grid gap-2 rounded-md bg-background p-3">
+      <h3 className="text-sm font-semibold">관련 있을 수 있는 자막 구간</h3>
+      <div className="grid gap-2">
+        {candidates.map((candidate, index) => (
+          <article
+            className="grid gap-2 rounded-md border border-border p-3"
+            key={candidate.chunkId}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium">구간 {index + 1}</span>
+              <Badge variant="secondary">{formatSimilarityScore(candidate.similarityScore)}</Badge>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800">
+              {candidate.text}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {formatTranscriptTime(candidate.startSec)} - {formatTranscriptTime(candidate.endSec)}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentLimitations({ limitations }: { limitations: string[] }) {
+  return (
+    <section className="grid gap-2 rounded-md border border-blue-700/20 bg-blue-50 p-3 text-blue-700">
+      <h3 className="text-sm font-semibold">한계</h3>
+      <ul className="grid gap-1 text-sm leading-6">
+        {limitations.map((limitation) => (
+          <li className="break-words" key={limitation}>
+            {limitation}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -3993,6 +4110,10 @@ function isSummaryRunning(status: SummaryStatus) {
 
 function isAgentRunRunning(status: AgentRunStatus) {
   return status === 'PENDING' || status === 'RUNNING';
+}
+
+function isAgentRunResponse(run: AgentPanelRun): run is AgentRunResponse {
+  return 'usedTools' in run;
 }
 
 function getAgentStepCount(run: AgentPanelRun) {
