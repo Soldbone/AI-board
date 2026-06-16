@@ -23,9 +23,12 @@ class RagRecommendationItem(BaseModel):
 
 
 class RagRecommendResponse(BaseModel):
-    """관련 게시글 추천 결과 목록을 감싼 응답이다."""
+    """관련 게시글 추천 결과와 LLM 생성 피드백을 감싼 응답이다."""
 
     items: list[RagRecommendationItem]
+    summary: str | None = None
+    duplicate_risk: str | None = None
+    suggestion: str | None = None
 
 
 class SimilarGamesRequest(BaseModel):

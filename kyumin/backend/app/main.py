@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,10 +8,27 @@ from backend.app.api.router import api_router
 from backend.app.core.config import Settings, get_settings
 
 
+@asynccontextmanager
+async def app_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """앱 시작/종료 시 유지해야 하는 외부 연결을 관리한다."""
+    from backend.app.services.similar_games import (
+        close_video_games_client,
+        start_video_games_client_if_configured,
+    )
+
+    settings_provider = app.dependency_overrides.get(get_settings, get_settings)
+    settings = settings_provider()
+    await start_video_games_client_if_configured(settings)
+    try:
+        yield
+    finally:
+        await close_video_games_client()
+
+
 def create_app() -> FastAPI:
     """FastAPI 앱을 만들고 공통 라우터를 등록한다."""
     settings = get_settings()
-    app = FastAPI(title=settings.app_name)
+    app = FastAPI(title=settings.app_name, lifespan=app_lifespan)
 
     configure_cors(app, settings)
 

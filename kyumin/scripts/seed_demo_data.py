@@ -23,6 +23,28 @@ from backend.app.services.idea_agent import AGENT_ANALYSIS_TYPE
 from backend.app.services.similar_games import MCP_ANALYSIS_TYPE, MCP_MODEL_NAME
 
 DEMO_PASSWORD = "password123"
+BULK_EXAMPLE_COUNT = 200
+IDEA_EXAMPLE_COUNT = BULK_EXAMPLE_COUNT // 2
+REVIEW_EXAMPLE_COUNT = BULK_EXAMPLE_COUNT - IDEA_EXAMPLE_COUNT
+
+IDEA_GENRES = ["Roguelike", "Puzzle", "Simulation", "Action", "Strategy", "Rhythm", "Platformer", "Card"]
+REVIEW_GENRES = ["Arcade", "Puzzle", "Action", "Simulation", "Racing", "Rhythm", "Adventure", "Sports"]
+PLATFORMS = ["Web", "PC", "Mobile", "Web/PC"]
+DIFFICULTIES = ["easy", "medium", "hard"]
+IDEA_TAG_GROUPS = [
+    ["prototype", "game-jam", "student"],
+    ["coop", "casual", "web"],
+    ["single-player", "pixel", "mvp"],
+    ["physics", "score-attack", "fast-loop"],
+    ["strategy", "deck", "replay"],
+]
+REVIEW_TAG_GROUPS = [
+    ["playtest", "feedback", "web"],
+    ["student-game", "prototype", "review"],
+    ["arcade", "short-run", "score"],
+    ["ui", "balance", "polish"],
+    ["mobile", "casual", "iteration"],
+]
 
 
 def main() -> None:
@@ -80,6 +102,7 @@ def main() -> None:
             suggestion="첫 화면에 목표와 점수 조건을 한 줄로 보여주면 좋겠음",
         )
         ensure_ai_sample_results(db, idea_post, writer)
+        seed_bulk_example_posts(db, writer, reviewer)
 
         db.commit()
         print("Demo data is ready.")
@@ -87,6 +110,7 @@ def main() -> None:
         print(f"- Reviewer: reviewer@example.com / {DEMO_PASSWORD}")
         print(f"- Idea post id: {idea_post.id}")
         print(f"- Review post id: {review_post.id}")
+        print(f"- Bulk example posts: {BULK_EXAMPLE_COUNT}")
     finally:
         db.close()
 
@@ -213,6 +237,110 @@ def ensure_comment(
     )
 
 
+def seed_bulk_example_posts(db: Session, writer: User, reviewer: User) -> None:
+    """게시판 목록, 검색, 페이징을 확인할 수 있도록 대량 샘플 글을 만든다."""
+    for index in range(1, IDEA_EXAMPLE_COUNT + 1):
+        post = ensure_post(
+            db,
+            user=writer,
+            board_type="idea",
+            title=f"샘플 아이디어 {index:03d} - {build_idea_title(index)}",
+            content=build_idea_content(index),
+            genre=IDEA_GENRES[(index - 1) % len(IDEA_GENRES)],
+            core_fun=build_idea_core_fun(index),
+            platform=PLATFORMS[(index - 1) % len(PLATFORMS)],
+            difficulty=DIFFICULTIES[(index - 1) % len(DIFFICULTIES)],
+            source_url=f"https://example.com/ideas/{index:03d}",
+            tags=build_tag_list(IDEA_TAG_GROUPS, index),
+        )
+        if index % 4 == 0:
+            ensure_comment(db, post, reviewer, f"{index:03d}번 아이디어는 첫 화면 목표가 잘 보이면 더 좋아질 것 같아요.")
+
+    for index in range(1, REVIEW_EXAMPLE_COUNT + 1):
+        post = ensure_post(
+            db,
+            user=writer,
+            board_type="review",
+            title=f"샘플 리뷰 {index:03d} - {build_review_title(index)}",
+            content=build_review_content(index),
+            genre=REVIEW_GENRES[(index - 1) % len(REVIEW_GENRES)],
+            core_fun=None,
+            platform=PLATFORMS[(index - 1) % len(PLATFORMS)],
+            difficulty=None,
+            source_url=f"https://example.com/games/{index:03d}",
+            tags=build_tag_list(REVIEW_TAG_GROUPS, index),
+            media=[
+                {"media_type": "game_url", "url": f"https://example.com/games/{index:03d}"},
+                {"media_type": "video_url", "url": f"https://example.com/games/{index:03d}/play"},
+                {
+                    "media_type": "image_url",
+                    "url": f"https://picsum.photos/seed/potato-review-{index:03d}/960/540",
+                    "thumbnail_url": f"https://picsum.photos/seed/potato-review-{index:03d}/960/540",
+                },
+            ],
+        )
+        ensure_comment(
+            db,
+            post,
+            reviewer,
+            f"{index:03d}번 게임은 반복 플레이가 짧아서 테스트하기 좋았어요.",
+            rating=(index % 5) + 1,
+            good_point="핵심 조작을 바로 이해할 수 있음",
+            bad_point="후반 난이도 변화가 조금 단조로움",
+            suggestion="두 번째 스테이지부터 장애물 패턴을 하나씩 추가하면 좋겠음",
+        )
+
+
+def build_idea_title(index: int) -> str:
+    """번호마다 다른 게임 아이디어 제목 조각을 만든다."""
+    subjects = ["감자 기사단", "달빛 창고", "우주 정원", "픽셀 항구", "시간 우체국", "구름 연구소", "리듬 광산", "카드 주방"]
+    actions = ["탈출 작전", "퍼즐 원정", "방어전", "협동 실험", "점수 사냥", "성장 루프", "보스 러시", "탐험 기록"]
+    return f"{subjects[(index - 1) % len(subjects)]} {actions[(index * 2 - 1) % len(actions)]}"
+
+
+def build_review_title(index: int) -> str:
+    """번호마다 다른 플레이 리뷰 제목 조각을 만든다."""
+    subjects = ["점프 감자", "네온 던전", "버튼 마을", "스피드 창고", "별빛 택배", "미니 레이서", "블록 사냥꾼", "코인 연구실"]
+    reactions = ["플레이 기록", "첫인상 리뷰", "밸런스 체크", "UI 피드백", "난이도 메모", "재도전 후기", "조작감 노트", "개선 제안"]
+    return f"{subjects[(index - 1) % len(subjects)]} {reactions[(index * 3 - 1) % len(reactions)]}"
+
+
+def build_idea_content(index: int) -> str:
+    """아이디어 게시글 본문을 검색과 상세 화면에서 읽기 좋게 만든다."""
+    return (
+        f"{index:03d}번 샘플 게임 아이디어입니다. "
+        "짧은 플레이 루프, 분명한 목표, 한 화면에서 이해되는 규칙을 기준으로 작성했습니다. "
+        "처음 구현할 때는 핵심 조작 하나와 실패 조건 하나만 넣고, 이후 태그와 장르에 맞춰 확장하는 흐름을 가정합니다."
+    )
+
+
+def build_idea_core_fun(index: int) -> str:
+    """목록에서 보이는 핵심 재미 문장을 만든다."""
+    hooks = [
+        "매 판 다른 선택지를 고르는 재미",
+        "짧은 시간 안에 기록을 갱신하는 재미",
+        "친구와 역할을 나눠 목표를 달성하는 재미",
+        "작은 실수를 바로 회복하며 다시 도전하는 재미",
+        "간단한 규칙이 점점 복잡해지는 재미",
+    ]
+    return hooks[(index - 1) % len(hooks)]
+
+
+def build_review_content(index: int) -> str:
+    """리뷰 게시글 본문을 플레이 테스트 느낌으로 만든다."""
+    return (
+        f"{index:03d}번 샘플 게임 리뷰입니다. "
+        "실제 플레이 링크를 검토한다는 상황을 가정해 조작감, 목표 전달, 반복 플레이 동기를 중심으로 적었습니다. "
+        "목록 페이징과 검색, 상세 화면의 리뷰 댓글 표시를 확인하기 위한 데이터입니다."
+    )
+
+
+def build_tag_list(tag_groups: list[list[str]], index: int) -> list[str]:
+    """공통 태그 묶음에 번호 태그를 섞어 검색 후보를 다양하게 만든다."""
+    base_tags = tag_groups[(index - 1) % len(tag_groups)]
+    return [*base_tags, f"sample-{index % 10}"]
+
+
 def ensure_ai_sample_results(db: Session, post: Post, user: User) -> None:
     """Agent가 참고할 수 있는 MCP 샘플 결과와 발표용 Agent 샘플 결과를 저장한다."""
     ensure_analysis_result(
@@ -285,7 +413,7 @@ def ensure_analysis_result(
             AiAnalysisResult.user_id == user.id,
             AiAnalysisResult.analysis_type == analysis_type,
         )
-    ).scalar_one_or_none()
+    ).scalars().first()
     if exists is not None:
         return
 

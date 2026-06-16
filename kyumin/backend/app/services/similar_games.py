@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import shlex
 from dataclasses import dataclass
@@ -19,76 +20,9 @@ from backend.app.services.mcp_client import McpClientError, StdioMcpClient
 MCP_ANALYSIS_TYPE = "mcp_similar_games"
 MCP_MODEL_NAME = "BaranDev/videogames-mcp-server"
 SEARCH_TITLE_LIMIT = 3
-
-KOREAN_KEYWORD_HINTS: list[tuple[str, list[str]]] = [
-    ("로그라이크", ["roguelike", "rpg"]),
-    ("로그라이트", ["roguelite", "action"]),
-    ("덱빌딩", ["deckbuilding", "card"]),
-    ("덱 빌딩", ["deckbuilding", "card"]),
-    ("카드", ["card"]),
-    ("농장", ["farming", "simulation"]),
-    ("농사", ["farming", "simulation"]),
-    ("재배", ["farming", "simulation"]),
-    ("감자", ["potato", "farming"]),
-    ("퍼즐", ["puzzle"]),
-    ("플랫포머", ["platformer"]),
-    ("플랫폼", ["platformer"]),
-    ("액션", ["action"]),
-    ("어드벤처", ["adventure"]),
-    ("모험", ["adventure"]),
-    ("공포", ["horror"]),
-    ("호러", ["horror"]),
-    ("생존", ["survival"]),
-    ("서바이벌", ["survival"]),
-    ("시뮬레이션", ["simulation"]),
-    ("경영", ["management", "simulation"]),
-    ("전략", ["strategy"]),
-    ("슈팅", ["shooter"]),
-    ("총", ["shooter"]),
-    ("아케이드", ["arcade"]),
-    ("리듬", ["rhythm"]),
-    ("레이싱", ["racing"]),
-    ("스포츠", ["sports"]),
-    ("격투", ["fighting"]),
-    ("보드게임", ["board games"]),
-    ("보드 게임", ["board games"]),
-    ("캐주얼", ["casual"]),
-    ("멀티", ["multiplayer"]),
-    ("협동", ["co-op", "multiplayer"]),
-    ("힐링", ["cozy", "casual"]),
-]
-
-KOREAN_RAWG_GENRE_HINTS: list[tuple[str, str]] = [
-    ("로그라이크", "RPG"),
-    ("로그라이트", "Action"),
-    ("덱빌딩", "Card"),
-    ("덱 빌딩", "Card"),
-    ("카드", "Card"),
-    ("농장", "Simulation"),
-    ("농사", "Simulation"),
-    ("재배", "Simulation"),
-    ("퍼즐", "Puzzle"),
-    ("플랫포머", "Platformer"),
-    ("플랫폼", "Platformer"),
-    ("액션", "Action"),
-    ("어드벤처", "Adventure"),
-    ("모험", "Adventure"),
-    ("공포", "Action"),
-    ("호러", "Action"),
-    ("생존", "Action"),
-    ("서바이벌", "Action"),
-    ("시뮬레이션", "Simulation"),
-    ("경영", "Simulation"),
-    ("전략", "Strategy"),
-    ("슈팅", "Shooter"),
-    ("아케이드", "Arcade"),
-    ("레이싱", "Racing"),
-    ("스포츠", "Sports"),
-    ("격투", "Fighting"),
-    ("보드게임", "Board Games"),
-    ("보드 게임", "Board Games"),
-    ("캐주얼", "Casual"),
-]
+_video_games_client: StdioMcpClient | None = None
+_video_games_client_key: tuple[Any, ...] | None = None
+_video_games_client_lock = asyncio.Lock()
 
 SEARCH_STOP_WORDS = {
     "web",
@@ -123,11 +57,10 @@ async def find_similar_games_for_post(
     """아이디어 게시글을 기준으로 Video Games MCP Server에서 유사 게임 후보를 찾는다."""
     post = get_idea_post_or_404(db, post_id)
     query = build_similar_game_query(post)
-    client = build_video_games_client(settings)
+    client = await get_video_games_client(settings)
 
     try:
-        async with client:
-            items = await collect_similar_games(client, query)
+        items = await collect_similar_games(client, query)
     except McpClientError as error:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -154,8 +87,67 @@ def get_idea_post_or_404(db: Session, post_id: int) -> Post:
     return post
 
 
-def build_video_games_client(settings: Settings) -> StdioMcpClient:
-    """환경변수 설정으로 Video Games MCP Server stdio 클라이언트를 만든다."""
+async def get_video_games_client(settings: Settings) -> StdioMcpClient:
+    """같은 설정에서는 MCP stdio 클라이언트를 계속 재사용한다."""
+    global _video_games_client, _video_games_client_key
+
+    command, args, cwd, rawg_api_key, protocol_version, timeout_seconds = (
+        read_video_games_client_config(settings)
+    )
+    client_key = (command, tuple(args), cwd, rawg_api_key, protocol_version, timeout_seconds)
+
+    async with _video_games_client_lock:
+        if _video_games_client is not None and _video_games_client_key == client_key:
+            return _video_games_client
+
+        if _video_games_client is not None:
+            await _video_games_client.close()
+
+        _video_games_client = StdioMcpClient(
+            command=command,
+            args=args,
+            cwd=cwd,
+            env={"RAWG_API_KEY": rawg_api_key},
+            protocol_version=protocol_version,
+            timeout_seconds=timeout_seconds,
+        )
+        _video_games_client_key = client_key
+        return _video_games_client
+
+
+async def start_video_games_client_if_configured(settings: Settings) -> bool:
+    """MCP 설정이 준비되어 있으면 백엔드 시작 시 서버 프로세스를 미리 띄운다."""
+    if not is_video_games_client_configured(settings):
+        return False
+
+    client = await get_video_games_client(settings)
+    await client.ensure_started()
+    return True
+
+
+async def close_video_games_client() -> None:
+    """FastAPI 앱 종료 시 유지하던 MCP 서버 프로세스를 한 번만 닫는다."""
+    global _video_games_client, _video_games_client_key
+
+    async with _video_games_client_lock:
+        if _video_games_client is not None:
+            await _video_games_client.close()
+        _video_games_client = None
+        _video_games_client_key = None
+
+
+def is_video_games_client_configured(settings: Settings) -> bool:
+    """MCP 필수 환경변수가 모두 있을 때만 startup에서 서버를 띄운다."""
+    command = settings.video_games_mcp_command.strip()
+    args = shlex.split(settings.video_games_mcp_args)
+    rawg_api_key = settings.rawg_api_key.strip()
+    return bool(command and args and rawg_api_key)
+
+
+def read_video_games_client_config(
+    settings: Settings,
+) -> tuple[str, list[str], str | None, str, str, float]:
+    """환경변수 설정을 MCP 클라이언트 생성에 필요한 값으로 검증해 정리한다."""
     command = settings.video_games_mcp_command.strip()
     args = shlex.split(settings.video_games_mcp_args)
     cwd = settings.video_games_mcp_cwd.strip() or None
@@ -170,34 +162,34 @@ def build_video_games_client(settings: Settings) -> StdioMcpClient:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="video_games_mcp_args_required",
         )
-    if not settings.rawg_api_key:
+    rawg_api_key = settings.rawg_api_key.strip()
+    if not rawg_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="rawg_api_key_required",
         )
 
-    return StdioMcpClient(
-        command=command,
-        args=args,
-        cwd=cwd,
-        env={"RAWG_API_KEY": settings.rawg_api_key},
-        protocol_version=settings.mcp_protocol_version,
-        timeout_seconds=settings.mcp_request_timeout_seconds,
+    return (
+        command,
+        args,
+        cwd,
+        rawg_api_key,
+        settings.mcp_protocol_version,
+        settings.mcp_request_timeout_seconds,
     )
 
 
 def build_similar_game_query(post: Post) -> SimilarGameQuery:
-    """한국어 아이디어를 RAWG 검색에 맞는 영어 힌트 중심 검색어로 정리한다."""
+    """아이디어 게시글 입력값을 MCP 검색에 사용할 제목/장르 힌트로 정리한다."""
     tags = [tag_link.tag.name for tag_link in post.tag_links if tag_link.tag is not None]
     raw_texts = [post.genre, *tags, post.title, post.core_fun, post.content, post.platform]
-    english_hints = build_english_search_hints(raw_texts)
     raw_ascii_terms = extract_ascii_terms(raw_texts)
-    search_terms = unique_texts([*english_hints, *raw_ascii_terms])
+    search_terms = unique_texts(raw_ascii_terms)
 
     original_title = clean_optional_text(post.title) or ""
     primary_title = " ".join(search_terms[:8]) if search_terms else original_title
     search_titles = build_search_titles(primary_title, original_title, search_terms)
-    genre = choose_rawg_genre_hint(raw_texts)
+    genre = clean_optional_text(post.genre)
     return SimilarGameQuery(title=search_titles[0], genre=genre, tags=tags, search_titles=search_titles)
 
 
@@ -354,17 +346,6 @@ def clean_optional_text(value: Any) -> str | None:
     return cleaned or None
 
 
-def build_english_search_hints(raw_texts: list[str | None]) -> list[str]:
-    """한국어 장르/키워드를 RAWG 검색에 유리한 영어 단어로 바꾼다."""
-    joined_text = " ".join(text.strip().lower() for text in raw_texts if isinstance(text, str) and text.strip())
-    hints: list[str] = []
-    for korean_keyword, english_words in KOREAN_KEYWORD_HINTS:
-        if korean_keyword in joined_text:
-            hints.extend(english_words)
-
-    return unique_texts(hints)
-
-
 def extract_ascii_terms(raw_texts: list[str | None]) -> list[str]:
     """이미 영어로 입력된 장르/태그는 MCP 검색어에 그대로 살린다."""
     terms: list[str] = []
@@ -381,23 +362,8 @@ def extract_ascii_terms(raw_texts: list[str | None]) -> list[str]:
     return unique_texts(terms)
 
 
-def choose_rawg_genre_hint(raw_texts: list[str | None]) -> str | None:
-    """한국어 장르를 RAWG 장르 목록과 매칭될 가능성이 높은 영어 장르로 바꾼다."""
-    joined_text = " ".join(text.strip().lower() for text in raw_texts if isinstance(text, str) and text.strip())
-    for korean_keyword, rawg_genre in KOREAN_RAWG_GENRE_HINTS:
-        if korean_keyword in joined_text:
-            return rawg_genre
-
-    for text in raw_texts:
-        cleaned_text = clean_optional_text(text)
-        if cleaned_text and cleaned_text.lower() not in SEARCH_STOP_WORDS:
-            return cleaned_text
-
-    return None
-
-
 def build_search_titles(primary_title: str, original_title: str, search_terms: list[str]) -> list[str]:
-    """첫 검색 실패에 대비해 영어 힌트 중심의 대체 검색어를 3개까지 만든다."""
+    """첫 검색 실패에 대비해 입력값 기반 대체 검색어를 3개까지 만든다."""
     candidates = [primary_title]
     if len(search_terms) > 2:
         candidates.append(" ".join(search_terms[:4]))

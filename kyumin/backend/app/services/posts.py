@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from backend.app.core.config import Settings
 from backend.app.models.comment import Comment
 from backend.app.models.post import Post, PostMedia, PostTag, Tag
 from backend.app.models.user import User
@@ -64,8 +65,8 @@ def list_posts(
     )
 
 
-def create_post(db: Session, user: User, payload: PostCreateRequest) -> PostRead:
-    """로그인한 사용자가 작성한 게시글과 태그/미디어 연결을 함께 저장한다."""
+def create_post(db: Session, user: User, payload: PostCreateRequest, settings: Settings) -> PostRead:
+    """로그인한 사용자가 작성한 게시글과 태그/미디어, 가능한 경우 embedding을 함께 저장한다."""
     post = Post(
         user_id=user.id,
         board_type=normalize_board_type(payload.board_type),
@@ -83,6 +84,9 @@ def create_post(db: Session, user: User, payload: PostCreateRequest) -> PostRead
 
     sync_post_tags(db, post, payload.tags)
     sync_review_media_from_payload(db, post, payload)
+    db.flush()
+    db.expire(post, ["tag_links"])
+    rag_service.refresh_post_embedding_from_author_key(db, user, post, settings)
     db.commit()
 
     return get_post_detail(db, post_id)
@@ -94,8 +98,8 @@ def get_post_detail(db: Session, post_id: int) -> PostRead:
     return build_post_detail(post)
 
 
-def update_post(db: Session, post_id: int, user: User, payload: PostUpdateRequest) -> PostRead:
-    """게시글 작성자만 제목, 본문, 태그, 미디어 정보를 수정하게 한다."""
+def update_post(db: Session, post_id: int, user: User, payload: PostUpdateRequest, settings: Settings) -> PostRead:
+    """게시글 작성자만 수정하게 하고, 기존 embedding은 새 내용 기준으로 다시 만든다."""
     post = get_post_or_404(db, post_id)
     ensure_owner(post.user_id, user.id)
 
@@ -120,6 +124,9 @@ def update_post(db: Session, post_id: int, user: User, payload: PostUpdateReques
     sync_review_media_from_payload(db, post, payload)
     saved_post_id = post.id
     rag_service.delete_post_embedding(db, saved_post_id)
+    db.flush()
+    db.expire(post, ["tag_links"])
+    rag_service.refresh_post_embedding_from_author_key(db, user, post, settings)
     db.commit()
 
     return get_post_detail(db, saved_post_id)

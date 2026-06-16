@@ -1,6 +1,6 @@
 (function () {
   const h = React.createElement;
-  const { useEffect, useState } = React;
+  const { useEffect, useRef, useState } = React;
 
   const BOARDS = {
     idea: {
@@ -19,8 +19,9 @@
   function App() {
     const storedUser = window.PotatoApi.getStoredUser();
     const [user, setUser] = useState(storedUser);
-    const [currentView, setCurrentView] = useState(storedUser ? "board" : "login");
+    const [currentView, setCurrentView] = useState("home");
     const [selectedBoard, setSelectedBoard] = useState("idea");
+    const [boardResetKey, setBoardResetKey] = useState(0);
     const [pendingEmail, setPendingEmail] = useState("");
     const [sessionMessage, setSessionMessage] = useState("");
     const [checkingSession, setCheckingSession] = useState(Boolean(window.PotatoApi.getToken()));
@@ -41,7 +42,7 @@
 
           const nextUser = currentUser?.user || currentUser;
           setUser(nextUser);
-          setCurrentView("board");
+          setCurrentView("home");
           window.PotatoApi.saveSession(window.PotatoApi.getToken(), nextUser);
         })
         .catch(() => {
@@ -83,10 +84,15 @@
       setSessionMessage(message || "로그인 후 이용할 수 있습니다.");
     }
 
-    // 게시판 탭을 누르면 같은 레이아웃 안에서 선택 게시판만 바꾼다.
+    // 게시판 탭이나 브랜드 버튼을 다시 눌러도 목록 화면을 새로 열도록 reset key를 올린다.
     function showBoard(boardType) {
       setSelectedBoard(boardType);
       setCurrentView("board");
+      setBoardResetKey((currentKey) => currentKey + 1);
+    }
+
+    function showHome() {
+      setCurrentView("home");
     }
 
     // 서버 로그아웃 실패와 상관없이 브라우저에 남은 로그인 정보는 정리한다.
@@ -109,6 +115,13 @@
         return h(LoadingState, {
           title: "로그인 상태 확인 중입니다.",
           description: "저장된 세션을 확인하고 있습니다.",
+        });
+      }
+
+      if (currentView === "home") {
+        return h(HomeView, {
+          user,
+          onStart: () => (user ? showBoard(selectedBoard) : setCurrentView("login")),
         });
       }
 
@@ -164,6 +177,7 @@
       }
 
       return h(BoardHome, {
+        key: `${selectedBoard}-${boardResetKey}`,
         selectedBoard,
         user,
         onRequireLogin: requireLogin,
@@ -177,13 +191,14 @@
         user,
         currentView,
         selectedBoard,
+        onHomeClick: showHome,
         onBoardChange: showBoard,
         onProfileClick: () => setCurrentView("profile"),
         onLoginClick: () => setCurrentView("login"),
         onRegisterClick: () => setCurrentView("register"),
         onLogout: logout,
       }),
-      h("main", { className: "app-main" }, renderPage())
+      h("main", { className: currentView === "home" ? "app-main home-main" : "app-main" }, renderPage())
     );
   }
 
@@ -192,6 +207,7 @@
     user,
     currentView,
     selectedBoard,
+    onHomeClick,
     onBoardChange,
     onProfileClick,
     onLoginClick,
@@ -206,9 +222,11 @@
         {
           className: "brand-button",
           type: "button",
-          onClick: () => (user ? onBoardChange(selectedBoard) : onLoginClick()),
+          "aria-label": "메인 화면으로 이동",
+          title: "메인",
+          onClick: onHomeClick,
         },
-        h("span", { className: "brand-mark" }, "P"),
+        h(PotatoLogoMark),
         h("span", null, "Potato maker")
       ),
       user
@@ -281,6 +299,151 @@
     );
   }
 
+  // 브랜드를 글자가 아니라 실제 감자 형태의 마크로 보여준다.
+  function PotatoLogoMark({ variant = "compact" } = {}) {
+    const className =
+      variant === "portal"
+        ? "brand-mark potato-logo-mark potato-logo-mark-large"
+        : "brand-mark potato-logo-mark";
+
+    return h(
+      "span",
+      { className, "aria-hidden": "true" },
+      h(
+        "svg",
+        {
+          className: "potato-svg-logo",
+          viewBox: "0 0 128 128",
+          role: "img",
+          focusable: "false",
+        },
+        h(
+          "defs",
+          null,
+          h(
+            "radialGradient",
+            { id: "potatoSkinLight", cx: "30%", cy: "27%", r: "86%" },
+            h("stop", { offset: "0%", stopColor: "#e8bd72" }),
+            h("stop", { offset: "48%", stopColor: "#b77a3b" }),
+            h("stop", { offset: "100%", stopColor: "#67401e" })
+          ),
+          h(
+            "linearGradient",
+            { id: "potatoSkinShade", x1: "18%", y1: "10%", x2: "88%", y2: "92%" },
+            h("stop", { offset: "0%", stopColor: "#f2cb82", stopOpacity: "0.42" }),
+            h("stop", { offset: "52%", stopColor: "#8f592b", stopOpacity: "0.2" }),
+            h("stop", { offset: "100%", stopColor: "#3d2613", stopOpacity: "0.54" })
+          ),
+          h(
+            "filter",
+            { id: "potatoRoughSkin", x: "-12%", y: "-12%", width: "124%", height: "124%" },
+            h("feTurbulence", {
+              type: "fractalNoise",
+              baseFrequency: "0.92",
+              numOctaves: "3",
+              seed: "7",
+              result: "noise",
+            }),
+            h("feColorMatrix", {
+              in: "noise",
+              type: "matrix",
+              values: "0 0 0 0 0.34 0 0 0 0 0.2 0 0 0 0 0.08 0 0 0 0.22 0",
+              result: "skinNoise",
+            }),
+            h("feBlend", { in: "SourceGraphic", in2: "skinNoise", mode: "multiply" })
+          )
+        ),
+        h("ellipse", {
+          className: "potato-ground-shadow",
+          cx: "66",
+          cy: "99",
+          rx: "49",
+          ry: "11",
+        }),
+        h("path", {
+          className: "potato-main-shape",
+          d:
+            "M28 44 C21 34 31 22 45 23 C51 14 68 17 78 25 C93 22 107 34 107 49 C119 61 106 80 92 84 C87 100 62 103 52 94 C38 101 20 89 22 74 C11 65 17 50 28 44 Z",
+          filter: "url(#potatoRoughSkin)",
+        }),
+        h("path", {
+          className: "potato-shade-layer",
+          d:
+            "M28 44 C21 34 31 22 45 23 C51 14 68 17 78 25 C93 22 107 34 107 49 C119 61 106 80 92 84 C87 100 62 103 52 94 C38 101 20 89 22 74 C11 65 17 50 28 44 Z",
+        }),
+        h("path", {
+          className: "potato-highlight-svg",
+          d: "M35 34 C45 25 61 23 72 29 C56 30 42 39 33 52 C29 45 30 38 35 34 Z",
+        }),
+        h("path", {
+          className: "potato-bump potato-bump-a",
+          d: "M23 58 C16 62 18 72 24 78 C20 70 20 63 23 58 Z",
+        }),
+        h("path", {
+          className: "potato-bump potato-bump-b",
+          d: "M92 32 C104 38 108 51 104 62 C101 49 98 40 92 32 Z",
+        }),
+        h("ellipse", { className: "potato-eye-svg eye-svg-a", cx: "46", cy: "46", rx: "5.3", ry: "3.5" }),
+        h("ellipse", { className: "potato-eye-svg eye-svg-b", cx: "75", cy: "37", rx: "4.4", ry: "3.1" }),
+        h("ellipse", { className: "potato-eye-svg eye-svg-c", cx: "85", cy: "65", rx: "5.6", ry: "3.9" }),
+        h("ellipse", { className: "potato-eye-svg eye-svg-d", cx: "55", cy: "81", rx: "5.2", ry: "3.6" }),
+        h("ellipse", { className: "potato-eye-svg eye-svg-e", cx: "34", cy: "66", rx: "3.7", ry: "2.8" }),
+        h("path", { className: "potato-root-svg root-svg-a", d: "M40 57 C47 53 53 55 59 60" }),
+        h("path", { className: "potato-root-svg root-svg-b", d: "M70 75 C78 72 84 74 90 79" }),
+        h("path", { className: "potato-root-svg root-svg-c", d: "M50 91 C57 88 64 90 71 95" }),
+        h("circle", { className: "potato-freckle-svg", cx: "39", cy: "37", r: "1.5" }),
+        h("circle", { className: "potato-freckle-svg", cx: "63", cy: "49", r: "1.2" }),
+        h("circle", { className: "potato-freckle-svg", cx: "94", cy: "55", r: "1.5" }),
+        h("circle", { className: "potato-freckle-svg", cx: "43", cy: "73", r: "1.3" }),
+        h("circle", { className: "potato-freckle-svg", cx: "69", cy: "90", r: "1.6" })
+      )
+    );
+  }
+
+  // 서비스 첫 화면이다. 로고에서 돌아오고 시작하기로 게시판 흐름에 진입한다.
+  function HomeView({ user, onStart }) {
+    return h(
+      "section",
+      { className: "home-portal" },
+      h(
+        "div",
+        { className: "portal-stage", "aria-hidden": "true" },
+        h("span", { className: "portal-ring portal-ring-a" }),
+        h("span", { className: "portal-ring portal-ring-b" }),
+        h("span", { className: "portal-ring portal-ring-c" }),
+        h("span", { className: "portal-core" }),
+        h("span", { className: "portal-gate gate-top" }),
+        h("span", { className: "portal-gate gate-right" }),
+        h("span", { className: "portal-gate gate-bottom" }),
+        h("span", { className: "portal-gate gate-left" }),
+        h("span", { className: "portal-tile portal-tile-1" }),
+        h("span", { className: "portal-tile portal-tile-2" }),
+        h("span", { className: "portal-tile portal-tile-3" }),
+        h("span", { className: "portal-tile portal-tile-4" }),
+        h("span", { className: "portal-shard shard-1" }),
+        h("span", { className: "portal-shard shard-2" }),
+        h("span", { className: "portal-shard shard-3" }),
+        h("span", { className: "portal-shard shard-4" }),
+        h("span", { className: "portal-runway" })
+      ),
+      h(
+        "div",
+        { className: "home-portal-title" },
+        h(
+          "div",
+          { className: "home-logo-lockup", "aria-label": "Potato maker 감자 로고" },
+          h(PotatoLogoMark, { variant: "portal" })
+        ),
+        h("h1", null, "당신의 아이디어를 하나로"),
+        h(
+          "button",
+          { className: "home-start-button", type: "button", onClick: onStart },
+          "시작하기"
+        )
+      )
+    );
+  }
+
   // 보호된 화면을 비로그인 상태로 열었을 때 로그인으로 이어 주는 안내 화면이다.
   function LoginRequiredView({ message, onLoginClick, onRegisterClick }) {
     return h(
@@ -349,6 +512,16 @@
       }
     }
 
+    // 로그인 입력칸에서 Enter를 누르면 확인 버튼과 같은 submit 경로를 사용한다.
+    function submitOnEnter(event) {
+      if (event.key !== "Enter" || loading) {
+        return;
+      }
+
+      event.preventDefault();
+      event.currentTarget.requestSubmit();
+    }
+
     return h(
       "section",
       { className: "auth-panel" },
@@ -357,14 +530,16 @@
       h(StatusMessage, { error, success: sessionMessage }),
       h(
         "form",
-        { className: "form-stack", onSubmit: submit },
+        { className: "form-stack", onSubmit: submit, onKeyDown: submitOnEnter },
         h(TextField, {
           id: "login-email",
-          label: "이메일",
+          label: "아이디(이메일)",
           type: "email",
           value: email,
           onChange: setEmail,
           required: true,
+          autoComplete: "username",
+          autoFocus: true,
         }),
         h(TextField, {
           id: "login-password",
@@ -373,11 +548,12 @@
           value: password,
           onChange: setPassword,
           required: true,
+          autoComplete: "current-password",
         }),
         h(
           "button",
           { className: "primary-button", type: "submit", disabled: loading },
-          loading ? "확인 중" : "로그인"
+          loading ? "확인 중" : "확인"
         )
       ),
       h(
@@ -427,6 +603,7 @@
           value: email,
           onChange: setEmail,
           required: true,
+          autoComplete: "username",
         }),
         h(TextField, {
           id: "register-password",
@@ -436,6 +613,7 @@
           onChange: setPassword,
           required: true,
           minLength: 8,
+          autoComplete: "new-password",
         }),
         h(
           "button",
@@ -497,6 +675,7 @@
           value: code,
           onChange: setCode,
           required: true,
+          inputMode: "numeric",
         }),
         h(
           "button",
@@ -729,6 +908,7 @@
     const [listRefreshKey, setListRefreshKey] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const latestRouteRef = useRef(null);
 
     // 게시판 탭이 바뀌면 검색어와 선택 글 상태를 초기화한다.
     useEffect(() => {
@@ -739,6 +919,34 @@
       setSelectedPostId(null);
       setEditingPost(null);
       setError("");
+    }, [selectedBoard]);
+
+    // React state 화면 전환을 브라우저 뒤로 가기와 연결한다.
+    useEffect(() => {
+      const initialRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "list",
+        selectedPostId: null,
+        editingPost: null,
+      });
+      latestRouteRef.current = initialRoute;
+      replaceBrowserHistory(initialRoute);
+
+      function handleBrowserBack(event) {
+        const nextRoute = event.state;
+        if (!isBoardHistoryState(nextRoute) || nextRoute.selectedBoard !== selectedBoard) {
+          return;
+        }
+
+        latestRouteRef.current = nextRoute;
+        setBoardView(nextRoute.boardView || "list");
+        setSelectedPostId(nextRoute.selectedPostId || null);
+        setEditingPost(nextRoute.editingPost || null);
+      }
+
+      window.addEventListener("popstate", handleBrowserBack);
+      return () => {
+        window.removeEventListener("popstate", handleBrowserBack);
+      };
     }, [selectedBoard]);
 
     // 목록 API는 게시판, 검색어, 페이지, 새로고침 신호가 바뀔 때 다시 읽는다.
@@ -802,6 +1010,12 @@
     }
 
     function showList() {
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "list",
+        selectedPostId: null,
+        editingPost: null,
+      });
+      pushBrowserHistory(nextRoute, latestRouteRef);
       setBoardView("list");
       setSelectedPostId(null);
       setEditingPost(null);
@@ -814,6 +1028,12 @@
       }
 
       setEditingPost(null);
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "form",
+        selectedPostId: null,
+        editingPost: null,
+      });
+      pushBrowserHistory(nextRoute, latestRouteRef);
       setBoardView("form");
     }
 
@@ -822,16 +1042,34 @@
         return;
       }
 
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "detail",
+        selectedPostId: postId,
+        editingPost: null,
+      });
+      pushBrowserHistory(nextRoute, latestRouteRef);
       setSelectedPostId(postId);
       setBoardView("detail");
     }
 
     function showEditForm(post) {
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "form",
+        selectedPostId: post.id,
+        editingPost: post,
+      });
+      pushBrowserHistory(nextRoute, latestRouteRef);
       setEditingPost(post);
       setBoardView("form");
     }
 
     function handlePostSaved(savedPost) {
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "detail",
+        selectedPostId: savedPost.id,
+        editingPost: null,
+      });
+      replaceBrowserHistory(nextRoute, latestRouteRef);
       refreshList();
       setEditingPost(null);
       setSelectedPostId(savedPost.id);
@@ -839,6 +1077,12 @@
     }
 
     function handlePostDeleted() {
+      const nextRoute = buildBoardHistoryState(selectedBoard, {
+        boardView: "list",
+        selectedPostId: null,
+        editingPost: null,
+      });
+      replaceBrowserHistory(nextRoute, latestRouteRef);
       setSelectedPostId(null);
       setBoardView("list");
       refreshList();
@@ -1008,6 +1252,7 @@
     const isEditing = Boolean(initialPost);
     const [form, setForm] = useState(() => buildPostFormState(initialPost));
     const [ragItems, setRagItems] = useState([]);
+    const [ragFeedback, setRagFeedback] = useState(null);
     const [ragSearched, setRagSearched] = useState(false);
     const [ragLoading, setRagLoading] = useState(false);
     const [ragError, setRagError] = useState("");
@@ -1029,12 +1274,18 @@
 
       setRagError("");
       setRagItems([]);
+      setRagFeedback(null);
       setRagSearched(true);
       setRagLoading(true);
 
       try {
         const result = await window.PotatoApi.recommendPostsByTitle({ title: form.title });
         setRagItems(result.items || []);
+        setRagFeedback({
+          summary: result.summary || "",
+          duplicateRisk: result.duplicate_risk || "",
+          suggestion: result.suggestion || "",
+        });
       } catch (requestError) {
         if (
           handleProtectedApiError(
@@ -1124,6 +1375,7 @@
         ),
         h(RagRecommendationPanel, {
           items: ragItems,
+          feedback: ragFeedback,
           searched: ragSearched,
           loading: ragLoading,
           error: ragError,
@@ -1161,10 +1413,14 @@
   }
 
   // RAG 미리확인 결과를 글쓰기 흐름 안에서 바로 보여준다.
-  function RagRecommendationPanel({ items, searched, loading, error }) {
+  function RagRecommendationPanel({ items, feedback, searched, loading, error }) {
     if (!searched) {
       return null;
     }
+
+    const hasFeedback = Boolean(
+      feedback && (feedback.summary || feedback.duplicateRisk || feedback.suggestion)
+    );
 
     return h(
       "section",
@@ -1197,6 +1453,17 @@
                 )
               )
             )
+          )
+        : null,
+      hasFeedback
+        ? h(
+            "div",
+            { className: "rag-generated-feedback" },
+            feedback.summary ? h(DetailField, { label: "AI 요약", value: feedback.summary }) : null,
+            feedback.duplicateRisk
+              ? h(DetailField, { label: "중복 가능성", value: feedback.duplicateRisk })
+              : null,
+            feedback.suggestion ? h(DetailField, { label: "개선 제안", value: feedback.suggestion }) : null
           )
         : null
     );
@@ -2112,6 +2379,65 @@
     return game.genres.slice(0, 4).join(", ");
   }
 
+  // React state 화면 전환을 브라우저 history에 남길 때 쓰는 게시판 경로 상태다.
+  function buildBoardHistoryState(selectedBoard, route) {
+    return {
+      potato_board_route: true,
+      selectedBoard,
+      boardView: route.boardView || "list",
+      selectedPostId: route.selectedPostId || null,
+      editingPost: route.editingPost || null,
+    };
+  }
+
+  function isBoardHistoryState(state) {
+    return Boolean(state?.potato_board_route);
+  }
+
+  function pushBrowserHistory(route, latestRouteRef) {
+    if (isSameBoardRoute(latestRouteRef.current, route)) {
+      return;
+    }
+
+    writeBrowserHistory("pushState", route, latestRouteRef);
+  }
+
+  function replaceBrowserHistory(route, latestRouteRef) {
+    writeBrowserHistory("replaceState", route, latestRouteRef);
+  }
+
+  function writeBrowserHistory(methodName, route, latestRouteRef) {
+    if (!window.history?.[methodName]) {
+      return;
+    }
+
+    try {
+      window.history[methodName](route, "", window.location.href);
+      if (latestRouteRef) {
+        latestRouteRef.current = route;
+      }
+    } catch (error) {
+      // history state 저장 실패는 화면 전환 자체를 막지 않는다.
+    }
+  }
+
+  function isSameBoardRoute(leftRoute, rightRoute) {
+    if (!leftRoute || !rightRoute) {
+      return false;
+    }
+
+    return (
+      leftRoute.selectedBoard === rightRoute.selectedBoard &&
+      leftRoute.boardView === rightRoute.boardView &&
+      leftRoute.selectedPostId === rightRoute.selectedPostId &&
+      getEditingPostId(leftRoute.editingPost) === getEditingPostId(rightRoute.editingPost)
+    );
+  }
+
+  function getEditingPostId(post) {
+    return post?.id || null;
+  }
+
   // 보호된 버튼 동작을 시작하기 전에 로그인 세션이 남아 있는지 먼저 확인한다.
   function ensureProtectedAction(user, onRequireLogin, message) {
     if (user && window.PotatoApi.getToken()) {
@@ -2146,6 +2472,9 @@
     placeholder = "",
     required = false,
     minLength,
+    autoComplete,
+    autoFocus = false,
+    inputMode,
   }) {
     return h(
       "label",
@@ -2158,6 +2487,9 @@
         placeholder,
         required,
         minLength,
+        autoComplete,
+        autoFocus,
+        inputMode,
         onChange: (event) => onChange(event.target.value),
       })
     );

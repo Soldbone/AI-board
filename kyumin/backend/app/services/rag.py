@@ -4,33 +4,68 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from backend.app.core.config import Settings
 from backend.app.core.security import decrypt_api_key
-from backend.app.models.post import Post, PostTag, Tag
+from backend.app.models.post import Post
 from backend.app.models.user import User
 from backend.app.schemas.ai import RagRecommendationItem, RagRecommendResponse
+from backend.app.services import llm
 from backend.app.services.users import SUPPORTED_API_KEY_PROVIDER, find_user_api_key
 
 OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 EMBEDDING_DIMENSIONS = 1536
 RAG_RECOMMENDATION_LIMIT = 3
-RAG_BACKFILL_CANDIDATE_LIMIT = 20
 
 
 def recommend_posts_by_title(db: Session, user: User, title: str, settings: Settings) -> RagRecommendResponse:
-    """제목 embedding과 후보 게시글 embedding을 비교해 관련 게시글 3개를 추천한다."""
+    """제목 기반 검색 결과를 LLM에 함께 넣어 RAG 미리확인 응답을 만든다."""
     cleaned_title = title.strip()
     if not cleaned_title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="title_required")
 
     api_key = get_user_openai_api_key(db, user, settings, required=True)
-    embedding = create_openai_embedding(api_key, settings.embedding_model, cleaned_title)
-    backfill_missing_candidate_embeddings(db, api_key, cleaned_title, settings)
-    items = find_similar_posts(db, embedding, RAG_RECOMMENDATION_LIMIT)
-    return RagRecommendResponse(items=items)
+    items = retrieve_related_posts_with_api_key(db, api_key, cleaned_title, settings)
+    feedback = create_rag_preview_feedback(api_key, settings, cleaned_title, items)
+    return RagRecommendResponse(items=items, **feedback)
+
+
+def retrieve_related_posts_by_title(db: Session, user: User, title: str, settings: Settings) -> list[RagRecommendationItem]:
+    """Agent 도구에서 재사용할 수 있게 LLM 생성 없이 관련 글만 검색한다."""
+    cleaned_title = title.strip()
+    if not cleaned_title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="title_required")
+
+    api_key = get_user_openai_api_key(db, user, settings, required=True)
+    return retrieve_related_posts_with_api_key(db, api_key, cleaned_title, settings)
+
+
+def retrieve_related_posts_with_api_key(
+    db: Session,
+    api_key: str,
+    title: str,
+    settings: Settings,
+) -> list[RagRecommendationItem]:
+    """현재 사용자 제목 embedding과 저장된 게시글 embedding만 비교한다."""
+    embedding = create_openai_embedding(api_key, settings.embedding_model, title)
+    return find_similar_posts(db, embedding, RAG_RECOMMENDATION_LIMIT)
+
+
+def create_rag_preview_feedback(
+    api_key: str,
+    settings: Settings,
+    title: str,
+    items: list[RagRecommendationItem],
+) -> dict[str, str]:
+    """검색된 게시글을 근거로 LLM이 중복 가능성과 개선 방향을 생성한다."""
+    context = {
+        "title": title,
+        "related_posts": [item.model_dump() for item in items],
+        "instruction": "관련 글이 없으면 새 아이디어로 보인다고 말하고, 그래도 제목을 구체화할 방법을 제안한다.",
+    }
+    return llm.create_rag_preview_with_openai(api_key, settings, context)
 
 
 def get_user_openai_api_key(db: Session, user: User, settings: Settings, required: bool) -> str | None:
@@ -50,83 +85,23 @@ def get_user_openai_api_key(db: Session, user: User, settings: Settings, require
 
 
 def delete_post_embedding(db: Session, post_id: int) -> None:
-    """게시글 수정 뒤 오래된 embedding이 검색에 쓰이지 않도록 삭제한다."""
+    """오래되었거나 더 이상 사용할 수 없는 게시글 embedding을 삭제한다."""
     db.execute(text("DELETE FROM post_embeddings WHERE post_id = :post_id"), {"post_id": post_id})
 
 
-def backfill_missing_candidate_embeddings(
-    db: Session,
-    api_key: str,
-    title: str,
-    settings: Settings,
-) -> None:
-    """제목 검색어로 좁힌 후보 중 embedding이 없는 게시글만 현재 사용자 Key로 채운다."""
-    candidate_posts = find_backfill_candidate_posts(db, title, RAG_BACKFILL_CANDIDATE_LIMIT)
-    if not candidate_posts:
-        return
+def refresh_post_embedding_from_author_key(db: Session, user: User, post: Post, settings: Settings) -> bool:
+    """작성자 OpenAI API Key가 있을 때만 해당 게시글 embedding을 생성해 저장한다."""
+    api_key = get_user_openai_api_key(db, user, settings, required=False)
+    if api_key is None:
+        return False
 
-    embedding_texts = [build_post_embedding_text(post) for post in candidate_posts]
-    embeddings = create_openai_embeddings(api_key, settings.embedding_model, embedding_texts)
+    try:
+        embedding = create_openai_embedding(api_key, settings.embedding_model, build_post_embedding_text(post))
+    except HTTPException:
+        return False
 
-    for post, embedding in zip(candidate_posts, embeddings):
-        upsert_post_embedding(db, post.id, embedding, settings.embedding_model)
-
-    db.commit()
-
-
-def find_backfill_candidate_posts(db: Session, title: str, limit: int) -> list[Post]:
-    """SQL 검색으로 먼저 좁힌 기존 게시글 중 embedding이 없는 후보만 조회한다."""
-    filters = [Post.deleted_at.is_(None), ~Post.embeddings.any()]
-    search_filter = build_candidate_search_filter(title)
-    if search_filter is not None:
-        filters.append(search_filter)
-
-    return db.execute(
-        select(Post)
-        .where(*filters)
-        .options(selectinload(Post.tag_links).selectinload(PostTag.tag))
-        .order_by(Post.created_at.desc(), Post.id.desc())
-        .limit(limit)
-    ).scalars().all()
-
-
-def build_candidate_search_filter(title: str) -> object | None:
-    """새 제목에서 뽑은 검색어를 기존 게시글 필드/태그 검색 조건으로 바꾼다."""
-    terms = extract_search_terms(title)
-    if not terms:
-        return None
-
-    field_filters = []
-    for term in terms:
-        pattern = f"%{term}%"
-        field_filters.extend(
-            [
-                Post.title.ilike(pattern),
-                Post.content.ilike(pattern),
-                Post.genre.ilike(pattern),
-                Post.core_fun.ilike(pattern),
-                Post.platform.ilike(pattern),
-                Post.source_url.ilike(pattern),
-                Post.tag_links.any(PostTag.tag.has(Tag.name.ilike(pattern))),
-            ]
-        )
-
-    return or_(*field_filters)
-
-
-def extract_search_terms(title: str) -> list[str]:
-    """제목 전체와 공백 단어를 후보 게시글 SQL 검색어로 사용한다."""
-    cleaned_title = title.strip()
-    if not cleaned_title:
-        return []
-
-    terms: list[str] = [cleaned_title]
-    for word in cleaned_title.split():
-        cleaned_word = word.strip()
-        if len(cleaned_word) >= 2 and cleaned_word not in terms:
-            terms.append(cleaned_word)
-
-    return terms[:6]
+    upsert_post_embedding(db, post.id, embedding, settings.embedding_model)
+    return True
 
 
 def build_post_embedding_text(post: Post) -> str:
