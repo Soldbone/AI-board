@@ -4,6 +4,7 @@ import './App.css'
 type PostListItem = {
   id: number
   title: string
+  category?: BoardCategoryCode
   contentPreview?: string
   createdAt: string
   author: {
@@ -15,6 +16,7 @@ type PostListItem = {
   hasAiRecommendation?: boolean
   aiRecommendationStatus?: AiRecommendationStatus | null
   aiThumbnailUrl?: string | null
+  imageUrl?: string | null
 }
 
 type PostListResponse = {
@@ -28,6 +30,7 @@ type PostListResponse = {
 type PostDetailItem = {
   id: number
   title: string
+  category?: BoardCategoryCode
   content: string
   viewCount: number
   createdAt: string
@@ -37,6 +40,7 @@ type PostDetailItem = {
     nickname: string
   }
   tags?: string[]
+  imageUrl?: string | null
 }
 
 type CommentItem = {
@@ -61,13 +65,19 @@ type AiReferencedPost = {
 
 type AiRecommendationStatus = 'ACTIVE' | 'STALE'
 type AiRecommendationGrounding = 'COMMUNITY_RAG' | 'GENERAL_AI'
+type BoardCategoryCode = 'QUESTION' | 'RECIPE_SHARE' | 'COOKING_TIP_REVIEW' | 'TREND'
+type BoardCategoryLabel = '질문' | '레시피 공유' | '요리 팁/후기' | '자유/트렌드'
+type AiStatusLabel = '완료' | '대기중' | '다시 추천'
 type AiRecommendationGoal =
   | 'BALANCED'
   | 'HIGH_PROTEIN'
   | 'LIGHT'
   | 'LOW_SODIUM'
   | 'FILLING'
-  | 'POST_WORKOUT'
+  | 'QUICK'
+  | 'BUDGET'
+  | 'LOW_CALORIE'
+  | 'MORE_VEGETABLES'
 
 type AppView =
   | 'board'
@@ -98,10 +108,57 @@ type AiRecommendation = {
   difficulty: string
   content: string
   thumbnailUrl?: string | null
+  nutritionMetadata?: IngredientSetAnalysis | null
   status: AiRecommendationStatus
   grounding: AiRecommendationGrounding
   createdAt: string
   referencedPosts: AiReferencedPost[]
+}
+
+type BoardChatReference = {
+  post_id: number
+  title: string
+  author: string
+  post_url: string
+  view_count: number
+  comment_count: number
+  score: number
+}
+
+type BoardChatResponse = {
+  answer_text: string
+  references: BoardChatReference[]
+  extracted_ingredients: string[]
+  grounding: AiRecommendationGrounding
+}
+
+type BoardChatMessage = {
+  id: number
+  role: 'bot' | 'user'
+  text: string
+  references?: BoardChatReference[]
+  grounding?: AiRecommendationGrounding
+  writePrompt?: string
+  extractedIngredients?: string[]
+}
+
+type BoardChatWriteDraft = {
+  title: string
+  content: string
+  tags: string
+}
+
+type ChatbotPosition = {
+  x: number
+  y: number
+}
+
+type ChatbotDragState = {
+  pointerId: number
+  offsetX: number
+  offsetY: number
+  startX: number
+  startY: number
 }
 
 type MyAiRecommendation = AiRecommendation & {
@@ -148,6 +205,7 @@ type IngredientNutritionSummary = {
   matchedName: string | null
   servingSize: string | null
   nutrition: NutritionFacts
+  source?: string
   matchStatus: MatchStatus
   message: string | null
 }
@@ -161,6 +219,11 @@ type IngredientSetAnalysis = {
   dataSource: string
   matchStatus: MatchStatus
   notes: string[]
+}
+
+type EstimatedRecipeNutrition = {
+  nutrition: NutritionFacts
+  ingredientCount: number
 }
 
 type PostDraftAgentStatus = 'needs_input' | 'completed' | 'fallback'
@@ -234,17 +297,40 @@ type BoardPost = {
   id: number
   title: string
   contentPreview: string
-  category: '질문' | '공유' | '후기' | '10분요리'
+  category: BoardCategoryLabel
   aiThumbnailUrl: string | null
+  imageUrl: string | null
   tags: string[]
   authorId: number
   author: string
   comments: number
-  aiStatus: '완료' | '대기중' | '다시 추천'
+  aiStatus: AiStatusLabel | null
   createdAt: string
 }
 
-const categories = ['전체', '계란', '김치', '간단요리', '자취요리', '국물요리', '10분요리']
+const boardCategories = [
+  { code: '전체', label: '전체' },
+  { code: 'QUESTION', label: '질문' },
+  { code: 'RECIPE_SHARE', label: '레시피 공유' },
+  { code: 'COOKING_TIP_REVIEW', label: '요리 팁/후기' },
+  { code: 'TREND', label: '자유/트렌드' },
+] as const
+const writableBoardCategories: Array<{
+  code: BoardCategoryCode
+  label: BoardCategoryLabel
+}> = [
+  { code: 'QUESTION', label: '질문' },
+  { code: 'RECIPE_SHARE', label: '레시피 공유' },
+  { code: 'COOKING_TIP_REVIEW', label: '요리 팁/후기' },
+  { code: 'TREND', label: '자유/트렌드' },
+]
+const fallbackPopularTags = ['계란', '김치', '간단요리', '자취요리', '국물요리', '10분요리']
+const boardCategoryLabels: Record<BoardCategoryCode, BoardCategoryLabel> = {
+  QUESTION: '질문',
+  RECIPE_SHARE: '레시피 공유',
+  COOKING_TIP_REVIEW: '요리 팁/후기',
+  TREND: '자유/트렌드',
+}
 
 const pageSize = 5
 
@@ -306,9 +392,24 @@ const aiRecommendationGoalOptions: Array<{
     description: '한 끼 포만감을 우선',
   },
   {
-    id: 'POST_WORKOUT',
-    label: '운동 후',
-    description: '단백질과 탄수화물 균형',
+    id: 'QUICK',
+    label: '빠르게',
+    description: '손질과 조리 시간을 줄임',
+  },
+  {
+    id: 'BUDGET',
+    label: '저렴하게',
+    description: '추가 구매를 줄이고 가진 재료 활용',
+  },
+  {
+    id: 'LOW_CALORIE',
+    label: '칼로리 낮게',
+    description: '기름과 탄수화물 양을 조절',
+  },
+  {
+    id: 'MORE_VEGETABLES',
+    label: '채소 많이',
+    description: '채소를 넉넉히 활용',
   },
 ]
 
@@ -581,7 +682,7 @@ function formatDate(value: string) {
 
 function getAiRecommendationStatusLabel(
   status?: AiRecommendationStatus | null,
-): BoardPost['aiStatus'] {
+): AiStatusLabel {
   if (status === 'ACTIVE') {
     return '완료'
   }
@@ -593,7 +694,7 @@ function getAiRecommendationStatusLabel(
   return '대기중'
 }
 
-function getAiRecommendationStatusClass(status: BoardPost['aiStatus']) {
+function getAiRecommendationStatusClass(status: AiStatusLabel) {
   if (status === '완료') {
     return 'done'
   }
@@ -622,6 +723,26 @@ function getAiRecommendationGoalLabel(goal: AiRecommendationGoal) {
   )
 }
 
+function getAiRecommendationGoalLabels(goals: AiRecommendationGoal[]) {
+  return goals.map(getAiRecommendationGoalLabel).join(', ')
+}
+
+function toggleAiRecommendationGoal(
+  goals: AiRecommendationGoal[],
+  goal: AiRecommendationGoal,
+) {
+  if (goal === 'BALANCED') {
+    return ['BALANCED'] satisfies AiRecommendationGoal[]
+  }
+
+  const withoutBalanced = goals.filter((currentGoal) => currentGoal !== 'BALANCED')
+  const nextGoals = withoutBalanced.includes(goal)
+    ? withoutBalanced.filter((currentGoal) => currentGoal !== goal)
+    : [...withoutBalanced, goal]
+
+  return nextGoals.length > 0 ? nextGoals : (['BALANCED'] satisfies AiRecommendationGoal[])
+}
+
 function formatNutritionValue(value: number | null, unit: string) {
   return typeof value === 'number' ? `${value.toLocaleString('ko-KR')}${unit}` : '확인 불가'
 }
@@ -637,6 +758,229 @@ function getIngredientMatchLabel(status: MatchStatus) {
   }
 
   return labels[status]
+}
+
+function hasNutritionMetadata(
+  metadata?: IngredientSetAnalysis | null,
+): metadata is IngredientSetAnalysis {
+  return Boolean(
+    metadata?.ingredients.some((ingredient) =>
+      Object.values(ingredient.nutrition).some(
+        (value) => typeof value === 'number',
+      ),
+    ),
+  )
+}
+
+function getNutritionIngredientLabel(ingredients: IngredientNutritionSummary[]) {
+  const matchedCount = ingredients.filter((ingredient) =>
+    Object.values(ingredient.nutrition).some(
+      (value) => typeof value === 'number',
+    ),
+  ).length
+
+  return `${matchedCount}/${ingredients.length}개 추천 재료`
+}
+
+function getIngredientSourceLabel(source?: string) {
+  return source?.trim() || '출처 미저장 - 새로 조회하면 표시됩니다'
+}
+
+function UserProfileIcon({ compact = false }: { compact?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={compact ? 'user-profile-icon compact' : 'user-profile-icon'}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 11.2a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4z" />
+      <path d="M4.8 20.2c.8-3.7 3.5-6 7.2-6s6.4 2.3 7.2 6" />
+    </svg>
+  )
+}
+
+function normalizeNutritionText(value: string) {
+  return value.replace(/\s+/g, '').toLowerCase()
+}
+
+function ingredientMatchesRecommendation(
+  ingredient: IngredientNutritionSummary,
+  recommendedIngredient: string,
+) {
+  const target = normalizeNutritionText(recommendedIngredient)
+  const candidates = [
+    ingredient.originalInput,
+    ingredient.normalizedInput,
+    ingredient.matchedName ?? '',
+  ].map(normalizeNutritionText)
+
+  return candidates.some(
+    (candidate) =>
+      candidate === target || candidate.includes(target) || target.includes(candidate),
+  )
+}
+
+function getRecommendedNutritionIngredients(
+  metadata: IngredientSetAnalysis,
+  recommendedIngredients?: string[],
+) {
+  const normalizedRecommendedIngredients =
+    recommendedIngredients?.map((ingredient) => ingredient.trim()).filter(Boolean) ??
+    []
+
+  if (normalizedRecommendedIngredients.length === 0) {
+    return metadata.ingredients
+  }
+
+  const matchedIngredients = metadata.ingredients.filter((ingredient) =>
+    normalizedRecommendedIngredients.some((recommendedIngredient) =>
+      ingredientMatchesRecommendation(ingredient, recommendedIngredient),
+    ),
+  )
+
+  return matchedIngredients.length > 0 ? matchedIngredients : metadata.ingredients
+}
+
+function roundNutritionValue(value: number | null) {
+  return typeof value === 'number' ? Math.round(value * 10) / 10 : null
+}
+
+function parseServingAmountG(servingSize: string | null) {
+  if (!servingSize) {
+    return 100
+  }
+
+  const normalizedServing = servingSize.replace(/,/g, '')
+  const amountMatch = normalizedServing.match(/(\d+(?:\.\d+)?)\s*(g|그램|ml|mL|밀리리터)/i)
+
+  if (!amountMatch) {
+    return 100
+  }
+
+  const amount = Number(amountMatch[1])
+
+  return Number.isFinite(amount) && amount > 0 ? amount : 100
+}
+
+function estimateIngredientUseAmountG(ingredient: IngredientNutritionSummary) {
+  const name = [
+    ingredient.originalInput,
+    ingredient.normalizedInput,
+    ingredient.matchedName ?? '',
+  ].join(' ')
+
+  if (/물|육수/.test(name)) return 0
+  if (/소금|후추/.test(name)) return 1
+  if (/설탕|꿀|고춧가루|카레가루/.test(name)) return 3
+  if (/간장|굴소스|고추장|된장|쌈장|마요네즈|식초/.test(name)) return 10
+  if (/식용유|참기름|들기름|올리브오일|버터/.test(name)) return 7
+  if (/부침가루|밀가루|전분|튀김가루|빵가루/.test(name)) return 35
+  if (/계란|달걀/.test(name)) return 50
+  if (/밥|찬밥/.test(name)) return 150
+  if (/면|파스타|소면|우동면|라면/.test(name)) return 100
+  if (/두부|순두부/.test(name)) return 150
+  if (/닭|돼지고기|소고기|고기|참치|연어|고등어|새우|오징어|햄|스팸|소시지|베이컨|어묵/.test(name)) return 100
+  if (/양배추|배추/.test(name)) return 160
+  if (/김치/.test(name)) return 70
+  if (/양파|감자|고구마|당근|무|애호박|가지|버섯|콩나물|숙주|브로콜리|토마토|오이/.test(name)) return 80
+  if (/대파|쪽파|부추|상추|깻잎|시금치|마늘|고추|청양고추/.test(name)) return 20
+  if (/치즈/.test(name)) return 20
+  if (/우유|요거트|그릭요거트/.test(name)) return 80
+
+  return 50
+}
+
+function scaleNutritionFacts(
+  nutrition: NutritionFacts,
+  scale: number,
+): NutritionFacts {
+  return {
+    energyKcal: roundNutritionValue(
+      typeof nutrition.energyKcal === 'number'
+        ? nutrition.energyKcal * scale
+        : null,
+    ),
+    carbohydrateG: roundNutritionValue(
+      typeof nutrition.carbohydrateG === 'number'
+        ? nutrition.carbohydrateG * scale
+        : null,
+    ),
+    proteinG: roundNutritionValue(
+      typeof nutrition.proteinG === 'number' ? nutrition.proteinG * scale : null,
+    ),
+    fatG: roundNutritionValue(
+      typeof nutrition.fatG === 'number' ? nutrition.fatG * scale : null,
+    ),
+    sugarG: roundNutritionValue(
+      typeof nutrition.sugarG === 'number' ? nutrition.sugarG * scale : null,
+    ),
+    sodiumMg: roundNutritionValue(
+      typeof nutrition.sodiumMg === 'number' ? nutrition.sodiumMg * scale : null,
+    ),
+  }
+}
+
+function addNutritionFacts(
+  total: NutritionFacts,
+  nutrition: NutritionFacts,
+): NutritionFacts {
+  return {
+    energyKcal:
+      typeof nutrition.energyKcal === 'number'
+        ? roundNutritionValue((total.energyKcal ?? 0) + nutrition.energyKcal)
+        : total.energyKcal,
+    carbohydrateG:
+      typeof nutrition.carbohydrateG === 'number'
+        ? roundNutritionValue((total.carbohydrateG ?? 0) + nutrition.carbohydrateG)
+        : total.carbohydrateG,
+    proteinG:
+      typeof nutrition.proteinG === 'number'
+        ? roundNutritionValue((total.proteinG ?? 0) + nutrition.proteinG)
+        : total.proteinG,
+    fatG:
+      typeof nutrition.fatG === 'number'
+        ? roundNutritionValue((total.fatG ?? 0) + nutrition.fatG)
+        : total.fatG,
+    sugarG:
+      typeof nutrition.sugarG === 'number'
+        ? roundNutritionValue((total.sugarG ?? 0) + nutrition.sugarG)
+        : total.sugarG,
+    sodiumMg:
+      typeof nutrition.sodiumMg === 'number'
+        ? roundNutritionValue((total.sodiumMg ?? 0) + nutrition.sodiumMg)
+        : total.sodiumMg,
+  }
+}
+
+function estimateRecipeNutrition(ingredients: IngredientNutritionSummary[]) {
+  return ingredients.reduce<EstimatedRecipeNutrition>(
+    (summary, ingredient) => {
+      const useAmountG = estimateIngredientUseAmountG(ingredient)
+      const sourceAmountG = parseServingAmountG(ingredient.servingSize)
+      const scale = sourceAmountG > 0 ? useAmountG / sourceAmountG : 0
+      const nutrition = scaleNutritionFacts(ingredient.nutrition, scale)
+
+      return {
+        nutrition: addNutritionFacts(summary.nutrition, nutrition),
+        ingredientCount:
+          Object.values(nutrition).some((value) => typeof value === 'number')
+            ? summary.ingredientCount + 1
+            : summary.ingredientCount,
+      }
+    },
+    {
+      nutrition: {
+        energyKcal: null,
+        carbohydrateG: null,
+        proteinG: null,
+        fatG: null,
+        sugarG: null,
+        sodiumMg: null,
+      },
+      ingredientCount: 0,
+    },
+  )
 }
 
 function getPostDraftAgentStatusLabel(status: PostDraftAgentStatus) {
@@ -697,12 +1041,20 @@ function getTagGroup(tagName: string) {
   return '전체'
 }
 
-function getPostListCategory(title: string, tags: string[]) {
+function getPostListCategory(
+  title: string,
+  tags: string[],
+  category?: BoardCategoryCode,
+): BoardCategoryLabel {
+  if (category) {
+    return boardCategoryLabels[category]
+  }
+
   const normalizedTitle = title.trim()
   const normalizedTags = tags.map((tag) => tag.trim())
 
   if (normalizedTags.includes('10분요리')) {
-    return '10분요리'
+    return '요리 팁/후기'
   }
 
   if (
@@ -722,10 +1074,10 @@ function getPostListCategory(title: string, tags: string[]) {
     normalizedTitle.includes('먹어봤') ||
     normalizedTitle.includes('맛있')
   ) {
-    return '후기'
+    return '요리 팁/후기'
   }
 
-  return '공유'
+  return '레시피 공유'
 }
 
 function getPostListPreview(title: string, tags: string[], contentPreview?: string) {
@@ -742,17 +1094,21 @@ function getPostListPreview(title: string, tags: string[], contentPreview?: stri
   return `${title}에 대한 냉장고 속 재료 고민을 함께 살펴보세요.`
 }
 
-function getPostCategoryClass(category: BoardPost['category']) {
+function getPostCategoryClass(category: BoardCategoryLabel) {
   switch (category) {
     case '질문':
       return 'question'
-    case '후기':
+    case '요리 팁/후기':
       return 'review'
-    case '10분요리':
+    case '자유/트렌드':
       return 'quick'
     default:
       return 'share'
   }
+}
+
+function isQuestionPost(post: Pick<PostDetailItem, 'category'> | null) {
+  return post?.category === 'QUESTION'
 }
 
 function getPostDetailText(post: Pick<PostDetailItem, 'title' | 'content' | 'tags'>) {
@@ -810,18 +1166,23 @@ function inferCookingTime(post: Pick<PostDetailItem, 'title' | 'content' | 'tags
 
 function mapPostListItem(post: PostListItem): BoardPost {
   const tags = post.tags ?? []
+  const category = getPostListCategory(post.title, tags, post.category)
 
   return {
     id: post.id,
     title: post.title,
     contentPreview: getPostListPreview(post.title, tags, post.contentPreview),
-    category: getPostListCategory(post.title, tags),
+    category,
     aiThumbnailUrl: post.aiThumbnailUrl ?? null,
+    imageUrl: post.imageUrl ?? null,
     tags,
     authorId: post.author.id,
     author: post.author.nickname,
     comments: post.commentsCount ?? 0,
-    aiStatus: getAiRecommendationStatusLabel(post.aiRecommendationStatus),
+    aiStatus:
+      category === '질문'
+        ? getAiRecommendationStatusLabel(post.aiRecommendationStatus)
+        : null,
     createdAt: formatDate(post.createdAt),
   }
 }
@@ -833,14 +1194,16 @@ function PostThumbnail({
   post: BoardPost
   className?: string
 }) {
+  const thumbnailUrl = post.imageUrl ?? post.aiThumbnailUrl
+
   return (
     <span
       className={`post-thumb ${className} ${
-        post.aiThumbnailUrl ? 'has-image' : `thumb-${post.id % 5}`
+        thumbnailUrl ? 'has-image' : `thumb-${post.id % 5}`
       }`}
       aria-hidden="true"
     >
-      {post.aiThumbnailUrl ? <img src={post.aiThumbnailUrl} alt="" /> : null}
+      {thumbnailUrl ? <img src={thumbnailUrl} alt="" /> : null}
     </span>
   )
 }
@@ -863,6 +1226,129 @@ function AiRecommendationVisual({
         <span />
       )}
     </div>
+  )
+}
+
+function AiNutritionMetadataPanel({
+  metadata,
+  recommendedIngredients,
+  compact = false,
+}: {
+  metadata?: IngredientSetAnalysis | null
+  recommendedIngredients?: string[]
+  compact?: boolean
+}) {
+  if (!hasNutritionMetadata(metadata)) {
+    return null
+  }
+
+  const nutritionIngredients = getRecommendedNutritionIngredients(
+    metadata,
+    recommendedIngredients,
+  )
+  const estimatedNutrition = estimateRecipeNutrition(nutritionIngredients)
+
+  return (
+    <section className={`ai-nutrition-panel${compact ? ' compact' : ''}`}>
+      <div className="ingredient-metadata-source">
+        <span>MCP 영양 근거</span>
+        <strong>재료별 API 출처 확인</strong>
+        <em>{getNutritionIngredientLabel(nutritionIngredients)}</em>
+      </div>
+      <div className="ai-nutrition-total">
+        <div>
+          <span>AI 추천 재료 기준</span>
+          <strong>1인분 영양 추정치</strong>
+        </div>
+        <dl>
+          <div>
+            <dt>열량</dt>
+            <dd>
+              {formatNutritionValue(
+                estimatedNutrition.nutrition.energyKcal,
+                'kcal',
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>단백질</dt>
+            <dd>
+              {formatNutritionValue(estimatedNutrition.nutrition.proteinG, 'g')}
+            </dd>
+          </div>
+          <div>
+            <dt>탄수화물</dt>
+            <dd>
+              {formatNutritionValue(
+                estimatedNutrition.nutrition.carbohydrateG,
+                'g',
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>지방</dt>
+            <dd>
+              {formatNutritionValue(estimatedNutrition.nutrition.fatG, 'g')}
+            </dd>
+          </div>
+          <div>
+            <dt>나트륨</dt>
+            <dd>
+              {formatNutritionValue(
+                estimatedNutrition.nutrition.sodiumMg,
+                'mg',
+              )}
+            </dd>
+          </div>
+        </dl>
+        <p>
+          아래 원재료 영양정보를 재료별 보통 사용량으로 보정한 값입니다.
+          실제 영양성분은 분량과 조리법에 따라 달라질 수 있습니다.
+        </p>
+      </div>
+      <ul className="ingredient-metadata-list ai-nutrition-list">
+        {nutritionIngredients.map((ingredient) => (
+          <li
+            key={`${ingredient.originalInput}-${ingredient.normalizedInput}-${ingredient.matchedName ?? 'none'}`}
+          >
+            <div className="ingredient-metadata-card-heading">
+              <div>
+                <span>{ingredient.originalInput}</span>
+                <strong>{ingredient.normalizedInput}</strong>
+                <small className="ingredient-source-label">
+                  출처: {getIngredientSourceLabel(ingredient.source)}
+                </small>
+              </div>
+              <em>{getIngredientMatchLabel(ingredient.matchStatus)}</em>
+            </div>
+            <dl>
+              <div>
+                <dt>열량</dt>
+                <dd>{formatNutritionValue(ingredient.nutrition.energyKcal, 'kcal')}</dd>
+              </div>
+              <div>
+                <dt>단백질</dt>
+                <dd>{formatNutritionValue(ingredient.nutrition.proteinG, 'g')}</dd>
+              </div>
+              <div>
+                <dt>탄수화물</dt>
+                <dd>
+                  {formatNutritionValue(ingredient.nutrition.carbohydrateG, 'g')}
+                </dd>
+              </div>
+              <div>
+                <dt>나트륨</dt>
+                <dd>{formatNutritionValue(ingredient.nutrition.sodiumMg, 'mg')}</dd>
+              </div>
+            </dl>
+            <p>
+              원자료 기준량: {ingredient.servingSize ?? '공공데이터 응답 기준'} ·
+              1인분 추정 사용량: {estimateIngredientUseAmountG(ingredient)}g
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -929,6 +1415,7 @@ function App() {
   const [accessToken, setAccessToken] = useState(getSavedAccessToken)
   const [currentUser, setCurrentUser] = useState<LoginUser | null>(getSavedUser)
   const [activeCategory, setActiveCategory] = useState('전체')
+  const [activeTag, setActiveTag] = useState('')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -970,6 +1457,7 @@ function App() {
   const [forgotSubmitMessage, setForgotSubmitMessage] = useState('')
   const [postTitle, setPostTitle] = useState('')
   const [postContent, setPostContent] = useState('')
+  const [postCategory, setPostCategory] = useState<BoardCategoryCode>('QUESTION')
   const [postTagInput, setPostTagInput] = useState('')
   const [postDraftAdditionalRequest, setPostDraftAdditionalRequest] =
     useState('')
@@ -1014,13 +1502,15 @@ function App() {
     useState('')
   const [isAiRecommendationLoading, setIsAiRecommendationLoading] =
     useState(false)
-  const [postAiRecommendationGoal, setPostAiRecommendationGoal] =
-    useState<AiRecommendationGoal>('BALANCED')
+  const [postAiRecommendationGoals, setPostAiRecommendationGoals] = useState<
+    AiRecommendationGoal[]
+  >(['BALANCED'])
   const [postAiAdditionalRequest, setPostAiAdditionalRequest] = useState('')
   const [directAiIngredientInput, setDirectAiIngredientInput] = useState('')
   const [directAiConditionInput, setDirectAiConditionInput] = useState('')
-  const [directAiRecommendationGoal, setDirectAiRecommendationGoal] =
-    useState<AiRecommendationGoal>('BALANCED')
+  const [directAiRecommendationGoals, setDirectAiRecommendationGoals] = useState<
+    AiRecommendationGoal[]
+  >(['BALANCED'])
   const [directAiRecommendation, setDirectAiRecommendation] =
     useState<AiRecommendation | null>(null)
   const [directAiErrorMessage, setDirectAiErrorMessage] = useState('')
@@ -1040,6 +1530,36 @@ function App() {
   const [aiServiceStatus, setAiServiceStatus] =
     useState<AiServiceStatus | null>(null)
   const [aiStatusErrorMessage, setAiStatusErrorMessage] = useState('')
+  const [isBoardChatOpen, setIsBoardChatOpen] = useState(false)
+  const [boardChatInput, setBoardChatInput] = useState('')
+  const [boardChatMessages, setBoardChatMessages] = useState<BoardChatMessage[]>([
+    {
+      id: 1,
+      role: 'bot',
+      text:
+        '안녕하세요 👋\n냉장고 재료를 적어주시면\n게시판 글을 참고해서 한 끼를 추천해드릴게요 🍳\n\n예: 두부, 김치, 계란 있어.\n10분 안에 뭐 해먹지?',
+    },
+  ])
+  const [isBoardChatSubmitting, setIsBoardChatSubmitting] = useState(false)
+  const [boardChatErrorMessage, setBoardChatErrorMessage] = useState('')
+  const [pendingBoardChatWriteDraft, setPendingBoardChatWriteDraft] =
+    useState<BoardChatWriteDraft | null>(null)
+  const boardChatbotRef = useRef<HTMLElement | null>(null)
+  const boardChatbotDragRef = useRef<ChatbotDragState | null>(null)
+  const boardChatbotDidDragRef = useRef(false)
+  const [boardChatbotPosition, setBoardChatbotPosition] =
+    useState<ChatbotPosition>(() => ({
+      x:
+        typeof window === 'undefined'
+          ? 0
+          : Math.max(
+              18,
+              window.innerWidth -
+                Math.max(18, (window.innerWidth - 1440) / 2 - 76) -
+                128,
+            ),
+      y: typeof window === 'undefined' ? 0 : window.innerHeight - 92,
+    }))
 
   const popularTagItems = useMemo(() => {
     const tagCounts = new Map<string, number>()
@@ -1101,10 +1621,10 @@ function App() {
       .filter(Boolean)
   }
 
-	  function syncPostAiRecommendationStatus(
-	    postId: number,
-	    status: AiRecommendationStatus | null,
-	    thumbnailUrl?: string | null,
+  function syncPostAiRecommendationStatus(
+    postId: number,
+    status: AiRecommendationStatus | null,
+    thumbnailUrl?: string | null,
 	  ) {
 	    const aiStatus = getAiRecommendationStatusLabel(status)
 
@@ -1133,6 +1653,20 @@ function App() {
   }
 
   useEffect(() => {
+    const handleResize = () => {
+      setBoardChatbotPosition((currentPosition) =>
+        clampBoardChatbotPosition(currentPosition),
+      )
+    }
+
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
+
+  useEffect(() => {
     const controller = new AbortController()
 
     async function loadPosts() {
@@ -1147,7 +1681,11 @@ function App() {
       }
 
       if (activeCategory !== '전체') {
-        params.set('tag', activeCategory)
+        params.set('category', activeCategory)
+      }
+
+      if (activeTag) {
+        params.set('tag', activeTag)
       }
 
       setIsLoading(true)
@@ -1191,7 +1729,7 @@ function App() {
     return () => {
       controller.abort()
     }
-  }, [activeCategory, page, postListReloadKey, searchKeyword])
+  }, [activeCategory, activeTag, page, postListReloadKey, searchKeyword])
 
   useEffect(() => {
     if (currentView !== 'tags') {
@@ -1326,6 +1864,7 @@ function App() {
     setBoardNavigationTarget('board')
     setSelectedPost(null)
     setActiveCategory('전체')
+    setActiveTag('')
     setPage(1)
 
     if (!keyword) {
@@ -1339,13 +1878,16 @@ function App() {
   function handleCategoryChange(category: string) {
     setBoardNavigationTarget('board')
     setActiveCategory(category)
+    setActiveTag('')
     setPage(1)
   }
 
   function openPostsByTag(tag: string) {
     setSearchKeyword('')
     setBoardNavigationTarget('board')
-    handleCategoryChange(tag)
+    setActiveCategory('전체')
+    setActiveTag(tag)
+    setPage(1)
     setSelectedPost(null)
     setCurrentView('board')
   }
@@ -1373,17 +1915,13 @@ function App() {
     }
 
     try {
-      const [postResponse, commentsResponse, aiRecommendationResponse] =
-        await Promise.all([
-          fetch(`/api/posts/${postId}`),
-          fetch(`/api/posts/${postId}/comments`),
-          fetch(`/api/agent/posts/${postId}/recommendation`),
-        ])
+      const [postResponse, commentsResponse] = await Promise.all([
+        fetch(`/api/posts/${postId}`),
+        fetch(`/api/posts/${postId}/comments`),
+      ])
       const postData = await readJsonResponse<PostDetailItem>(postResponse)
       const commentsData =
         await readJsonResponse<CommentItem[]>(commentsResponse)
-      const aiRecommendationData =
-        await readJsonResponse<AiRecommendation>(aiRecommendationResponse)
 
       if (!postResponse.ok) {
         throw new Error(postData.message ?? '게시글을 불러오지 못했습니다.')
@@ -1399,13 +1937,21 @@ function App() {
         )
       }
 
-	      if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
-	        setAiRecommendation(aiRecommendationData)
-	        syncPostAiRecommendationStatus(
-	          postId,
-	          aiRecommendationData.status,
-	          aiRecommendationData.thumbnailUrl,
-	        )
+      if (isQuestionPost(postData)) {
+        const aiRecommendationResponse = await fetch(
+          `/api/agent/posts/${postId}/recommendation`,
+        )
+        const aiRecommendationData =
+          await readJsonResponse<AiRecommendation>(aiRecommendationResponse)
+
+        if (aiRecommendationResponse.ok && isAiRecommendation(aiRecommendationData)) {
+          setAiRecommendation(aiRecommendationData)
+          syncPostAiRecommendationStatus(
+            postId,
+            aiRecommendationData.status,
+            aiRecommendationData.thumbnailUrl,
+          )
+        }
       }
     } catch (error) {
       setDetailErrorMessage(
@@ -1867,7 +2413,12 @@ function App() {
       setAccessToken(data.accessToken)
       setCurrentUser(data.user)
       setLoginPassword('')
-      setCurrentView('board')
+      if (pendingBoardChatWriteDraft) {
+        applyBoardChatWriteDraft(pendingBoardChatWriteDraft)
+        setPendingBoardChatWriteDraft(null)
+      } else {
+        setCurrentView('board')
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '로그인에 실패했습니다.'
@@ -2247,6 +2798,7 @@ function App() {
     setEditingPostId(null)
     setPostTitle('')
     setPostContent('')
+    setPostCategory('QUESTION')
     setPostTagInput('')
     setPostDraftAdditionalRequest('')
     setPostDraftAgentResult(null)
@@ -2255,8 +2807,69 @@ function App() {
     setCurrentView('write')
   }
 
+  function createBoardChatWriteDraft(
+    prompt: string,
+    extractedIngredients: string[] = [],
+  ): BoardChatWriteDraft {
+    const normalizedPrompt = prompt.replace(/\s+/g, ' ').trim()
+    const titleBase =
+      normalizedPrompt.length > 44
+        ? `${normalizedPrompt.slice(0, 44)}...`
+        : normalizedPrompt
+
+    return {
+      title: titleBase
+        ? `${titleBase} 메뉴 추천 부탁드려요`
+        : '냉장고 재료로 메뉴 추천 부탁드려요',
+      content: [
+        'AI 요리사에게 물어본 내용입니다.',
+        '',
+        prompt.trim(),
+        '',
+        '참고할 만한 게시글이 없어서 질문으로 남깁니다.',
+      ].join('\n'),
+      tags: extractedIngredients.slice(0, 5).join(', '),
+    }
+  }
+
+  function applyBoardChatWriteDraft(draft: BoardChatWriteDraft) {
+    setEditingPostId(null)
+    setPostTitle(draft.title)
+    setPostContent(draft.content)
+    setPostCategory('QUESTION')
+    setPostTagInput(draft.tags)
+    setPostDraftAdditionalRequest('')
+    setPostDraftAgentResult(null)
+    setPostDraftAgentErrorMessage('')
+    setPostCreateErrorMessage('')
+    setIsBoardChatOpen(false)
+    setCurrentView('write')
+  }
+
+  function openBoardChatWriteView(message: BoardChatMessage) {
+    const draft = createBoardChatWriteDraft(
+      message.writePrompt ?? message.text,
+      message.extractedIngredients ?? [],
+    )
+
+    if (!accessToken) {
+      setPendingBoardChatWriteDraft(draft)
+      setLoginErrorMessage('로그인 후 질문글을 작성할 수 있습니다.')
+      setIsBoardChatOpen(false)
+      setCurrentView('login')
+      return
+    }
+
+    applyBoardChatWriteDraft(draft)
+  }
+
   async function openAiRecommendationModal() {
     if (!selectedPost || isAiRecommendationLoading) {
+      return
+    }
+
+    if (!isQuestionPost(selectedPost)) {
+      setAiRecommendationErrorMessage('질문 게시글에서만 AI 추천을 실행할 수 있습니다.')
       return
     }
 
@@ -2282,7 +2895,7 @@ function App() {
             Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({
-            nutritionGoal: postAiRecommendationGoal,
+            nutritionGoals: postAiRecommendationGoals,
             additionalRequest: postAiAdditionalRequest.trim(),
           }),
         },
@@ -2467,7 +3080,7 @@ function App() {
         body: JSON.stringify({
           ingredients,
           conditions: directAiConditionInput.trim(),
-          nutritionGoal: directAiRecommendationGoal,
+          nutritionGoals: directAiRecommendationGoals,
         }),
       })
       const data = await readJsonResponse<AiRecommendation>(response)
@@ -2509,6 +3122,156 @@ function App() {
     }
   }
 
+  async function handleBoardChatSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const message = boardChatInput.trim()
+
+    if (!message || isBoardChatSubmitting) {
+      return
+    }
+
+    const userMessage: BoardChatMessage = {
+      id: Date.now(),
+      role: 'user',
+      text: message,
+    }
+
+    setBoardChatMessages((currentMessages) => [
+      ...currentMessages,
+      userMessage,
+    ])
+    setBoardChatInput('')
+    setBoardChatErrorMessage('')
+    setIsBoardChatSubmitting(true)
+
+    try {
+      const response = await fetch('/api/agent/board-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      })
+      const data = await readJsonResponse<BoardChatResponse>(response)
+
+      if (!response.ok) {
+        throw new Error(data.message ?? 'AI 요리사 답변을 만들지 못했습니다.')
+      }
+
+      setBoardChatMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: Date.now() + 1,
+          role: 'bot',
+          text: data.answer_text,
+          references: data.references,
+          grounding: data.grounding,
+          writePrompt:
+            data.grounding === 'GENERAL_AI' && data.references.length === 0
+              ? message
+              : undefined,
+          extractedIngredients: data.extracted_ingredients,
+        },
+      ])
+    } catch (error) {
+      setBoardChatErrorMessage(
+        getFriendlyErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'AI 요리사 답변을 만들지 못했습니다.',
+          'AI 요리사 답변을 만들지 못했습니다.',
+        ),
+      )
+    } finally {
+      setIsBoardChatSubmitting(false)
+    }
+  }
+
+  function clampBoardChatbotPosition(nextPosition: ChatbotPosition) {
+    const chatbotElement = boardChatbotRef.current
+    const width = chatbotElement?.offsetWidth ?? 128
+    const height = chatbotElement?.offsetHeight ?? 64
+    const margin = 12
+
+    return {
+      x: Math.min(
+        Math.max(nextPosition.x, margin),
+        Math.max(window.innerWidth - width - margin, margin),
+      ),
+      y: Math.min(
+        Math.max(nextPosition.y, margin),
+        Math.max(window.innerHeight - height - margin, margin),
+      ),
+    }
+  }
+
+  function startBoardChatbotDrag(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    const chatbotElement = boardChatbotRef.current
+
+    if (!chatbotElement) {
+      return
+    }
+
+    const bounds = chatbotElement.getBoundingClientRect()
+    boardChatbotDidDragRef.current = false
+    boardChatbotDragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function moveBoardChatbot(event: React.PointerEvent<HTMLElement>) {
+    const dragState = boardChatbotDragRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const movedDistance = Math.hypot(
+      event.clientX - dragState.startX,
+      event.clientY - dragState.startY,
+    )
+
+    if (movedDistance > 4) {
+      boardChatbotDidDragRef.current = true
+    }
+
+    setBoardChatbotPosition(
+      clampBoardChatbotPosition({
+        x: event.clientX - dragState.offsetX,
+        y: event.clientY - dragState.offsetY,
+      }),
+    )
+  }
+
+  function stopBoardChatbotDrag(event: React.PointerEvent<HTMLElement>) {
+    if (boardChatbotDragRef.current?.pointerId === event.pointerId) {
+      boardChatbotDragRef.current = null
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  function toggleBoardChatbot() {
+    if (boardChatbotDidDragRef.current) {
+      boardChatbotDidDragRef.current = false
+      return
+    }
+
+    setIsBoardChatOpen((isOpen) => !isOpen)
+  }
+
   function closeAiRecommendationModal() {
     setAiProgress(0)
     setAiModalState('closed')
@@ -2528,6 +3291,7 @@ function App() {
     setEditingPostId(selectedPost.id)
     setPostTitle(selectedPost.title)
     setPostContent(selectedPost.content)
+    setPostCategory(selectedPost.category ?? 'QUESTION')
     setPostTagInput((selectedPost.tags ?? []).join(', '))
     setPostDraftAdditionalRequest('')
     setPostDraftAgentResult(null)
@@ -2656,6 +3420,7 @@ function App() {
           body: JSON.stringify({
             title,
             content,
+            category: postCategory,
             tagNames,
           }),
         },
@@ -2673,12 +3438,14 @@ function App() {
 
       setPostTitle('')
       setPostContent('')
+      setPostCategory('QUESTION')
       setPostTagInput('')
       setPostDraftAdditionalRequest('')
       setPostDraftAgentResult(null)
       setPostDraftAgentErrorMessage('')
       setEditingPostId(null)
       setActiveCategory('전체')
+      setActiveTag('')
       setSearchKeyword('')
       setPage(1)
       setPostListReloadKey((currentKey) => currentKey + 1)
@@ -2770,7 +3537,7 @@ function App() {
               </svg>
             </button>
             <div className="avatar" aria-hidden="true">
-              {currentUser ? currentUser.nickname.slice(0, 1) : '?'}
+              <UserProfileIcon />
             </div>
             <button
               className="profile-button"
@@ -3181,11 +3948,13 @@ function App() {
                           <div className="mypage-post-meta">
                             <span>{post.createdAt}</span>
                             <span>{post.author}</span>
-                            <span
-                              className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
-                            >
-                              {post.aiStatus}
-                            </span>
+                            {post.aiStatus ? (
+                              <span
+                                className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+                              >
+                                {post.aiStatus}
+                              </span>
+                            ) : null}
                           </div>
                           <div className="tag-stack">
                             {post.tags.slice(0, 3).map((tag) => (
@@ -3384,9 +4153,7 @@ function App() {
                           <strong>{count}</strong>
                         </button>
                       ))
-                    : categories
-                        .filter((category) => category !== '전체')
-                        .map((category) => (
+                    : fallbackPopularTags.map((category) => (
                           <button
                             className="popular-tag-button"
                             type="button"
@@ -3547,13 +4314,18 @@ function App() {
                     {aiRecommendationGoalOptions.map((option) => (
                       <button
                         className={
-                          directAiRecommendationGoal === option.id
+                          directAiRecommendationGoals.includes(option.id)
                             ? 'selected'
                             : ''
                         }
                         key={option.id}
                         type="button"
-                        onClick={() => setDirectAiRecommendationGoal(option.id)}
+                        aria-pressed={directAiRecommendationGoals.includes(option.id)}
+                        onClick={() =>
+                          setDirectAiRecommendationGoals((currentGoals) =>
+                            toggleAiRecommendationGoal(currentGoals, option.id),
+                          )
+                        }
                         title={option.description}
                       >
                         {option.label}
@@ -3604,10 +4376,10 @@ function App() {
                           <div className="ingredient-metadata-card-heading">
                             <div>
                               <span>{ingredient.originalInput}</span>
-                              <strong>
-                                {ingredient.matchedName ??
-                                  ingredient.normalizedInput}
-                              </strong>
+                              <strong>{ingredient.normalizedInput}</strong>
+                              <small className="ingredient-source-label">
+                                출처: {getIngredientSourceLabel(ingredient.source)}
+                              </small>
                             </div>
                             <em>{getIngredientMatchLabel(ingredient.matchStatus)}</em>
                           </div>
@@ -3656,11 +4428,6 @@ function App() {
                         </li>
                       ))}
                     </ul>
-                    {ingredientMetadata.notes.length > 0 ? (
-                      <p className="ingredient-metadata-note">
-                        {ingredientMetadata.notes[0]}
-                      </p>
-                    ) : null}
                   </div>
                 ) : (
                   <p className="ingredient-metadata-empty">
@@ -3700,7 +4467,7 @@ function App() {
                     <div>
                       <dt>추천 목표</dt>
                       <dd>
-                        {getAiRecommendationGoalLabel(directAiRecommendationGoal)}
+                        {getAiRecommendationGoalLabels(directAiRecommendationGoals)}
                       </dd>
                     </div>
 		                    <div>
@@ -3715,6 +4482,12 @@ function App() {
 	                  <p className="ai-grounding-note">
 	                    {getAiGroundingMessage(directAiRecommendation.grounding)}
 	                  </p>
+                    <AiNutritionMetadataPanel
+                      metadata={directAiRecommendation.nutritionMetadata}
+                      recommendedIngredients={
+                        directAiRecommendation.availableIngredients
+                      }
+                    />
 	                  <p>{directAiRecommendation.content}</p>
 	                  {directAiRecommendation.referencedPosts.length > 0 ? (
                     <section>
@@ -3799,9 +4572,10 @@ function App() {
                         <div className="ingredient-metadata-card-heading">
                           <div>
                             <span>{ingredient.originalInput}</span>
-                            <strong>
-                              {ingredient.matchedName ?? ingredient.normalizedInput}
-                            </strong>
+                            <strong>{ingredient.normalizedInput}</strong>
+                            <small className="ingredient-source-label">
+                              출처: {getIngredientSourceLabel(ingredient.source)}
+                            </small>
                           </div>
                           <em>{getIngredientMatchLabel(ingredient.matchStatus)}</em>
                         </div>
@@ -3849,11 +4623,6 @@ function App() {
                       </li>
                     ))}
                   </ul>
-                  {mcpMetadata.notes.length > 0 ? (
-                    <p className="ingredient-metadata-note">
-                      {mcpMetadata.notes[0]}
-                    </p>
-                  ) : null}
                 </div>
               ) : (
                 <div className="coming-soon-panel">
@@ -4095,6 +4864,24 @@ function App() {
                   />
                   <span>{postContent.length} / 5000</span>
                 </label>
+
+                <fieldset className="write-category-group">
+                  <legend>게시판 성격</legend>
+                  <div>
+                    {writableBoardCategories.map((category) => (
+                        <button
+                          className={
+                            category.code === postCategory ? 'selected' : ''
+                          }
+                          key={category.code}
+                          type="button"
+                          onClick={() => setPostCategory(category.code)}
+                        >
+                          {category.label}
+                        </button>
+                      ))}
+                  </div>
+                </fieldset>
 
                 <label>
                   태그
@@ -4363,7 +5150,7 @@ function App() {
 
                   <div className="detail-meta">
                     <span className="mini-avatar">
-                      {selectedPost.author.nickname.slice(0, 1)}
+                      <UserProfileIcon compact />
                     </span>
                     <strong>{selectedPost.author.nickname}</strong>
                     <time dateTime={selectedPost.createdAt}>
@@ -4372,15 +5159,21 @@ function App() {
                     <span>조회 {selectedPost.viewCount}</span>
                   </div>
 
-                  <div className="detail-tags">
-                    {(selectedPost.tags ?? []).map((tag) => (
-                      <span className="tag-chip green" key={tag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-
-                  <p className="detail-body">{selectedPost.content}</p>
+	                  <div className="detail-tags">
+	                    {(selectedPost.tags ?? []).map((tag) => (
+	                      <span className="tag-chip green" key={tag}>
+	                        {tag}
+	                      </span>
+	                    ))}
+	                  </div>
+	
+	                  {selectedPost.imageUrl ? (
+	                    <div className="detail-post-image" aria-hidden="true">
+	                      <img src={selectedPost.imageUrl} alt="" />
+	                    </div>
+	                  ) : null}
+	
+	                  <p className="detail-body">{selectedPost.content}</p>
 
                   <section className="recipe-info" aria-label="요리 조건">
                     <div>
@@ -4420,7 +5213,7 @@ function App() {
                         {comments.map((comment) => (
                           <li key={comment.id}>
                             <span className="mini-avatar">
-                              {comment.author.nickname.slice(0, 1)}
+                              <UserProfileIcon compact />
                             </span>
                             <div>
                               <div className="comment-meta">
@@ -4481,6 +5274,7 @@ function App() {
                   </section>
                 </article>
 
+                {isQuestionPost(selectedPost) ? (
                 <aside className="detail-ai-panel" aria-label="AI 추천 결과">
                   <div className="detail-ai-panel-top">
                     <div className="detail-ai-panel-header">
@@ -4592,13 +5386,23 @@ function App() {
                         {aiRecommendationGoalOptions.map((option) => (
                           <button
                             className={
-                              postAiRecommendationGoal === option.id
+                              postAiRecommendationGoals.includes(option.id)
                                 ? 'selected'
                                 : ''
                             }
                             key={option.id}
                             type="button"
-                            onClick={() => setPostAiRecommendationGoal(option.id)}
+                            aria-pressed={postAiRecommendationGoals.includes(
+                              option.id,
+                            )}
+                            onClick={() =>
+                              setPostAiRecommendationGoals((currentGoals) =>
+                                toggleAiRecommendationGoal(
+                                  currentGoals,
+                                  option.id,
+                                ),
+                              )
+                            }
                             title={option.description}
                           >
                             {option.label}
@@ -4642,6 +5446,7 @@ function App() {
                     </button>
                   </div>
                 </aside>
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -4716,11 +5521,13 @@ function App() {
                         <span>{post.author}</span>
                         <time>{post.createdAt}</time>
                         <span>댓글 {post.comments}</span>
-                        <span
-                          className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
-                        >
-                          {post.aiStatus}
-                        </span>
+                        {post.aiStatus ? (
+                          <span
+                            className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+                          >
+                            {post.aiStatus}
+                          </span>
+                        ) : null}
                       </div>
                     </article>
                   ))}
@@ -4833,15 +5640,15 @@ function App() {
               </button>
             </div>
 
-            <div className="category-row" aria-label="태그 카테고리">
-              {categories.map((category) => (
+            <div className="category-row" aria-label="게시판 성격">
+              {boardCategories.map((category) => (
                 <button
-                  className={category === activeCategory ? 'selected' : ''}
-                  key={category}
+                  className={category.code === activeCategory ? 'selected' : ''}
+                  key={category.code}
                   type="button"
-                  onClick={() => handleCategoryChange(category)}
+                  onClick={() => handleCategoryChange(category.code)}
                 >
-                  {category}
+                  {category.label}
                 </button>
               ))}
               <button type="button" onClick={() => setCurrentView('tags')}>
@@ -4908,15 +5715,19 @@ function App() {
 	                    </div>
 	                    <div className="post-preview-meta">
 	                      <span className="author-cell">
-	                        <span className="mini-avatar">{post.author.slice(0, 1)}</span>
+	                        <span className="mini-avatar">
+                            <UserProfileIcon compact />
+                          </span>
 	                        <span className="author-name">{post.author}</span>
 	                      </span>
 	                      <span>댓글 {post.comments}</span>
-	                      <span
-	                        className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
-	                      >
-	                        {post.aiStatus}
-	                      </span>
+	                      {post.aiStatus ? (
+	                        <span
+	                          className={`status-badge ${getAiRecommendationStatusClass(post.aiStatus)}`}
+	                        >
+	                          {post.aiStatus}
+	                        </span>
+	                      ) : null}
 	                      <time dateTime={post.createdAt}>{post.createdAt}</time>
 	                    </div>
 	                  </div>
@@ -4955,6 +5766,133 @@ function App() {
         </div>
         </>
         )}
+        {!isAuthView ? (
+          <aside
+            ref={boardChatbotRef}
+            className={`board-chatbot ${isBoardChatOpen ? 'open' : ''}`}
+            style={{
+              left: `${boardChatbotPosition.x}px`,
+              top: `${boardChatbotPosition.y}px`,
+            }}
+            aria-label="게시판 전용 AI 요리사"
+          >
+            {isBoardChatOpen ? (
+              <section className="board-chatbot-panel" aria-live="polite">
+                <div
+                  className="board-chatbot-header"
+                  onPointerDown={startBoardChatbotDrag}
+                  onPointerMove={moveBoardChatbot}
+                  onPointerUp={stopBoardChatbotDrag}
+                  onPointerCancel={stopBoardChatbotDrag}
+                >
+                  <div>
+                    <strong>AI 요리사</strong>
+                    <span>게시판 글로 찾는 냉장고 한 끼</span>
+                  </div>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => setIsBoardChatOpen(false)}
+                    aria-label="AI 요리사 닫기"
+                  >
+                    x
+                  </button>
+                </div>
+
+                <div className="board-chatbot-messages">
+                  {boardChatMessages.map((message) => (
+                    <div
+                      className={`board-chatbot-message ${message.role}`}
+                      key={message.id}
+                    >
+                      <p>{message.text}</p>
+                      {message.references?.length ? (
+                        <ul className="board-chatbot-references">
+                          {message.references.map((reference) => (
+                            <li key={reference.post_id}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsBoardChatOpen(false)
+                                  loadPostDetail(reference.post_id)
+                                }}
+                              >
+                                글 보러가기: {reference.title}
+                              </button>
+                              <span>
+                                {reference.author} · 조회 {reference.view_count}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {message.role === 'bot' &&
+                      message.grounding === 'GENERAL_AI' &&
+                      message.writePrompt ? (
+                        <div className="board-chatbot-empty-action">
+                          <span>
+                            아직 비슷한 게시글이 없어요. 질문을 남기면 다음 추천 근거가 될 수 있어요.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openBoardChatWriteView(message)}
+                          >
+                            질문글로 남기기
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {isBoardChatSubmitting ? (
+                    <div className="board-chatbot-message bot loading">
+                      <p>게시판 글을 살펴보는 중입니다...</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {boardChatErrorMessage ? (
+                  <p className="board-chatbot-error">{boardChatErrorMessage}</p>
+                ) : null}
+
+                <form
+                  className="board-chatbot-form"
+                  onSubmit={handleBoardChatSubmit}
+                >
+                  <input
+                    type="text"
+                    placeholder="예: 족발, 상추, 쌈장, 찬밥 있어"
+                    value={boardChatInput}
+                    onChange={(event) => setBoardChatInput(event.target.value)}
+                  />
+                  <button type="submit" disabled={isBoardChatSubmitting}>
+                    전송
+                  </button>
+                </form>
+              </section>
+            ) : null}
+            <button
+              className="board-chatbot-toggle"
+              type="button"
+              onPointerDown={startBoardChatbotDrag}
+              onPointerMove={moveBoardChatbot}
+              onPointerUp={stopBoardChatbotDrag}
+              onPointerCancel={stopBoardChatbotDrag}
+              onClick={toggleBoardChatbot}
+              aria-expanded={isBoardChatOpen}
+              aria-label="AI 요리사 열기"
+            >
+              <span className="chef-bot-face" aria-hidden="true">
+                <span className="chef-bot-hat" />
+                <span className="chef-bot-head">
+                  <span className="chef-bot-eye left" />
+                  <span className="chef-bot-eye right" />
+                  <span className="chef-bot-smile" />
+                </span>
+              </span>
+              <span className="board-chatbot-toggle-label">AI 요리사</span>
+            </button>
+          </aside>
+        ) : null}
         {aiModalState !== 'closed' ? (
           <div className="ai-modal-backdrop">
             {aiModalState === 'running' ? (
@@ -4981,7 +5919,7 @@ function App() {
 	                  있어요.
 	                </p>
                 <p className="ai-modal-source">
-                  추천 목표: {getAiRecommendationGoalLabel(postAiRecommendationGoal)}
+                  추천 목표: {getAiRecommendationGoalLabels(postAiRecommendationGoals)}
                 </p>
                 {postAiAdditionalRequest.trim() ? (
                   <p className="ai-modal-source">
@@ -5041,7 +5979,7 @@ function App() {
                 <h2 id="ai-result-title">AI 추천 결과</h2>
 	                <p className="ai-modal-source">{aiTargetTitle}</p>
                 <p className="ai-modal-source">
-                  추천 목표: {getAiRecommendationGoalLabel(postAiRecommendationGoal)}
+                  추천 목표: {getAiRecommendationGoalLabels(postAiRecommendationGoals)}
                 </p>
                 {postAiAdditionalRequest.trim() ? (
                   <p className="ai-modal-source">
@@ -5113,6 +6051,35 @@ function App() {
                             </li>
                           ))}
                       </ol>
+                    </details>
+
+                    <details className="ai-result-toggle">
+                      <summary>
+                        <span>MCP 영양 근거</span>
+                        <em>
+                          {hasNutritionMetadata(aiRecommendation.nutritionMetadata)
+                            ? getNutritionIngredientLabel(
+                                getRecommendedNutritionIngredients(
+                                  aiRecommendation.nutritionMetadata,
+                                  aiRecommendation.availableIngredients,
+                                ),
+                              )
+                            : '없음'}
+                        </em>
+                      </summary>
+                      {hasNutritionMetadata(aiRecommendation.nutritionMetadata) ? (
+                        <AiNutritionMetadataPanel
+                          metadata={aiRecommendation.nutritionMetadata}
+                          recommendedIngredients={
+                            aiRecommendation.availableIngredients
+                          }
+                          compact
+                        />
+                      ) : (
+                        <p>
+                          이번 추천에는 공공데이터 영양성분 매칭 결과가 없습니다.
+                        </p>
+                      )}
                     </details>
 
                     <details className="ai-result-toggle">
