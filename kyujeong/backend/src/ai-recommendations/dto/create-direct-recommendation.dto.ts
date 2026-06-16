@@ -25,4 +25,10 @@ export class CreateDirectRecommendationDto {
   @IsOptional()
   @IsIn(AI_RECOMMENDATION_GOALS)
   nutritionGoal?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsIn(AI_RECOMMENDATION_GOALS, { each: true })
+  nutritionGoals?: string[];
 }

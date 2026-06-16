@@ -17,5 +17,6 @@ import { RecipeLlmService } from './recipe-llm.service';
     RecipeImageService,
     RecipeLlmService,
   ],
+  exports: [AiRecommendationsService],
 })
 export class AiRecommendationsModule {}

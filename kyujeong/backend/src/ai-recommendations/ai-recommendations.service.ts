@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FoodMetadataService } from '../food-metadata/food-metadata.service';
 import type { IngredientSetAnalysis } from '../food-metadata/food-metadata.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmbeddingService, RAG_EMBEDDING_DIMENSION } from './embedding.service';
+import { CreateBoardChatDto } from './dto/create-board-chat.dto';
 import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
 import { CreateRecommendationDto } from './dto/create-recommendation.dto';
 import {
@@ -13,7 +14,7 @@ import {
 } from './recipe-llm.service';
 import {
   AI_RECOMMENDATION_GOAL_LABELS,
-  normalizeAiRecommendationGoal,
+  normalizeAiRecommendationGoals,
 } from './recommendation-goal';
 import { RecipeImageService } from './recipe-image.service';
 
@@ -21,9 +22,15 @@ const ragPostSelect = {
   id: true,
   title: true,
   content: true,
+  category: true,
   viewCount: true,
   createdAt: true,
   updatedAt: true,
+  author: {
+    select: {
+      nickname: true,
+    },
+  },
   postTags: {
     select: {
       tag: {
@@ -56,21 +63,82 @@ type RagPost = Prisma.PostGetPayload<{
 type SimilarPost = {
   postId: number;
   title: string;
+  category: PostCategoryCode;
+  categoryLabel: string;
+  sourceType: string;
+  author: string;
+  postUrl: string;
+  viewCount: number;
+  commentsCount: number;
   summary: string;
   questionSummary: string;
   commentEvidence: string[];
   tags: string[];
   similarity: number;
   semanticSimilarity: number;
+  popularityScore: number;
   ingredients: string[];
+  ingredientAliases: string[];
   matchedIngredients: string[];
   missingIngredients: string[];
+};
+
+type RagDocumentMetadata = {
+  title: string;
+  category: PostCategoryCode;
+  categoryLabel: string;
+  sourceType: string;
+  author: string;
+  postUrl: string;
+  contentSummary: string;
+  ingredients: string[];
+  ingredientAliases: string[];
+  dishNames: string[];
+  cookingMethods: string[];
+  situationTags: string[];
+  difficulty: string;
+  cookingTime: string;
+  popularityScore: number;
+  searchableText: string;
+  documentText: string;
+};
+
+type BoardChatReference = {
+  post_id: number;
+  title: string;
+  category: string;
+  source_type: string;
+  author: string;
+  post_url: string;
+  view_count: number;
+  comment_count: number;
+  score: number;
 };
 
 const DEFAULT_RAG_MIN_SIMILARITY = 0.55;
 const DEFAULT_RAG_MIN_INGREDIENT_OVERLAP = 1;
 const MAX_REFERENCE_POSTS = 5;
+const MAX_BOARD_CHAT_REFERENCE_POSTS = 12;
 const MAX_VECTOR_CANDIDATES = 25;
+const POST_CATEGORY_LABELS = {
+  QUESTION: '질문',
+  RECIPE_SHARE: '레시피 공유',
+  COOKING_TIP_REVIEW: '요리 팁/후기',
+  TREND: '자유/트렌드',
+} as const;
+const POST_CATEGORY_SOURCE_TYPES = {
+  QUESTION: '사용자 질문',
+  RECIPE_SHARE: '검증된 레시피',
+  COOKING_TIP_REVIEW: '사용자 팁/후기',
+  TREND: '최근 맥락',
+} as const;
+const POST_CATEGORY_KNOWLEDGE_WEIGHT = {
+  QUESTION: 0,
+  RECIPE_SHARE: 1,
+  COOKING_TIP_REVIEW: 0.95,
+  TREND: 0.55,
+} as const;
+type PostCategoryCode = keyof typeof POST_CATEGORY_LABELS;
 const KNOWN_INGREDIENTS = [
   '아보카도',
   '병아리콩',
@@ -91,6 +159,7 @@ const KNOWN_INGREDIENTS = [
   '달걀',
   '김치',
   '밥',
+  '찬밥',
   '면',
   '파스타',
   '참기름',
@@ -134,6 +203,7 @@ const KNOWN_INGREDIENTS = [
   '닭다리살',
   '닭안심',
   '돼지고기',
+  '족발',
   '삼겹살',
   '목살',
   '소고기',
@@ -149,6 +219,7 @@ const KNOWN_INGREDIENTS = [
   '스팸',
   '소시지',
   '베이컨',
+  '치킨',
   '어묵',
   '맛살',
   '만두',
@@ -157,6 +228,7 @@ const KNOWN_INGREDIENTS = [
   '김가루',
   '미역',
   '된장',
+  '쌈장',
   '고춧가루',
   '마요네즈',
   '식용유',
@@ -177,6 +249,19 @@ const INGREDIENT_ALIASES = new Map([
   ['레몬즙', '레몬'],
   ['스팸', '햄'],
   ['고추참치', '참치'],
+  ['찬밥', '밥'],
+]);
+const SEMANTIC_INGREDIENT_ALIASES = new Map<string, string[]>([
+  ['족발', ['돼지고기', '남은 배달음식', '고기', '볶음밥 재료']],
+  ['찬밥', ['밥', '볶음밥', '죽', '주먹밥']],
+  ['밥', ['찬밥', '볶음밥', '죽', '주먹밥']],
+  ['쌈장', ['양념장', '된장', '고추장', '간 맞추기']],
+  ['상추', ['쌈채소', '고명', '샐러드']],
+  ['치킨', ['닭고기', '남은 배달음식', '튀김', '볶음밥 재료']],
+  ['김치', ['볶음밥', '찌개', '반찬', '매콤한 재료']],
+  ['참치', ['참치캔', '단백질', '주먹밥', '볶음밥 재료']],
+  ['두부', ['단백질', '부침', '찌개', '담백한 재료']],
+  ['계란', ['달걀', '단백질', '볶음밥', '아침 메뉴']],
 ]);
 const NON_INGREDIENT_TERMS = new Set([
   '추천',
@@ -194,6 +279,8 @@ const NON_INGREDIENT_TERMS = new Set([
   '간단한',
   '간단하게',
   '재료',
+  '메인재료',
+  '부재료',
   '보유',
   '남은',
   '활용',
@@ -301,7 +388,11 @@ export class AiRecommendationsService {
   }
 
   async findLatest(postId: number) {
-    await this.assertPostExists(postId);
+    const post = await this.assertPostExists(postId);
+
+    if (this.getPostCategory(post) !== 'QUESTION') {
+      return null;
+    }
 
     const recommendation =
       await this.prismaService.aiRecipeRecommendation.findFirst({
@@ -344,10 +435,19 @@ export class AiRecommendationsService {
     createRecommendationDto: CreateRecommendationDto = {},
   ) {
     const targetPost = await this.findRagPost(postId);
-    const targetDocument = this.buildRagDocument(targetPost);
+
+    if (this.getPostCategory(targetPost) !== 'QUESTION') {
+      throw new BadRequestException(
+        'AI recommendations are only available for question posts',
+      );
+    }
+
+    const targetRagMetadata = this.buildRagDocumentMetadata(targetPost);
+    const targetDocument = targetRagMetadata.searchableText;
     const targetIngredients = this.extractIngredientsFromRagPost(targetPost);
-    const nutritionGoal = normalizeAiRecommendationGoal(
-      createRecommendationDto.nutritionGoal,
+    const nutritionGoals = normalizeAiRecommendationGoals(
+      createRecommendationDto.nutritionGoals ??
+        createRecommendationDto.nutritionGoal,
     );
     const additionalRequest =
       createRecommendationDto.additionalRequest?.trim() ?? '';
@@ -356,7 +456,7 @@ export class AiRecommendationsService {
 
     await this.upsertRagDocument(
       targetPost.id,
-      targetDocument,
+      targetRagMetadata,
       targetEmbeddingResult.embedding,
       targetEmbeddingResult.model,
     );
@@ -386,6 +486,8 @@ export class AiRecommendationsService {
         this.toRecipeContext(targetPost, targetIngredients, additionalRequest),
         similarPosts.map((similarPost) => ({
           title: similarPost.title,
+          category: similarPost.categoryLabel,
+          sourceType: similarPost.sourceType,
           summary: similarPost.summary,
           questionSummary: similarPost.questionSummary,
           commentEvidence: similarPost.commentEvidence,
@@ -398,7 +500,7 @@ export class AiRecommendationsService {
         })),
         grounding,
         nutritionMetadata,
-        nutritionGoal,
+        nutritionGoals,
       );
     const recommendationDraft = this.completeRecommendationDraft(
       rawRecommendationDraft,
@@ -422,6 +524,7 @@ export class AiRecommendationsService {
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
           thumbnailUrl,
+          nutritionMetadata: this.toRecommendationNutritionJson(nutritionMetadata),
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -469,8 +572,9 @@ export class AiRecommendationsService {
     );
     const conditions = createDirectRecommendationDto.conditions?.trim() ?? '';
     const targetIngredients = this.normalizeIngredientTerms(ingredients);
-    const nutritionGoal = normalizeAiRecommendationGoal(
-      createDirectRecommendationDto.nutritionGoal,
+    const nutritionGoals = normalizeAiRecommendationGoals(
+      createDirectRecommendationDto.nutritionGoals ??
+        createDirectRecommendationDto.nutritionGoal,
     );
     const targetDocument = this.buildDirectRagDocument(ingredients, conditions);
     const targetEmbeddingResult =
@@ -497,7 +601,9 @@ export class AiRecommendationsService {
           content: [
             `보유 재료: ${ingredients.join(', ')}`,
             conditions ? `조건: ${conditions}` : '',
-            `추천 목표: ${AI_RECOMMENDATION_GOAL_LABELS[nutritionGoal]}`,
+            `추천 목표: ${nutritionGoals
+              .map((goal) => AI_RECOMMENDATION_GOAL_LABELS[goal])
+              .join(', ')}`,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -506,6 +612,8 @@ export class AiRecommendationsService {
         },
         similarPosts.map((similarPost) => ({
           title: similarPost.title,
+          category: similarPost.categoryLabel,
+          sourceType: similarPost.sourceType,
           summary: similarPost.summary,
           questionSummary: similarPost.questionSummary,
           commentEvidence: similarPost.commentEvidence,
@@ -518,7 +626,7 @@ export class AiRecommendationsService {
         })),
         grounding,
         nutritionMetadata,
-        nutritionGoal,
+        nutritionGoals,
       );
     const recommendationDraft = this.completeRecommendationDraft(
       rawRecommendationDraft,
@@ -542,6 +650,7 @@ export class AiRecommendationsService {
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
           thumbnailUrl,
+          nutritionMetadata: this.toRecommendationNutritionJson(nutritionMetadata),
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -580,15 +689,225 @@ export class AiRecommendationsService {
     return this.mapRecommendation(recommendation);
   }
 
+  async createBoardChat(createBoardChatDto: CreateBoardChatDto) {
+    const userMessage = createBoardChatDto.message.trim();
+
+    if (!userMessage) {
+      throw new BadRequestException('Message is required');
+    }
+
+    const labeledIngredients = this.extractLabeledIngredientTerms(userMessage);
+    const extractedIngredients = [
+      ...new Set([
+        ...this.normalizeIngredientTerms([userMessage]),
+        ...labeledIngredients,
+      ]),
+    ].slice(0, 12);
+    const primaryIngredients = this.extractPrimaryIngredientTerms(userMessage);
+    const excludedConditions = this.extractExcludedConditions(userMessage);
+    const situationTags = this.extractSituationTags(userMessage);
+    const targetDocument = this.buildDirectRagDocument(
+      extractedIngredients,
+      [userMessage, excludedConditions.join(', ')].filter(Boolean).join('\n'),
+    );
+    const targetEmbeddingResult =
+      await this.embeddingService.embed(targetDocument);
+    const candidatePosts = await this.prismaService.post.findMany({
+      take: 100,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: ragPostSelect,
+    });
+    const similarPosts = await this.findSimilarPosts(
+      targetEmbeddingResult.embedding,
+      candidatePosts,
+      extractedIngredients,
+      {
+        requireCommentEvidence: false,
+        useHybridScore: true,
+        maxResults: MAX_BOARD_CHAT_REFERENCE_POSTS,
+      },
+    );
+    const selectedPosts = this.selectBoardChatEvidencePosts(
+      similarPosts,
+      extractedIngredients,
+      primaryIngredients,
+    );
+    const grounding = this.getRecommendationGrounding(selectedPosts);
+    const scores = selectedPosts.map((post) => ({
+      postId: post.postId,
+      title: post.title,
+      category: post.categoryLabel,
+      sourceType: post.sourceType,
+      score: Number(post.similarity.toFixed(4)),
+      semanticSimilarity: Number(post.semanticSimilarity.toFixed(4)),
+      popularityScore: Number(post.popularityScore.toFixed(2)),
+      matchedIngredients: post.matchedIngredients,
+    }));
+
+    if (
+      extractedIngredients.length === 0 ||
+      grounding !== 'COMMUNITY_RAG' ||
+      selectedPosts.length === 0
+    ) {
+      const answerText = this.createUnknownBoardChatAnswer();
+
+      await this.logBoardChat({
+        userMessage,
+        extractedIngredients,
+        retrievedPostIds: similarPosts.map((post) => post.postId),
+        selectedPostIds: [],
+        scores,
+        answerText,
+      });
+
+      return {
+        answer_text: answerText,
+        references: [],
+        extracted_ingredients: extractedIngredients,
+        grounding: 'GENERAL_AI' satisfies RecommendationGrounding,
+      };
+    }
+
+    const nutritionMetadata =
+      await this.getIngredientNutritionMetadata(extractedIngredients);
+    const rawRecommendationDraft =
+      await this.recipeLlmService.createRecommendation(
+        {
+          title: '게시판 전용 AI 요리사',
+          content: [
+            userMessage,
+            excludedConditions.length
+              ? `제외 조건: ${excludedConditions.join(', ')}`
+              : '',
+            situationTags.length ? `상황: ${situationTags.join(', ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          tags: [...extractedIngredients, ...situationTags].slice(0, 8),
+          availableIngredients: extractedIngredients,
+        },
+        selectedPosts.map((similarPost) => ({
+          title: similarPost.title,
+          category: similarPost.categoryLabel,
+          sourceType: similarPost.sourceType,
+          summary: similarPost.summary,
+          questionSummary: similarPost.questionSummary,
+          commentEvidence: similarPost.commentEvidence,
+          tags: similarPost.tags,
+          similarity: similarPost.similarity,
+          semanticSimilarity: similarPost.semanticSimilarity,
+          ingredients: similarPost.ingredients,
+          matchedIngredients: similarPost.matchedIngredients,
+          missingIngredients: similarPost.missingIngredients,
+        })),
+        grounding,
+        nutritionMetadata,
+        'BALANCED',
+      );
+    const recommendationDraft = this.completeRecommendationDraft(
+      rawRecommendationDraft,
+      extractedIngredients,
+    );
+    const references =
+      grounding === 'COMMUNITY_RAG'
+        ? selectedPosts.map((post) => ({
+            post_id: post.postId,
+            title: post.title,
+            category: post.categoryLabel,
+            source_type: post.sourceType,
+            author: post.author,
+            post_url: post.postUrl,
+            view_count: post.viewCount,
+            comment_count: post.commentsCount,
+            score: Number(post.similarity.toFixed(4)),
+          }))
+        : [];
+    const answerText = this.formatBoardChatAnswer(
+      userMessage,
+      recommendationDraft,
+      references,
+      grounding,
+    );
+
+    await this.logBoardChat({
+      userMessage,
+      extractedIngredients,
+      retrievedPostIds: similarPosts.map((post) => post.postId),
+      selectedPostIds: selectedPosts.map((post) => post.postId),
+      scores,
+      answerText,
+    });
+
+    return {
+      answer_text: answerText,
+      references,
+      extracted_ingredients: extractedIngredients,
+      grounding,
+    };
+  }
+
+  async rebuildRagDocuments() {
+    const posts = await this.prismaService.post.findMany({
+      take: 500,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: ragPostSelect,
+    });
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    for (const post of posts) {
+      const synced = await this.syncRagDocumentForRagPost(post);
+
+      if (synced) {
+        syncedCount += 1;
+      } else {
+        failedCount += 1;
+      }
+    }
+
+    return {
+      total: posts.length,
+      syncedCount,
+      failedCount,
+    };
+  }
+
+  async syncRagDocumentForPost(postId: number) {
+    try {
+      const post = await this.findRagPost(postId);
+
+      return await this.syncRagDocumentForRagPost(post);
+    } catch (error) {
+      console.warn(`Failed to sync RAG document for post ${postId}`, error);
+      return false;
+    }
+  }
+
   private async assertPostExists(postId: number) {
     const post = await this.prismaService.post.findUnique({
       where: { id: postId },
-      select: { id: true },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        category: true,
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!post) {
       throw new NotFoundException('Post not found');
     }
+
+    return post;
   }
 
   private async getIngredientNutritionMetadata(ingredients: string[]) {
@@ -616,6 +935,30 @@ export class AiRecommendationsService {
     );
   }
 
+  private toRecommendationNutritionJson(
+    metadata: IngredientSetAnalysis | null,
+  ) {
+    return metadata
+      ? (metadata as unknown as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
+  }
+
+  private parseRecommendationNutritionMetadata(
+    value: Prisma.JsonValue | null,
+  ): IngredientSetAnalysis | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    const metadata = value as Partial<IngredientSetAnalysis>;
+
+    if (!Array.isArray(metadata.ingredients) || !metadata.dataSource) {
+      return null;
+    }
+
+    return metadata as IngredientSetAnalysis;
+  }
+
   private async findRagPost(postId: number) {
     const post = await this.prismaService.post.findUnique({
       where: { id: postId },
@@ -633,6 +976,11 @@ export class AiRecommendationsService {
     targetEmbedding: number[],
     candidatePosts: RagPost[],
     targetIngredients: string[],
+    options: {
+      requireCommentEvidence?: boolean;
+      useHybridScore?: boolean;
+      maxResults?: number;
+    } = {},
   ): Promise<SimilarPost[]> {
     if (candidatePosts.length === 0) {
       return [];
@@ -641,13 +989,13 @@ export class AiRecommendationsService {
     try {
       await Promise.all(
         candidatePosts.map(async (post) => {
-          const documentText = this.buildRagDocument(post);
+          const ragMetadata = this.buildRagDocumentMetadata(post);
           const embeddingResult =
-            await this.embeddingService.embed(documentText);
+            await this.embeddingService.embed(ragMetadata.searchableText);
 
           await this.upsertRagDocument(
             post.id,
-            documentText,
+            ragMetadata,
             embeddingResult.embedding,
             embeddingResult.model,
           );
@@ -658,12 +1006,14 @@ export class AiRecommendationsService {
         targetEmbedding,
         candidatePosts,
         targetIngredients,
+        options,
       );
     } catch {
       return this.findSimilarPostsInMemory(
         targetEmbedding,
         candidatePosts,
         targetIngredients,
+        options,
       );
     }
   }
@@ -763,7 +1113,7 @@ export class AiRecommendationsService {
 
   private async upsertRagDocument(
     postId: number,
-    documentText: string,
+    metadata: RagDocumentMetadata,
     embedding: number[],
     embeddingModel: string,
   ) {
@@ -772,10 +1122,67 @@ export class AiRecommendationsService {
     try {
       await this.prismaService.$executeRaw`
         INSERT INTO "PostRagDocument"
-          ("postId", "documentText", "embedding", "embeddingModel", "embeddedAt", "isStale", "createdAt", "updatedAt")
+          (
+            "postId",
+            "title",
+            "author",
+            "postUrl",
+            "contentSummary",
+            "ingredients",
+            "ingredientAliases",
+            "dishNames",
+            "cookingMethods",
+            "situationTags",
+            "difficulty",
+            "cookingTime",
+            "popularityScore",
+            "searchableText",
+            "documentText",
+            "embedding",
+            "embeddingModel",
+            "embeddedAt",
+            "isStale",
+            "createdAt",
+            "updatedAt"
+          )
         VALUES
-          (${postId}, ${documentText}, ${vectorLiteral}::vector, ${embeddingModel}, NOW(), false, NOW(), NOW())
+          (
+            ${postId},
+            ${metadata.title},
+            ${metadata.author},
+            ${metadata.postUrl},
+            ${metadata.contentSummary},
+            ${metadata.ingredients},
+            ${metadata.ingredientAliases},
+            ${metadata.dishNames},
+            ${metadata.cookingMethods},
+            ${metadata.situationTags},
+            ${metadata.difficulty},
+            ${metadata.cookingTime},
+            ${metadata.popularityScore},
+            ${metadata.searchableText},
+            ${metadata.documentText},
+            ${vectorLiteral}::vector,
+            ${embeddingModel},
+            NOW(),
+            false,
+            NOW(),
+            NOW()
+          )
         ON CONFLICT ("postId") DO UPDATE SET
+          "title" = EXCLUDED."title",
+          "author" = EXCLUDED."author",
+          "postUrl" = EXCLUDED."postUrl",
+          "contentSummary" = EXCLUDED."contentSummary",
+          "ingredients" = EXCLUDED."ingredients",
+          "ingredientAliases" = EXCLUDED."ingredientAliases",
+          "dishNames" = EXCLUDED."dishNames",
+          "cookingMethods" = EXCLUDED."cookingMethods",
+          "situationTags" = EXCLUDED."situationTags",
+          "difficulty" = EXCLUDED."difficulty",
+          "cookingTime" = EXCLUDED."cookingTime",
+          "popularityScore" = EXCLUDED."popularityScore",
+          "searchableText" = EXCLUDED."searchableText",
           "documentText" = EXCLUDED."documentText",
           "embedding" = EXCLUDED."embedding",
           "embeddingModel" = EXCLUDED."embeddingModel",
@@ -794,6 +1201,11 @@ export class AiRecommendationsService {
     targetEmbedding: number[],
     candidatePosts: RagPost[],
     targetIngredients: string[],
+    options: {
+      requireCommentEvidence?: boolean;
+      useHybridScore?: boolean;
+      maxResults?: number;
+    },
   ) {
     const candidatePostIds = candidatePosts.map((post) => post.id);
     const targetVector = this.toVectorLiteral(targetEmbedding);
@@ -823,80 +1235,147 @@ export class AiRecommendationsService {
           post,
           Number(row.similarity),
           targetIngredients,
+          Boolean(options.useHybridScore),
         );
       })
       .filter((post): post is SimilarPost => Boolean(post))
-      .filter((post) => this.isStrongSimilarPost(post, targetIngredients))
-      .slice(0, MAX_REFERENCE_POSTS);
+      .filter((post) =>
+        this.isStrongSimilarPost(post, targetIngredients, options),
+      )
+      .sort(
+        (firstPost, secondPost) => secondPost.similarity - firstPost.similarity,
+      )
+      .slice(0, options.maxResults ?? MAX_REFERENCE_POSTS);
   }
 
   private async findSimilarPostsInMemory(
     targetEmbedding: number[],
     candidatePosts: RagPost[],
     targetIngredients: string[],
+    options: {
+      requireCommentEvidence?: boolean;
+      useHybridScore?: boolean;
+      maxResults?: number;
+    },
   ) {
     const scoredPosts = await Promise.all(
       candidatePosts.map(async (post) => {
-        const documentText = this.buildRagDocument(post);
-        const embeddingResult = await this.embeddingService.embed(documentText);
+        const ragMetadata = this.buildRagDocumentMetadata(post);
+        const embeddingResult =
+          await this.embeddingService.embed(ragMetadata.searchableText);
         const similarity = this.embeddingService.cosineSimilarity(
           targetEmbedding,
           embeddingResult.embedding,
         );
 
-        return this.buildSimilarPost(post, similarity, targetIngredients);
+        return this.buildSimilarPost(
+          post,
+          similarity,
+          targetIngredients,
+          Boolean(options.useHybridScore),
+        );
       }),
     );
 
     return scoredPosts
-      .filter((post) => this.isStrongSimilarPost(post, targetIngredients))
+      .filter((post) =>
+        this.isStrongSimilarPost(post, targetIngredients, options),
+      )
       .sort(
         (firstPost, secondPost) => secondPost.similarity - firstPost.similarity,
       )
-      .slice(0, MAX_REFERENCE_POSTS);
+      .slice(0, options.maxResults ?? MAX_REFERENCE_POSTS);
   }
 
   private buildSimilarPost(
     post: RagPost,
     semanticSimilarity: number,
     targetIngredients: string[],
+    useHybridScore = false,
   ): SimilarPost {
+    const category = this.getPostCategory(post);
     const ingredients = this.extractIngredientsFromRagPost(post);
-    const matchedIngredients = ingredients.filter((ingredient) =>
-      targetIngredients.includes(ingredient),
+    const ingredientAliases = this.getIngredientSemanticAliases(ingredients);
+    const targetIngredientSet = new Set(targetIngredients);
+    const expandedTargetIngredients = new Set(
+      targetIngredients.flatMap((ingredient) => [
+        ingredient,
+        ...this.getIngredientSemanticAliases([ingredient]),
+      ]),
     );
+    const matchedIngredients = ingredients.filter((ingredient) =>
+      targetIngredientSet.has(ingredient) ||
+      expandedTargetIngredients.has(ingredient) ||
+      this.getIngredientSemanticAliases([ingredient]).some((alias) =>
+        expandedTargetIngredients.has(alias),
+      ),
+    );
+    const similarity = this.calculateHybridSimilarity(
+      post,
+      semanticSimilarity,
+      ingredients,
+      ingredientAliases,
+      targetIngredients,
+    );
+    const popularityScore = this.calculatePopularityScore(post);
 
     return {
       postId: post.id,
       title: post.title,
+      category,
+      categoryLabel: POST_CATEGORY_LABELS[category],
+      sourceType: POST_CATEGORY_SOURCE_TYPES[category],
+      author: this.getPostAuthorNickname(post),
+      postUrl: `/posts/${post.id}`,
+      viewCount: post.viewCount,
+      commentsCount: post._count.comments,
       summary: this.summarizeEvidence(post),
       questionSummary: this.summarizePost(post),
       commentEvidence: this.getCommentEvidence(post),
       tags: this.getTags(post),
-      similarity: semanticSimilarity,
+      similarity: useHybridScore ? similarity : semanticSimilarity,
       semanticSimilarity,
+      popularityScore,
       ingredients,
+      ingredientAliases,
       matchedIngredients,
       missingIngredients: ingredients.filter(
-        (ingredient) => !targetIngredients.includes(ingredient),
+        (ingredient) => !matchedIngredients.includes(ingredient),
       ),
     };
   }
 
-  private isStrongSimilarPost(post: SimilarPost, targetIngredients: string[]) {
-    if (post.semanticSimilarity < this.getRagMinSimilarity()) {
+  private isStrongSimilarPost(
+    post: SimilarPost,
+    targetIngredients: string[],
+    options: {
+      requireCommentEvidence?: boolean;
+    } = {},
+  ) {
+    if (post.category === 'QUESTION' && post.commentEvidence.length === 0) {
       return false;
     }
 
-    if (post.commentEvidence.length === 0) {
+    if (
+      options.requireCommentEvidence !== false &&
+      post.commentEvidence.length === 0 &&
+      !this.isKnowledgeSourceCategory(post.category)
+    ) {
       return false;
     }
 
     if (targetIngredients.length === 0) {
+      return post.semanticSimilarity >= this.getRagMinSimilarity();
+    }
+
+    if (post.matchedIngredients.length >= this.getRagMinIngredientOverlap()) {
       return true;
     }
 
-    return post.matchedIngredients.length >= this.getRagMinIngredientOverlap();
+    return (
+      post.semanticSimilarity >= this.getRagMinSimilarity() &&
+      this.isKnowledgeSourceCategory(post.category)
+    );
   }
 
   private getRagMinSimilarity() {
@@ -975,6 +1454,431 @@ export class AiRecommendationsService {
     ];
   }
 
+  private async syncRagDocumentForRagPost(post: RagPost) {
+    const ragMetadata = this.buildRagDocumentMetadata(post);
+
+    try {
+      const embeddingResult =
+        await this.embeddingService.embed(ragMetadata.searchableText);
+
+      return await this.upsertRagDocument(
+        post.id,
+        ragMetadata,
+        embeddingResult.embedding,
+        embeddingResult.model,
+      );
+    } catch (error) {
+      console.warn(`Failed to create RAG document for post ${post.id}`, error);
+      return false;
+    }
+  }
+
+  private buildRagDocumentMetadata(post: RagPost): RagDocumentMetadata {
+    const category = this.getPostCategory(post);
+    const tags = this.getTags(post);
+    const ingredients = this.extractIngredientsFromRagPost(post);
+    const ingredientAliases = this.getIngredientSemanticAliases(ingredients);
+    const dishNames = this.inferDishNames(post);
+    const cookingMethods = this.inferCookingMethods(post);
+    const situationTags = this.extractSituationTags(
+      [post.title, post.content, tags.join(' ')].join(' '),
+    );
+    const contentSummary = this.summarizePost(post);
+    const difficulty = this.inferDifficulty(post);
+    const cookingTime = this.inferCookingTime(post);
+    const popularityScore = this.calculatePopularityScore(post);
+    const searchableText = [
+      `게시판 성격: ${POST_CATEGORY_LABELS[category]}`,
+      `지식 소스 유형: ${POST_CATEGORY_SOURCE_TYPES[category]}`,
+      `제목: ${post.title}`,
+      `요약: ${contentSummary}`,
+      `재료: ${ingredients.join(', ') || '재료 없음'}`,
+      `대체/관련 재료: ${ingredientAliases.join(', ') || '없음'}`,
+      `요리명: ${dishNames.join(', ') || post.title}`,
+      `조리 방식: ${cookingMethods.join(', ') || '미정'}`,
+      `상황 태그: ${situationTags.join(', ') || tags.join(', ') || '없음'}`,
+      `게시글 반응: 조회수 ${post.viewCount}, 댓글 ${post._count.comments}`,
+    ].join('\n');
+
+    return {
+      title: post.title,
+      category,
+      categoryLabel: POST_CATEGORY_LABELS[category],
+      sourceType: POST_CATEGORY_SOURCE_TYPES[category],
+      author: this.getPostAuthorNickname(post),
+      postUrl: `/posts/${post.id}`,
+      contentSummary,
+      ingredients,
+      ingredientAliases,
+      dishNames,
+      cookingMethods,
+      situationTags,
+      difficulty,
+      cookingTime,
+      popularityScore,
+      searchableText,
+      documentText: this.buildRagDocument(post),
+    };
+  }
+
+  private calculateHybridSimilarity(
+    post: RagPost,
+    semanticSimilarity: number,
+    ingredients: string[],
+    ingredientAliases: string[],
+    targetIngredients: string[],
+  ) {
+    const targetSet = new Set(targetIngredients);
+    const expandedTargetSet = new Set(
+      targetIngredients.flatMap((ingredient) => [
+        ingredient,
+        ...this.getIngredientSemanticAliases([ingredient]),
+      ]),
+    );
+    const directMatchScore = targetIngredients.length
+      ? ingredients.filter((ingredient) => targetSet.has(ingredient)).length /
+        targetIngredients.length
+      : 0;
+    const aliasMatchScore = targetIngredients.length
+      ? [...new Set([...ingredients, ...ingredientAliases])].filter((token) =>
+          expandedTargetSet.has(token),
+        ).length / Math.max(targetIngredients.length, 1)
+      : 0;
+    const situationScore = this.extractSituationTags(
+      [post.title, post.content, ...this.getTags(post)].join(' '),
+    ).length
+      ? 0.5
+      : 0;
+    const popularityScore = Math.min(this.calculatePopularityScore(post) / 100, 1);
+    const recencyScore = this.calculateRecencyScore(post.createdAt);
+    const categoryScore = this.getCategoryKnowledgeWeight(this.getPostCategory(post));
+
+    return Math.min(
+      1,
+      semanticSimilarity * 0.35 +
+        Math.min(directMatchScore, 1) * 0.3 +
+        Math.min(aliasMatchScore, 1) * 0.15 +
+        categoryScore * 0.1 +
+        situationScore * 0.08 +
+        recencyScore * 0.04 +
+        popularityScore * 0.03,
+    );
+  }
+
+  private calculatePopularityScore(post: RagPost) {
+    return post.viewCount * 0.05 + post._count.comments * 3;
+  }
+
+  private calculateRecencyScore(createdAt: Date) {
+    const ageMs = Date.now() - createdAt.getTime();
+    const ageDays = Math.max(ageMs / 86_400_000, 0);
+
+    return Math.max(0, 1 - ageDays / 30);
+  }
+
+  private getIngredientSemanticAliases(ingredients: string[]) {
+    return [
+      ...new Set(
+        ingredients.flatMap((ingredient) => {
+          const normalizedIngredient = this.normalizeIngredientAlias(
+            this.normalizeIngredientToken(ingredient),
+          );
+
+          return [
+            ...(SEMANTIC_INGREDIENT_ALIASES.get(ingredient) ?? []),
+            ...(SEMANTIC_INGREDIENT_ALIASES.get(normalizedIngredient) ?? []),
+          ];
+        }),
+      ),
+    ].slice(0, 20);
+  }
+
+  private inferDishNames(post: RagPost) {
+    const text = `${post.title} ${post.content}`;
+    const dishNames = new Set<string>();
+    const dishPatterns = [
+      /([\p{L}\p{N}\s]{1,16}(?:볶음밥|주먹밥|죽|찌개|국|볶음면|비빔면|샐러드|덮밥|전|부침|구이|조림))/gu,
+    ];
+
+    dishPatterns.forEach((pattern) => {
+      for (const match of text.matchAll(pattern)) {
+        const dishName = match[1]?.replace(/\s+/g, ' ').trim();
+
+        if (dishName && dishName.length <= 24) {
+          dishNames.add(dishName);
+        }
+      }
+    });
+
+    return [...dishNames].slice(0, 5);
+  }
+
+  private inferCookingMethods(post: RagPost) {
+    const text = `${post.title} ${post.content}`;
+    const methodPatterns = [
+      ['볶음', ['볶', '볶음밥']],
+      ['끓임', ['끓', '국', '찌개', '죽']],
+      ['비빔', ['비빔', '무침']],
+      ['구이', ['굽', '구이']],
+      ['한 그릇 요리', ['덮밥', '볶음밥', '주먹밥']],
+      ['간단요리', ['간단', '10분', '5분']],
+    ] as const;
+
+    return methodPatterns
+      .filter(([, patterns]) => patterns.some((pattern) => text.includes(pattern)))
+      .map(([method]) => method);
+  }
+
+  private extractSituationTags(text: string) {
+    const situationPatterns = [
+      ['남은음식', ['남은', '먹다 남은', '남았']],
+      ['찬밥처리', ['찬밥']],
+      ['배달음식활용', ['배달', '족발', '치킨']],
+      ['10분요리', ['10분', '5분', '빨리', '간단']],
+      ['저녁메뉴', ['저녁']],
+      ['아침메뉴', ['아침']],
+      ['매운맛제외', ['매운 건 싫', '맵지 않']],
+    ] as const;
+
+    return [
+      ...new Set(
+        situationPatterns
+          .filter(([, patterns]) =>
+            patterns.some((pattern) => text.includes(pattern)),
+          )
+          .map(([tag]) => tag),
+      ),
+    ];
+  }
+
+  private inferDifficulty(post: RagPost) {
+    const text = `${post.title} ${post.content}`;
+
+    if (/간단|5분|10분|쉬운|쉽게/.test(text)) {
+      return '쉬움';
+    }
+
+    if (/오븐|손질|숙성|육수|반죽/.test(text)) {
+      return '보통';
+    }
+
+    return '미정';
+  }
+
+  private inferCookingTime(post: RagPost) {
+    const minutes = this.extractCookingMinutes(`${post.title} ${post.content}`);
+
+    return minutes ? `${minutes}분` : '미정';
+  }
+
+  private selectBoardChatEvidencePosts(
+    similarPosts: SimilarPost[],
+    extractedIngredients: string[],
+    primaryIngredients: string[] = [],
+  ) {
+    if (extractedIngredients.length === 0) {
+      return [];
+    }
+
+    const primaryIngredientSet = new Set(primaryIngredients);
+    const minimumMatchedIngredients =
+      extractedIngredients.length >= 4 ? 2 : 1;
+
+    return similarPosts
+      .filter((post) => {
+        const hasPrimaryIngredientMatch = post.matchedIngredients.some(
+          (ingredient) => primaryIngredientSet.has(ingredient),
+        );
+
+        return (
+          hasPrimaryIngredientMatch ||
+          post.matchedIngredients.length >= minimumMatchedIngredients
+        );
+      })
+      .filter((post) => post.similarity >= 0.35 || post.semanticSimilarity >= 0.55)
+      .sort((firstPost, secondPost) => {
+        const primaryIngredientGap =
+          Number(
+            secondPost.matchedIngredients.some((ingredient) =>
+              primaryIngredientSet.has(ingredient),
+            ),
+          ) -
+          Number(
+            firstPost.matchedIngredients.some((ingredient) =>
+              primaryIngredientSet.has(ingredient),
+            ),
+          );
+
+        if (primaryIngredientGap !== 0) {
+          return primaryIngredientGap;
+        }
+
+        const matchedIngredientGap =
+          secondPost.matchedIngredients.length - firstPost.matchedIngredients.length;
+
+        if (matchedIngredientGap !== 0) {
+          return matchedIngredientGap;
+        }
+
+        const priorityGap =
+          this.getCategoryKnowledgeWeight(secondPost.category) -
+          this.getCategoryKnowledgeWeight(firstPost.category);
+
+        if (priorityGap !== 0) {
+          return priorityGap;
+        }
+
+        return secondPost.similarity - firstPost.similarity;
+      })
+      .slice(0, 3);
+  }
+
+  private extractPrimaryIngredientTerms(text: string) {
+    const primaryIngredientTexts = [
+      ...text.matchAll(
+        /(?:메인\s*재료|주\s*재료)(?:[:：]|은|는)?\s*([\p{L}\p{N},\s]+?)(?=(?:부\s*재료|서브\s*재료|추가\s*재료|보조\s*재료)(?:[:：]|은|는)?|$)/gu,
+      ),
+    ].map((match) => match[1]);
+
+    return this.extractIngredientTermsFromStructuredTexts(primaryIngredientTexts);
+  }
+
+  private extractLabeledIngredientTerms(text: string) {
+    const labeledIngredientTexts = [
+      ...text.matchAll(
+        /(?:메인\s*재료|주\s*재료|부\s*재료|서브\s*재료|추가\s*재료|보조\s*재료)(?:[:：]|은|는)?\s*([\p{L}\p{N},\s]+?)(?=(?:메인\s*재료|주\s*재료|부\s*재료|서브\s*재료|추가\s*재료|보조\s*재료)(?:[:：]|은|는)?|$)/gu,
+      ),
+    ].map((match) => match[1]);
+
+    return this.extractIngredientTermsFromStructuredTexts(labeledIngredientTexts);
+  }
+
+  private extractCookingMinutes(content: string) {
+    const match = content.match(/(\d{1,3})\s*분/);
+
+    return match ? Number(match[1]) : null;
+  }
+
+  private extractExcludedConditions(message: string) {
+    const conditions: string[] = [];
+
+    if (/매운\s*건\s*싫|맵지\s*않|안\s*맵/.test(message)) {
+      conditions.push('매운맛 제외');
+    }
+
+    if (/오래\s*걸리|시간\s*없|빨리|10분/.test(message)) {
+      conditions.push('짧은 조리 시간');
+    }
+
+    return conditions;
+  }
+
+  private formatBoardChatAnswer(
+    userMessage: string,
+    recommendation: RecipeRecommendationDraft,
+    references: BoardChatReference[],
+    grounding: RecommendationGrounding,
+  ) {
+    const hasCommunityReferences =
+      grounding === 'COMMUNITY_RAG' && references.length > 0;
+    const foodSafetyNotice = this.hasFoodSafetyRisk(userMessage)
+      ? '먼저 냄새가 시거나 끈적하고 색이 이상하면 사용하지 않는 게 좋아요.\n\n'
+      : '';
+    const referenceText = hasCommunityReferences
+      ? references
+          .map(
+            (reference) =>
+              `- ${reference.category}(${reference.source_type}) "${reference.title}" / ${reference.author} / 조회수 ${reference.view_count}`,
+          )
+          .join('\n')
+      : this.createUnknownBoardChatAnswer();
+
+    return [
+      foodSafetyNotice +
+        `추천 요리: ${recommendation.menuName}\n` +
+        `추천 이유: ${
+          hasCommunityReferences
+            ? `게시판의 레시피/팁/후기 데이터를 우선 참고했습니다. ${recommendation.reason}`
+            : recommendation.reason
+        }`,
+      `사용 가능한 재료: ${
+        recommendation.availableIngredients.join(', ') || '입력한 재료'
+      }`,
+      `추가로 있으면 좋은 재료: ${
+        recommendation.missingIngredients.length
+          ? recommendation.missingIngredients.join(', ')
+          : '없음'
+      }`,
+      `간단 조리법:\n${this.formatRecipeSteps(recommendation.content)}`,
+      `참고한 게시글:\n${referenceText}`,
+      '추가 팁: 가진 재료를 먼저 쓰고 간은 마지막에 조금씩 맞춰보세요.',
+    ].join('\n\n');
+  }
+
+  private createUnknownBoardChatAnswer() {
+    return '현재 가진 데이터로는 확인할 수 없습니다. 게시판에서 관련 정보를 찾지 못했습니다.';
+  }
+
+  private formatRecipeSteps(content: string) {
+    const steps = content
+      .split(/(?=\d+\.\s*)/)
+      .map((step) => step.replace(/^\d+\.\s*/, '').trim())
+      .filter(Boolean);
+    const normalizedSteps = steps.length > 0 ? steps : [content.trim()];
+
+    return normalizedSteps
+      .slice(0, 5)
+      .map((step, index) => `${index + 1}. ${step}`)
+      .join('\n');
+  }
+
+  private hasFoodSafetyRisk(message: string) {
+    return /유통기한\s*지난|상한|시큼|냄새|끈적|곰팡/.test(message);
+  }
+
+  private async logBoardChat({
+    userMessage,
+    extractedIngredients,
+    retrievedPostIds,
+    selectedPostIds,
+    scores,
+    answerText,
+  }: {
+    userMessage: string;
+    extractedIngredients: string[];
+    retrievedPostIds: number[];
+    selectedPostIds: number[];
+    scores: Array<Record<string, unknown>>;
+    answerText: string;
+  }) {
+    try {
+      await this.prismaService.$executeRaw`
+        INSERT INTO "BoardRagChatLog"
+          (
+            "userMessage",
+            "extractedIngredients",
+            "retrievedPostIds",
+            "selectedPostIds",
+            "scores",
+            "answerText",
+            "createdAt"
+          )
+        VALUES
+          (
+            ${userMessage},
+            ${extractedIngredients},
+            ${retrievedPostIds},
+            ${selectedPostIds},
+            ${JSON.stringify(scores)}::jsonb,
+            ${answerText},
+            NOW()
+          )
+      `;
+    } catch (error) {
+      console.warn('Failed to save board RAG chat log', error);
+    }
+  }
+
   private buildRagDocument(post: RagPost) {
     const tags = this.getTags(post);
     const commentSummary = post.comments.length
@@ -985,8 +1889,17 @@ export class AiRecommendationsService {
       '[게시글 ID]',
       `postId: ${post.id}`,
       '',
+      '[게시판 성격]',
+      POST_CATEGORY_LABELS[this.getPostCategory(post)],
+      '',
+      '[지식 소스 유형]',
+      POST_CATEGORY_SOURCE_TYPES[this.getPostCategory(post)],
+      '',
       '[제목]',
       post.title,
+      '',
+      '[작성자]',
+      this.getPostAuthorNickname(post),
       '',
       '[본문]',
       post.content,
@@ -1040,9 +1953,14 @@ export class AiRecommendationsService {
   }
 
   private extractIngredientsFromRagPost(post: RagPost) {
-    return this.extractIngredientTerms(
-      [post.title, post.content, ...this.getTags(post)].join(' '),
-    );
+    const tags = this.getTags(post);
+
+    return [
+      ...new Set([
+        ...this.extractIngredientTerms([post.title, post.content].join(' ')),
+        ...this.extractIngredientTermsFromStructuredTexts(tags),
+      ]),
+    ].slice(0, 12);
   }
 
   private normalizeIngredientTerms(ingredients: string[]) {
@@ -1093,10 +2011,29 @@ export class AiRecommendationsService {
     return [...ingredients].slice(0, 12);
   }
 
+  private extractIngredientTermsFromStructuredTexts(texts: string[]) {
+    return [
+      ...new Set(
+        texts
+          .flatMap((text) =>
+            text
+              .replace(/[^\p{L}\p{N},\s]/gu, ' ')
+              .split(/[,\s]+/),
+          )
+          .map((token) => this.normalizeIngredientToken(token))
+          .filter((token) => this.isPotentialInferredIngredientToken(token))
+          .map((token) => this.normalizeIngredientAlias(token)),
+      ),
+    ].slice(0, 12);
+  }
+
   private extractInferredIngredientTokens(text: string) {
     return [
       ...new Set(
         this.extractIngredientCandidateTexts(text)
+          .filter((candidateText) =>
+            this.hasIngredientListSignal(candidateText),
+          )
           .flatMap((candidateText) =>
             candidateText
               .replace(/[^\p{L}\p{N},\s]/gu, ' ')
@@ -1108,29 +2045,56 @@ export class AiRecommendationsService {
     ];
   }
 
+  private hasIngredientListSignal(text: string) {
+    if (text.includes(',')) {
+      return true;
+    }
+
+    return text
+      .split(/\s+/)
+      .some((token) => /(이랑|하고|랑|와|과)$/.test(token.trim()));
+  }
+
   private extractIngredientCandidateTexts(text: string) {
     const candidateTexts: string[] = [];
+    const inventoryPredicate =
+      '있어요|있습니다|있는데|있고|있어서|있음|남았어요|남았습니다|남았는데|남아있어요|남아있습니다|남아있는데';
     const inventoryMatches = text.matchAll(
-      /([\p{L}\p{N},\s]+?)(?:이|가|은|는)?\s*(?:있어요|있습니다|있는데|있고|남았어요|남았습니다|남았는데|남아있어요|남아있습니다)/gu,
+      new RegExp(
+        `([\\p{L}\\p{N},\\s]+?)(?:이|가|은|는)?\\s*(?:${inventoryPredicate})`,
+        'gu',
+      ),
     );
     const cookWithMatches = text.matchAll(
       /([\p{L}\p{N},\s]+?)(?:으로|로)\s*(?:(?:[\p{L}\p{N}]{2,12})\s+)?(?:간단|요리|메뉴|무엇|무슨|만들|해먹|추천)/gu,
     );
-    const labeledInventoryMatches = text.matchAll(
-      /(?:보유\s*재료|가지고\s*있는\s*재료|있는\s*재료|냉장고에|집에)[:：]?\s*([\p{L}\p{N},\s]+?)(?:있|남|으로|로|가지고|갖고|추천|요리|메뉴|만들|$)/gu,
+    const explicitInventoryMatches = text.matchAll(
+      new RegExp(
+        `(?:보유\\s*재료|가지고\\s*있는\\s*재료|있는\\s*재료)[:：]?\\s*([\\p{L}\\p{N},\\s]+?)(?:${inventoryPredicate}|으로|로|가지고|갖고|추천|요리|메뉴|만들|$)`,
+        'gu',
+      ),
+    );
+    const locationInventoryMatches = text.matchAll(
+      new RegExp(
+        `(?:냉장고에|집에)[:：]?\\s*([\\p{L}\\p{N},\\s]+?)(?:${inventoryPredicate})`,
+        'gu',
+      ),
     );
 
-    [inventoryMatches, cookWithMatches, labeledInventoryMatches].forEach(
-      (matches) => {
-        for (const match of matches) {
-          const candidateText = match[1]?.trim();
+    [
+      inventoryMatches,
+      cookWithMatches,
+      explicitInventoryMatches,
+      locationInventoryMatches,
+    ].forEach((matches) => {
+      for (const match of matches) {
+        const candidateText = match[1]?.trim();
 
-          if (candidateText) {
-            candidateTexts.push(candidateText);
-          }
+        if (candidateText) {
+          candidateTexts.push(candidateText);
         }
-      },
-    );
+      }
+    });
 
     return candidateTexts;
   }
@@ -1200,6 +2164,8 @@ export class AiRecommendationsService {
       token.length >= 2 &&
       token.length <= 12 &&
       !/\d/.test(token) &&
+      !/(메뉴|추천|뭐|무엇|어떤|오늘|점심|아침|저녁|식단|급식)/.test(token) &&
+      !this.looksLikeKoreanPredicateOrAdverb(token) &&
       !NON_INGREDIENT_TERMS.has(token)
     );
   }
@@ -1211,6 +2177,40 @@ export class AiRecommendationsService {
         token,
       )
     );
+  }
+
+  private looksLikeKoreanPredicateOrAdverb(token: string) {
+    if (this.isKnownIngredientToken(token)) {
+      return false;
+    }
+
+    if (
+      /(까요|을까요|ㄹ까요|나요|습니까|어요|습니다|는데요|네요|게|도록|려고|면서|거나|는지|은지|던데|더라)$/.test(
+        token,
+      )
+    ) {
+      return true;
+    }
+
+    return this.endsWithRieulFinalSyllable(token);
+  }
+
+  private endsWithRieulFinalSyllable(token: string) {
+    const lastChar = token.at(-1);
+
+    if (!lastChar) {
+      return false;
+    }
+
+    const codePoint = lastChar.codePointAt(0);
+
+    if (codePoint === undefined || codePoint < 0xac00 || codePoint > 0xd7a3) {
+      return false;
+    }
+
+    const jongseongIndex = (codePoint - 0xac00) % 28;
+
+    return jongseongIndex === 8;
   }
 
   private summarizePost(post: RagPost) {
@@ -1238,6 +2238,42 @@ export class AiRecommendationsService {
 
   private getTags(post: Pick<RagPost, 'postTags'>) {
     return post.postTags.map((postTag) => postTag.tag.name);
+  }
+
+  private getPostCategory(post: Pick<RagPost, 'title' | 'content' | 'postTags'> & {
+    category?: string | null;
+  }): PostCategoryCode {
+    if (post.category && post.category in POST_CATEGORY_LABELS) {
+      return post.category as PostCategoryCode;
+    }
+
+    const text = [post.title, post.content, ...this.getTags(post)].join(' ');
+
+    if (/후기|리뷰|팁|간\s*조절|실패|성공|데우/.test(text)) {
+      return 'COOKING_TIP_REVIEW';
+    }
+
+    if (/레시피|만들기|조림|볶음밥|마파두부|조리법|만드는\s*법/.test(text)) {
+      return 'RECIPE_SHARE';
+    }
+
+    if (/요즘|유행|트렌드|마트|싸다|많이\s*해먹/.test(text)) {
+      return 'TREND';
+    }
+
+    return 'QUESTION';
+  }
+
+  private isKnowledgeSourceCategory(category: PostCategoryCode) {
+    return category !== 'QUESTION';
+  }
+
+  private getCategoryKnowledgeWeight(category: PostCategoryCode) {
+    return POST_CATEGORY_KNOWLEDGE_WEIGHT[category];
+  }
+
+  private getPostAuthorNickname(post: RagPost) {
+    return post.author?.nickname ?? '익명';
   }
 
   private async createRecommendationThumbnailUrl(
@@ -1408,6 +2444,9 @@ export class AiRecommendationsService {
       difficulty: recommendation.difficulty,
       content: recommendation.content,
       thumbnailUrl: recommendation.thumbnailUrl ?? null,
+      nutritionMetadata: this.parseRecommendationNutritionMetadata(
+        recommendation.nutritionMetadata,
+      ),
       status: recommendation.status,
       grounding: recommendation.grounding,
       createdAt: recommendation.createdAt,
