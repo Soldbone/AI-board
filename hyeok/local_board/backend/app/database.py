@@ -25,3 +25,17 @@ def get_db():
 def check_db_connection():
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
+
+
+def enable_pgvector_extension():
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
+
+def check_pgvector_extension():
+    with engine.connect() as connection:
+        result = connection.execute(
+            text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+        )
+
+        return result.scalar_one_or_none()

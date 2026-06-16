@@ -1,5 +1,6 @@
 from sqlalchemy import func, or_, text
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -9,6 +10,7 @@ from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.post import PostCreate, PostListItem, PostListResponse, PostRead, PostUpdate
 from app.models.tag import Tag, post_tags
+from app.services.embedding_service import embed_post_by_id
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -61,9 +63,22 @@ def delete_post_comments(db: Session, post_id: int) -> None:
     db.flush()
 
 
+def get_post_tag_names(db: Session, post_id: int) -> list[str]:
+    tag_rows = (
+        db.query(Tag.name)
+        .join(post_tags, Tag.id == post_tags.c.tag_id)
+        .filter(post_tags.c.post_id == post_id)
+        .order_by(Tag.name.asc())
+        .all()
+    )
+
+    return [tag_name for (tag_name,) in tag_rows]
+
+
 @router.post("", response_model=PostRead, status_code=status.HTTP_201_CREATED)
 def create_post(
     post_data: PostCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -100,8 +115,23 @@ def create_post(
         )
 
     db.commit()
+    background_tasks.add_task(embed_post_by_id, new_post.id)
 
-    return new_post
+    return {
+        "id": new_post.id,
+        "author_id": new_post.author_id,
+        "title": new_post.title,
+        "content": new_post.content,
+        "region": new_post.region,
+        "store_name": new_post.store_name,
+        "category": new_post.category,
+        "post_type": new_post.post_type,
+        "view_count": new_post.view_count,
+        "comment_count": 0,
+        "tag_names": normalized_tag_names,
+        "created_at": new_post.created_at,
+        "updated_at": new_post.updated_at,
+    }
 
 @router.get("", response_model=PostListResponse)
 def read_posts(
@@ -256,6 +286,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         .filter(Comment.post_id == post.id, Comment.deleted_at.is_(None))
         .scalar()
     )
+    tag_names = get_post_tag_names(db, post.id)
 
     return {
         "id": post.id,
@@ -268,6 +299,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         "post_type": post.post_type,
         "view_count": post.view_count,
         "comment_count": comment_count,
+        "tag_names": tag_names,
         "created_at": post.created_at,
         "updated_at": post.updated_at,
     }
@@ -277,6 +309,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
 def update_post(
     post_id: int,
     post_data: PostUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -318,8 +351,29 @@ def update_post(
 
     db.commit()
     db.refresh(post)
+    background_tasks.add_task(embed_post_by_id, post.id)
 
-    return post
+    comment_count = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.post_id == post.id, Comment.deleted_at.is_(None))
+        .scalar()
+    )
+
+    return {
+        "id": post.id,
+        "author_id": post.author_id,
+        "title": post.title,
+        "content": post.content,
+        "region": post.region,
+        "store_name": post.store_name,
+        "category": post.category,
+        "post_type": post.post_type,
+        "view_count": post.view_count,
+        "comment_count": comment_count,
+        "tag_names": get_post_tag_names(db, post.id),
+        "created_at": post.created_at,
+        "updated_at": post.updated_at,
+    }
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)

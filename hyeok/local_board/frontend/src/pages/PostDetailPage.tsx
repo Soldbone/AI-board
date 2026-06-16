@@ -37,6 +37,7 @@ type PostDetailPageProps = {
   onDeleteComment: (commentId: number) => void
   onRequestAgentRecommendation: () => void
   onOpenSimilarPost: (postId: number) => void
+  onTagSearch: (tagName: string) => void
   onReplyTargetChange: (commentId: number) => void
   onCancelReply: () => void
   onCommentContentChange: (value: string) => void
@@ -65,6 +66,7 @@ export function PostDetailPage({
   onDeleteComment,
   onRequestAgentRecommendation,
   onOpenSimilarPost,
+  onTagSearch,
   onReplyTargetChange,
   onCancelReply,
   onCommentContentChange,
@@ -170,6 +172,20 @@ export function PostDetailPage({
           <p className="min-h-32 whitespace-pre-wrap break-words text-base leading-8 text-slate-800 md:min-h-40">
             {post.content}
           </p>
+          {post.tag_names.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {post.tag_names.map((tagName) => (
+                <button
+                  className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  key={tagName}
+                  onClick={() => onTagSearch(tagName)}
+                  type="button"
+                >
+                  #{tagName}
+                </button>
+              ))}
+            </div>
+          )}
         </section>
       </article>
 

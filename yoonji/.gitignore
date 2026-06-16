@@ -1,0 +1,24 @@
+# Environment files
+.env
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/.venv/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Local editor files
+.vscode/
+
+# Local runtime logs
+mcp-server/.codex-mcp.*.log
+
+# Uploaded local files
+uploads/temp/

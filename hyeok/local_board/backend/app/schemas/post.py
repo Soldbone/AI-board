@@ -58,6 +58,7 @@ class PostRead(BaseModel):
     post_type: PostType
     view_count: int
     comment_count: int = 0
+    tag_names: list[str] = []
     created_at: datetime
     updated_at: datetime
 

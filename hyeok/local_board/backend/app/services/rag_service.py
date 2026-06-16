@@ -1,4 +1,8 @@
+import math
 import re
+from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -7,141 +11,21 @@ from app.models.comment import Comment
 from app.models.post import Post
 from app.models.tag import Tag, post_tags
 
+try:
+    from kiwipiepy import Kiwi
+except ImportError:  # pragma: no cover - fallback for environments not yet installed.
+    Kiwi = None
+
 
 DEFAULT_SIMILAR_POST_LIMIT = 5
 MAX_SIMILAR_POST_LIMIT = 5
 SEARCH_CANDIDATE_LIMIT = 100
-MIN_KEYWORD_LENGTH = 2
-NOUN_TAGS = {"NNG", "NNP", "SL", "SN"}
-
-try:
-    from kiwipiepy import Kiwi
-except ImportError:
-    Kiwi = None
-
-_kiwi = Kiwi() if Kiwi is not None else None
-
-STOPWORDS = {
-    "그리고",
-    "궁금",
-    "궁금해요",
-    "근처",
-    "너무",
-    "대해",
-    "또는",
-    "리뷰",
-    "있는",
-    "있나요",
-    "어때요",
-    "좀",
-    "좋은",
-    "추천",
-    "추천해주세요",
-    "하고",
-    "합니다",
-    "후기",
-    "해주세요",
-    "실제",
-    "실제로",
-    "이용",
-    "이용해본",
-    "이용해보신",
-    "이용해봤",
-    "이용한",
-    "이용했던",
-    "방문",
-    "방문해본",
-    "방문한",
-    "가본",
-    "가보신",
-    "가보신분",
-    "분들",
-    "분들의",
-    "분",
-    "분이",
-    "분은",
-    "분께",
-    "사람",
-    "사람들",
-    "가격",
-    "가격대",
-    "비용",
-    "대기",
-    "대기시간",
-    "시간",
-    "얼마",
-    "정도",
-    "혹시",
-    "여기",
-    "저기",
-    "어디",
-    "어떤",
-    "어때",
-    "어떤가요",
-    "궁금합니다",
-    "알려주세요",
-    "있을까요",
-    "있으면",
-    "없는",
-    "많이",
-    "진짜",
-    "괜찮은",
-    "괜찮나요",
-    "추천좀",
-    "기준",
-    "만족도",
-    "무난",
-    "기본",
-    "정말",
-    "먼저",
-    "후보",
-    "정보",
-    "확인",
-    "지도",
-    "링크",
-    "위치",
-    "접근성",
-    "분위기",
-    "직원",
-    "응대",
-    "친절",
-    "처음",
-    "피크",
-    "주말",
-    "평일",
-    "방문전",
-    "방문전에",
-    "가려는데",
-    "찾습니다",
-    "찾다가",
-    "보고",
-    "보입니다",
-    "같아요",
-    "좋아요",
-}
-
-STOPWORD_SUFFIXES = (
-    "에서",
-    "에게",
-    "으로",
-    "까지",
-    "부터",
-    "처럼",
-    "보다",
-    "은",
-    "는",
-    "이",
-    "가",
-    "을",
-    "를",
-    "의",
-    "에",
-    "도",
-    "만",
-    "로",
-    "와",
-    "과",
-)
+STOPWORDS_FILE = Path(__file__).resolve().parents[1] / "data" / "rag_stopwords_ko.txt"
+KIWI_KEYWORD_TAGS = {"NNG", "NNP", "NNB", "NR", "SL", "SN"}
+VIEW_BONUS_MAX = 3
+COMMENT_BONUS_MAX = 3
+RECENCY_BONUS_MAX = 2
+RECENCY_BONUS_DAYS = 30
 
 FIELD_WEIGHTS = {
     "title": 4,
@@ -172,63 +56,98 @@ def compact_keyword(value: str) -> str:
     return re.sub(r"\s+", "", normalize_keyword(value))
 
 
-def is_valid_keyword(value: str) -> bool:
-    return len(value) >= MIN_KEYWORD_LENGTH and not is_stopword(value)
+def add_keyword(keywords: list[str], candidate: str, stopwords: set[str]) -> None:
+    cleaned_keyword = normalize_keyword(candidate)
+
+    if len(cleaned_keyword) < 2 or cleaned_keyword in stopwords:
+        return
+
+    if any(cleaned_keyword == keyword for keyword in keywords):
+        return
+
+    if any(cleaned_keyword in keyword for keyword in keywords):
+        return
+
+    keywords[:] = [
+        keyword for keyword in keywords
+        if keyword not in cleaned_keyword
+    ]
+    keywords.append(cleaned_keyword)
 
 
-def is_stopword(value: str) -> bool:
-    if value in STOPWORDS:
-        return True
+@lru_cache(maxsize=1)
+def load_stopwords() -> set[str]:
+    stopwords: set[str] = set()
 
-    for suffix in STOPWORD_SUFFIXES:
-        if len(value) > len(suffix) + 1 and value.endswith(suffix):
-            base_word = value.removesuffix(suffix)
-            if base_word in STOPWORDS:
-                return True
+    if not STOPWORDS_FILE.exists():
+        return stopwords
 
-    return False
+    with STOPWORDS_FILE.open(encoding="utf-8") as file:
+        for line in file:
+            word = normalize_keyword(line)
 
+            if word and not word.startswith("#"):
+                stopwords.add(word)
 
-def append_keyword(keywords: list[str], value: str) -> None:
-    cleaned_value = normalize_keyword(value)
-
-    if is_valid_keyword(cleaned_value) and cleaned_value not in keywords:
-        keywords.append(cleaned_value)
+    return stopwords
 
 
-def extract_regex_keywords(value: str) -> list[str]:
-    return re.findall(r"[0-9a-zA-Z가-힣]+", value.lower())
+def remove_stopword_phrases(text: str, stopwords: set[str]) -> str:
+    cleaned_text = text.lower()
+
+    for stopword in stopwords:
+        if " " in stopword:
+            cleaned_text = cleaned_text.replace(stopword, " ")
+
+    return cleaned_text
 
 
-def extract_noun_keywords(value: str) -> list[str]:
-    if _kiwi is None:
-        return extract_regex_keywords(value)
+@lru_cache(maxsize=1)
+def get_kiwi():
+    if Kiwi is None:
+        return None
+
+    return Kiwi()
+
+
+def extract_kiwi_keywords(text: str, stopwords: set[str]) -> list[str]:
+    kiwi = get_kiwi()
+
+    if kiwi is None:
+        return []
 
     keywords: list[str] = []
 
-    for token in _kiwi.tokenize(value.lower()):
-        if token.tag not in NOUN_TAGS:
-            continue
-        append_keyword(keywords, token.form)
+    for token in kiwi.tokenize(text):
+        if token.tag in KIWI_KEYWORD_TAGS:
+            add_keyword(keywords, token.form, stopwords)
 
     return keywords
 
 
-def extract_tag_keywords(tag_names: list[str] | None) -> list[str]:
+def extract_regex_keywords(text: str, stopwords: set[str]) -> list[str]:
+    keywords: list[str] = []
+
+    for word in re.findall(r"[0-9a-zA-Z가-힣]+", text.lower()):
+        add_keyword(keywords, word, stopwords)
+
+    return keywords
+
+
+def extract_tag_keywords(tag_names: list[str] | None, stopwords: set[str]) -> list[str]:
     keywords: list[str] = []
 
     for tag_name in tag_names or []:
         cleaned_tag = normalize_keyword(tag_name)
 
         if not re.search(r"[>/,|]+", cleaned_tag):
-            append_keyword(keywords, cleaned_tag)
+            add_keyword(keywords, cleaned_tag, stopwords)
 
-        tag_parts = re.split(r"[\s>/,|]+", cleaned_tag)
-        for tag_part in tag_parts:
-            append_keyword(keywords, tag_part)
+        for tag_part in re.split(r"[\s>/,|]+", cleaned_tag):
+            add_keyword(keywords, tag_part, stopwords)
 
-        for noun_keyword in extract_noun_keywords(cleaned_tag):
-            append_keyword(keywords, noun_keyword)
+        for keyword in extract_kiwi_keywords(cleaned_tag, stopwords):
+            add_keyword(keywords, keyword, stopwords)
 
     return keywords
 
@@ -236,47 +155,30 @@ def extract_tag_keywords(tag_names: list[str] | None) -> list[str]:
 def extract_keywords(
     title: str,
     content: str,
-    store_name: str | None = None,
     tag_names: list[str] | None = None,
     limit: int = 20,
+    store_name: str | None = None,
 ) -> list[str]:
-    raw_text = f"{title} {content} {store_name or ''}"
+    stopwords = load_stopwords()
+    title_text = remove_stopword_phrases(title, stopwords)
+    content_text = remove_stopword_phrases(content, stopwords)
+    store_text = remove_stopword_phrases(store_name or "", stopwords)
+    raw_text = f"{title_text} {content_text} {store_text}"
     keywords: list[str] = []
 
-    for keyword in extract_noun_keywords(raw_text):
-        append_keyword(keywords, keyword)
+    for keyword in extract_kiwi_keywords(raw_text, stopwords):
+        add_keyword(keywords, keyword, stopwords)
+
+    for keyword in extract_regex_keywords(title_text, stopwords):
+        add_keyword(keywords, keyword, stopwords)
 
     if store_name:
-        append_keyword(keywords, store_name)
+        add_keyword(keywords, store_name, stopwords)
 
-    for keyword in extract_tag_keywords(tag_names):
-        append_keyword(keywords, keyword)
+    for keyword in extract_tag_keywords(tag_names, stopwords):
+        add_keyword(keywords, keyword, stopwords)
 
     return keywords[:limit]
-
-
-def contains_store_name(
-    store_name: str | None,
-    post: Post,
-    tag_names: list[str],
-    comment_text: str,
-) -> bool:
-    if not store_name:
-        return True
-
-    normalized_store_name = normalize_keyword(store_name)
-    compact_store_name = compact_keyword(store_name)
-
-    if len(compact_store_name) < MIN_KEYWORD_LENGTH:
-        return True
-
-    searchable_text = build_searchable_text(post, tag_names, comment_text)
-    compact_searchable_text = compact_keyword(searchable_text)
-
-    return (
-        normalized_store_name in searchable_text
-        or compact_store_name in compact_searchable_text
-    )
 
 
 def calculate_match_detail(
@@ -337,12 +239,85 @@ def get_post_comment_text(db: Session, post_id: int) -> str:
     return " ".join(comment for (comment,) in comment_rows)
 
 
+def get_post_comment_count(db: Session, post_id: int) -> int:
+    return (
+        db.query(Comment.id)
+        .filter(
+            Comment.post_id == post_id,
+            Comment.deleted_at.is_(None),
+        )
+        .count()
+    )
+
+
+def calculate_log_bonus(value: int | None, max_bonus: int) -> int:
+    if not value or value <= 0:
+        return 0
+
+    return min(max_bonus, round(math.log1p(value)))
+
+
+def calculate_recency_bonus(created_at: datetime | None) -> int:
+    if created_at is None:
+        return 0
+
+    now = (
+        datetime.now(created_at.tzinfo)
+        if created_at.tzinfo
+        else datetime.now(UTC).replace(tzinfo=None)
+    )
+    days_old = max(0, (now - created_at).days)
+
+    if days_old >= RECENCY_BONUS_DAYS:
+        return 0
+
+    freshness_ratio = 1 - (days_old / RECENCY_BONUS_DAYS)
+    return round(freshness_ratio * RECENCY_BONUS_MAX)
+
+
+def calculate_ranking_bonus(post: Post, comment_count: int) -> dict[str, int]:
+    view_bonus = calculate_log_bonus(post.view_count, VIEW_BONUS_MAX)
+    comment_bonus = calculate_log_bonus(comment_count, COMMENT_BONUS_MAX)
+    recency_bonus = calculate_recency_bonus(post.created_at)
+
+    return {
+        "view_bonus": view_bonus,
+        "comment_bonus": comment_bonus,
+        "recency_bonus": recency_bonus,
+        "total": view_bonus + comment_bonus + recency_bonus,
+    }
+
+
 def build_searchable_text(post: Post, tag_names: list[str], comment_text: str) -> str:
     return (
         f"{post.title} {post.content} {post.region or ''} "
         f"{post.store_name or ''} {post.category or ''} "
         f"{' '.join(tag_names)} {comment_text}"
     ).lower()
+
+
+def contains_store_name(
+    store_name: str | None,
+    post: Post,
+    tag_names: list[str],
+    comment_text: str,
+) -> bool:
+    if not store_name:
+        return True
+
+    normalized_store_name = normalize_keyword(store_name)
+    compact_store_name = compact_keyword(store_name)
+
+    if len(compact_store_name) < 2:
+        return True
+
+    searchable_text = build_searchable_text(post, tag_names, comment_text)
+    compact_searchable_text = compact_keyword(searchable_text)
+
+    return (
+        normalized_store_name in searchable_text
+        or compact_store_name in compact_searchable_text
+    )
 
 
 def find_similar_posts(
@@ -354,7 +329,12 @@ def find_similar_posts(
     limit: int = DEFAULT_SIMILAR_POST_LIMIT,
     exclude_post_id: int | None = None,
 ):
-    keywords = extract_keywords(title, content, store_name, tag_names)
+    keywords = extract_keywords(
+        title=title,
+        content=content,
+        tag_names=tag_names,
+        store_name=store_name,
+    )
 
     if not keywords:
         return []
@@ -386,6 +366,8 @@ def find_similar_posts(
     for post in posts:
         post_tag_names = get_post_tag_names(db, post.id)
         comment_text = get_post_comment_text(db, post.id)
+        comment_count = get_post_comment_count(db, post.id)
+
         if not contains_store_name(store_name, post, post_tag_names, comment_text):
             continue
 
@@ -405,6 +387,8 @@ def find_similar_posts(
             comment_text=comment_text,
             matched_keywords=matched_keywords,
         )
+        ranking_bonus = calculate_ranking_bonus(post, comment_count)
+        final_score = match_detail["score"] + ranking_bonus["total"]
 
         results.append(
             {
@@ -414,7 +398,10 @@ def find_similar_posts(
                 "region": post.region,
                 "store_name": post.store_name,
                 "category": post.category,
-                "score": match_detail["score"],
+                "comment_count": comment_count,
+                "score": final_score,
+                "base_score": match_detail["score"],
+                "ranking_bonus": ranking_bonus,
                 "matched_keywords": matched_keywords,
                 "matched_fields": match_detail["matched_fields"],
                 "created_at": post.created_at,
@@ -429,7 +416,7 @@ def rank_similar_posts(results: list[dict], limit: int = DEFAULT_SIMILAR_POST_LI
 
     ranked_results = sorted(
         results,
-        key=lambda item: (item["score"], item["created_at"]),
+        key=lambda item: (item["score"], item.get("base_score", 0), item["created_at"]),
         reverse=True,
     )
 

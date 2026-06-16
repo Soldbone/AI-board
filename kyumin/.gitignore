@@ -1,0 +1,8 @@
+docs/
+AGENTS.md
+log.md
+docs/log.md
+.DS_Store
+.env
+.venv/
+__pycache__/

@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arena Frontend Preview</title>
+    <style>
+      :root {
+        --radius: 8px;
+        --layout-gap: 32px;
+        --stack-gap: 24px;
+        --panel-padding: 18px;
+        --control-height: 36px;
+        --control-x: 14px;
+        --item-gap: 14px;
+        --background: #ffffff;
+        --foreground: #171717;
+        --card: #ffffff;
+        --muted: #f5f5f5;
+        --muted-foreground: #737373;
+        --border: #e5e5e5;
+        --input: #e5e5e5;
+        --subtle: #fafafa;
+        --card-hover: #fcfcfc;
+        --hover-border: #c9c9c9;
+        --body-muted: #525252;
+        --primary: #171717;
+        --primary-foreground: #fafafa;
+        --destructive: #dc2626;
+        --destructive-bg: #fef2f2;
+        --success: #15803d;
+        --success-bg: #f0fdf4;
+        --warning: #b45309;
+        --warning-bg: #fffbeb;
+        --info: #2563eb;
+        --info-bg: #eff6ff;
+        --video-start: rgba(0, 0, 0, 0.78);
+        --video-end: rgba(30, 41, 59, 0.86);
+        --video-accent: rgba(37, 99, 235, 0.3);
+        color-scheme: light;
+      }
+
+      body[data-theme='zinc'] {
+        --radius: 6px;
+        --layout-gap: 28px;
+        --stack-gap: 20px;
+        --panel-padding: 16px;
+        --control-height: 34px;
+        --control-x: 13px;
+        --item-gap: 12px;
+        --background: #fafafa;
+        --foreground: #09090b;
+        --card: #ffffff;
+        --muted: #f4f4f5;
+        --muted-foreground: #52525b;
+        --border: #d4d4d8;
+        --input: #d4d4d8;
+        --subtle: #f4f4f5;
+        --card-hover: #f8f8f9;
+        --hover-border: #a1a1aa;
+        --body-muted: #3f3f46;
+        --primary: #18181b;
+        --primary-foreground: #fafafa;
+        --destructive: #dc2626;
+        --destructive-bg: #fef2f2;
+        --success: #166534;
+        --success-bg: #f0fdf4;
+        --warning: #a16207;
+        --warning-bg: #fefce8;
+        --info: #1d4ed8;
+        --info-bg: #eff6ff;
+        --video-start: rgba(9, 9, 11, 0.86);
+        --video-end: rgba(39, 39, 42, 0.88);
+        --video-accent: rgba(29, 78, 216, 0.28);
+      }
+
+      body[data-theme='stone'] {
+        --radius: 10px;
+        --layout-gap: 34px;
+        --stack-gap: 26px;
+        --panel-padding: 20px;
+        --control-height: 38px;
+        --control-x: 15px;
+        --item-gap: 15px;
+        --background: #fdfcfb;
+        --foreground: #292524;
+        --card: #ffffff;
+        --muted: #f5f5f4;
+        --muted-foreground: #78716c;
+        --border: #e7e5e4;
+        --input: #e7e5e4;
+        --subtle: #fafaf9;
+        --card-hover: #fffdfa;
+        --hover-border: #d6d3d1;
+        --body-muted: #57534e;
+        --primary: #292524;
+        --primary-foreground: #fafaf9;
+        --destructive: #b91c1c;
+        --destructive-bg: #fef2f2;
+        --success: #3f6212;
+        --success-bg: #f7fee7;
+        --warning: #b45309;
+        --warning-bg: #fffbeb;
+        --info: #475569;
+        --info-bg: #f8fafc;
+        --video-start: rgba(41, 37, 36, 0.82);
+        --video-end: rgba(68, 64, 60, 0.86);
+        --video-accent: rgba(120, 113, 108, 0.32);
+      }
+
+      body[data-theme='mauve'] {
+        --radius: 9px;
+        --layout-gap: 32px;
+        --stack-gap: 24px;
+        --panel-padding: 18px;
+        --control-height: 36px;
+        --control-x: 14px;
+        --item-gap: 14px;
+        --background: #fdfcff;
+        --foreground: #1f1b24;
+        --card: #ffffff;
+        --muted: #f7f2fa;
+        --muted-foreground: #74687d;
+        --border: #e7ddec;
+        --input: #e7ddec;
+        --subtle: #fbf7fd;
+        --card-hover: #fffaff;
+        --hover-border: #d8c6e0;
+        --body-muted: #574d60;
+        --primary: #5b456b;
+        --primary-foreground: #ffffff;
+        --destructive: #b42318;
+        --destructive-bg: #fff1f0;
+        --success: #2f6f4e;
+        --success-bg: #effaf4;
+        --warning: #9a5b13;
+        --warning-bg: #fff8e6;
+        --info: #5b4bb7;
+        --info-bg: #f2f0ff;
+        --video-start: rgba(31, 27, 36, 0.82);
+        --video-end: rgba(65, 50, 76, 0.86);
+        --video-accent: rgba(91, 75, 183, 0.28);
+      }
+
+      body[data-theme='olive'] {
+        --radius: 8px;
+        --layout-gap: 30px;
+        --stack-gap: 22px;
+        --panel-padding: 17px;
+        --control-height: 35px;
+        --control-x: 13px;
+        --item-gap: 13px;
+        --background: #fcfdf8;
+        --foreground: #1f241b;
+        --card: #fffef8;
+        --muted: #f3f5e9;
+        --muted-foreground: #69715f;
+        --border: #dfe4d2;
+        --input: #dfe4d2;
+        --subtle: #f8faef;
+        --card-hover: #fffff4;
+        --hover-border: #cdd6bc;
+        --body-muted: #525a47;
+        --primary: #3f4f2b;
+        --primary-foreground: #fcfdf8;
+        --destructive: #b91c1c;
+        --destructive-bg: #fef2f2;
+        --success: #4d7c0f;
+        --success-bg: #f7fee7;
+        --warning: #a16207;
+        --warning-bg: #fefce8;
+        --info: #365f63;
+        --info-bg: #eef8f8;
+        --video-start: rgba(31, 36, 27, 0.82);
+        --video-end: rgba(63, 79, 43, 0.88);
+        --video-accent: rgba(77, 124, 15, 0.28);
+      }
+
+      body[data-theme='mist'] {
+        --radius: 12px;
+        --layout-gap: 36px;
+        --stack-gap: 26px;
+        --panel-padding: 20px;
+        --control-height: 38px;
+        --control-x: 15px;
+        --item-gap: 15px;
+        --background: #f8fbfc;
+        --foreground: #102027;
+        --card: #ffffff;
+        --muted: #eef4f6;
+        --muted-foreground: #667780;
+        --border: #d9e5e9;
+        --input: #d9e5e9;
+        --subtle: #f3f8fa;
+        --card-hover: #fbfdfe;
+        --hover-border: #c2d3da;
+        --body-muted: #4f626b;
+        --primary: #234c5d;
+        --primary-foreground: #f8fbfc;
+        --destructive: #c0392b;
+        --destructive-bg: #fff1f0;
+        --success: #1d6f61;
+        --success-bg: #edfdf8;
+        --warning: #875509;
+        --warning-bg: #fff8e7;
+        --info: #2a5f9e;
+        --info-bg: #eef6ff;
+        --video-start: rgba(16, 32, 39, 0.8);
+        --video-end: rgba(35, 76, 93, 0.84);
+        --video-accent: rgba(42, 95, 158, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--background);
+        color: var(--foreground);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        letter-spacing: 0;
+        transition:
+          background 180ms ease,
+          color 180ms ease;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      .app-shell {
+        min-height: 100vh;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: var(--item-gap);
+        min-height: 64px;
+        padding: 0 28px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--background) 94%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 160px;
+        font-weight: 700;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: var(--radius);
+        background: var(--foreground);
+        color: var(--background);
+        font-size: 14px;
+      }
+
+      .search {
+        display: flex;
+        align-items: center;
+        flex: 1;
+        max-width: 520px;
+        height: var(--control-height);
+        padding: 0 12px;
+        border: 1px solid var(--input);
+        border-radius: var(--radius);
+        background: var(--muted);
+        color: var(--muted-foreground);
+        font-size: 14px;
+      }
+
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: var(--control-height);
+        padding: 0 var(--control-x);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 14px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .btn.primary {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: var(--primary-foreground);
+      }
+
+      .btn.destructive {
+        border-color: color-mix(in srgb, var(--destructive) 18%, var(--border));
+        color: var(--destructive);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: var(--layout-gap);
+        width: min(1240px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: var(--layout-gap) 0 56px;
+      }
+
+      .main-stack,
+      .side-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--stack-gap);
+        min-width: 0;
+      }
+
+      .preset-panel {
+        display: grid;
+        gap: 14px;
+        padding: var(--panel-padding);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+      }
+
+      .preset-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .preset-title {
+        display: grid;
+        gap: 4px;
+      }
+
+      .preset-description {
+        color: var(--body-muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .preset-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .preset-option {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--control-height);
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 550;
+        white-space: nowrap;
+        cursor: pointer;
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          color 160ms ease,
+          transform 160ms ease;
+      }
+
+      .preset-option:hover {
+        border-color: var(--hover-border);
+        background: var(--card-hover);
+      }
+
+      .preset-option.is-active {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: var(--primary-foreground);
+      }
+
+      .preset-option.is-active:hover {
+        background: var(--primary);
+        color: var(--primary-foreground);
+        transform: translateY(-1px);
+      }
+
+      .preset-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .page-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--muted-foreground);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 720px;
+        font-size: 30px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      h2 {
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      h3 {
+        font-size: 15px;
+        line-height: 1.35;
+      }
+
+      .muted {
+        color: var(--muted-foreground);
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip,
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 9px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .chip.active {
+        background: var(--foreground);
+        color: var(--background);
+      }
+
+      .badge.success {
+        border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+        background: var(--success-bg);
+        color: var(--success);
+      }
+
+      .badge.warning {
+        border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+        background: var(--warning-bg);
+        color: var(--warning);
+      }
+
+      .badge.info {
+        border-color: color-mix(in srgb, var(--info) 18%, var(--border));
+        background: var(--info-bg);
+        color: var(--info);
+      }
+
+      .badge.destructive {
+        border-color: color-mix(in srgb, var(--destructive) 18%, var(--border));
+        background: var(--destructive-bg);
+        color: var(--destructive);
+      }
+
+      .post-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .post-item,
+      .panel,
+      .comment,
+      .admin-row,
+      .component-sample {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+      }
+
+      .post-item {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          transform 160ms ease;
+      }
+
+      .post-item:hover {
+        border-color: var(--hover-border);
+        background: var(--card-hover);
+        transform: translateY(-1px);
+      }
+
+      .post-top {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .post-title {
+        font-size: 17px;
+        line-height: 1.35;
+        font-weight: 650;
+      }
+
+      .post-preview {
+        max-width: 760px;
+        color: var(--body-muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .panel {
+        display: grid;
+        gap: 16px;
+        padding: var(--panel-padding);
+      }
+
+      .video-frame {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 16 / 9;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(135deg, var(--video-start), var(--video-end)),
+          radial-gradient(circle at 75% 30%, var(--video-accent), transparent 32%);
+        color: #ffffff;
+      }
+
+      .play {
+        display: grid;
+        place-items: center;
+        width: 64px;
+        height: 64px;
+        border: 1px solid rgba(255, 255, 255, 0.34);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        font-size: 22px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .label {
+        color: var(--muted-foreground);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .input,
+      .textarea {
+        width: 100%;
+        border: 1px solid var(--input);
+        border-radius: var(--radius);
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 14px;
+      }
+
+      .input {
+        height: var(--control-height);
+        padding: 0 11px;
+      }
+
+      .textarea {
+        min-height: 86px;
+        padding: 10px 11px;
+        resize: vertical;
+      }
+
+      .thread {
+        display: grid;
+        gap: 12px;
+      }
+
+      .comment {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .comment.reply {
+        margin-left: 28px;
+        background: var(--subtle);
+      }
+
+      .comment-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .avatar-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .avatar {
+        display: grid;
+        flex: 0 0 auto;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: var(--muted);
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .comment-body {
+        color: var(--foreground);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .comment-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .status-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .status-line:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .agent-box {
+        display: grid;
+        gap: 12px;
+      }
+
+      .answer {
+        padding: 12px;
+        border-radius: var(--radius);
+        background: var(--muted);
+        color: var(--body-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .evidence-sheet {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .sheet-surface {
+        display: grid;
+        gap: 14px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--subtle);
+      }
+
+      .evidence-item {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--background);
+      }
+
+      .admin-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .admin-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        padding: 14px;
+      }
+
+      .component-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .component-sample {
+        display: grid;
+        gap: 12px;
+        padding: calc(var(--panel-padding) - 4px);
+      }
+
+      .divider {
+        height: 1px;
+        background: var(--border);
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          flex-wrap: wrap;
+          min-height: auto;
+          padding: 14px 18px;
+        }
+
+        .brand {
+          min-width: auto;
+        }
+
+        .search {
+          order: 3;
+          flex-basis: 100%;
+          max-width: none;
+        }
+
+        .layout {
+          width: min(100% - 28px, 1240px);
+          padding-top: 22px;
+        }
+
+        .page-head,
+        .preset-head,
+        .post-top,
+        .comment-head,
+        .admin-row {
+          align-items: start;
+          grid-template-columns: 1fr;
+          flex-direction: column;
+        }
+
+        .two-col,
+        .component-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="neutral">
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#">
+          <span class="mark">A</span>
+          <span>Arena</span>
+        </a>
+        <div class="search">Search discussions, tags, video context</div>
+        <nav class="nav-actions" aria-label="Primary">
+          <a class="btn" href="#">Login</a>
+          <a class="btn primary" href="#">New post</a>
+        </nav>
+      </header>
+
+      <main class="layout">
+        <section class="main-stack" aria-label="Main preview">
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Discussion board</p>
+              <h1>YouTube 영상을 중심으로 주장, 댓글, 근거 후보를 함께 읽는 토론 화면</h1>
+            </div>
+            <span class="badge info">Wireframe v0</span>
+          </div>
+
+          <section class="preset-panel" aria-labelledby="preset-title">
+            <div class="preset-head">
+              <div class="preset-title">
+                <p class="eyebrow">Style presets</p>
+                <h2 id="preset-title">shadcn/ui token 조합 비교</h2>
+                <p class="preset-description" data-preset-description>
+                  현재 기준. 흰 배경, neutral border, 8px radius, balanced density.
+                </p>
+              </div>
+              <div class="preset-meta" aria-label="Current style metadata">
+                <span class="badge" data-preset-radius>radius 8px</span>
+                <span class="badge" data-preset-density>balanced</span>
+              </div>
+            </div>
+            <div class="preset-options" aria-label="Style preset options">
+              <button
+                class="preset-option is-active"
+                type="button"
+                data-preset="neutral"
+                data-radius="radius 8px"
+                data-density="balanced"
+                data-description="현재 기준. 흰 배경, neutral border, 8px radius, balanced density."
+                aria-pressed="true"
+              >
+                Arena Neutral
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="zinc"
+                data-radius="radius 6px"
+                data-density="compact"
+                data-description="더 선명한 foreground와 차가운 neutral. 운영형 dashboard 느낌."
+                aria-pressed="false"
+              >
+                Zinc Focus
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="stone"
+                data-radius="radius 10px"
+                data-density="comfortable"
+                data-description="약간 따뜻한 surface. 긴 토론 글 읽기에 부드러운 톤."
+                aria-pressed="false"
+              >
+                Stone Editorial
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="mauve"
+                data-radius="radius 9px"
+                data-density="balanced"
+                data-description="절제된 mauve accent. 토론과 공론장 느낌을 약하게 부여."
+                aria-pressed="false"
+              >
+                Mauve Civic
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="olive"
+                data-radius="radius 8px"
+                data-density="focused"
+                data-description="green/olive 계열 success tone 강화. 근거 후보와 research 느낌."
+                aria-pressed="false"
+              >
+                Olive Research
+              </button>
+              <button
+                class="preset-option"
+                type="button"
+                data-preset="mist"
+                data-radius="radius 12px"
+                data-density="comfortable"
+                data-description="낮은 대비의 회청색 surface. AI panel과 side context가 차분해 보이는 톤."
+                aria-pressed="false"
+              >
+                Mist Studio
+              </button>
+            </div>
+          </section>
+
+          <div class="chips" aria-label="Tag filters">
+            <span class="chip active">전체</span>
+            <span class="chip">뉴스</span>
+            <span class="chip">경제</span>
+            <span class="chip">과학</span>
+            <span class="chip">정책</span>
+          </div>
+
+          <section class="post-list" aria-label="Post list">
+            <article class="post-item">
+              <div class="post-top">
+                <div>
+                  <h2 class="post-title">영상 속 2024년 통계 해석에 대해 토론해봅시다</h2>
+                  <p class="post-preview">
+                    영상에서 언급된 수치가 어떤 맥락에서 나온 것인지 댓글로 구간과 해석을 함께
+                    확인합니다.
+                  </p>
+                </div>
+                <span class="badge success">영상 준비됨</span>
+              </div>
+              <div class="meta">
+                <span>토론러</span>
+                <span>댓글 18</span>
+                <span>조회 124</span>
+                <span>좋아요 9</span>
+                <span>#뉴스 #경제</span>
+              </div>
+            </article>
+
+            <article class="post-item">
+              <div class="post-top">
+                <div>
+                  <h2 class="post-title">자막이 없는 영상도 게시글 작성은 성공해야 하나요?</h2>
+                  <p class="post-preview">
+                    영상 처리는 비동기 상태로 남기고 토론 생성 자체는 실패시키지 않는 정책을
+                    확인합니다.
+                  </p>
+                </div>
+                <span class="badge warning">자막 처리 중</span>
+              </div>
+              <div class="meta">
+                <span>arena-user</span>
+                <span>댓글 5</span>
+                <span>조회 57</span>
+                <span>좋아요 3</span>
+                <span>#제품 #정책</span>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel" aria-label="Post detail">
+            <div class="section-title">
+              <div>
+                <p class="eyebrow">Post detail</p>
+                <h2>영상과 토론 본문</h2>
+              </div>
+              <span class="badge success">metadata 준비됨</span>
+            </div>
+            <div class="video-frame">
+              <div class="play">▶</div>
+            </div>
+            <p class="post-preview">
+              이 화면에서는 영상 카드, 게시글 본문, 댓글 thread가 하나의 읽기 흐름으로 이어집니다.
+              AI 보조 정보는 오른쪽 panel과 sheet에서 확인합니다.
+            </p>
+          </section>
+
+          <section class="panel" aria-label="Comments">
+            <div class="section-title">
+              <div>
+                <p class="eyebrow">Comments</p>
+                <h2>댓글 thread</h2>
+              </div>
+              <button class="btn">댓글 작성</button>
+            </div>
+            <div class="thread">
+              <article class="comment">
+                <div class="comment-head">
+                  <div class="avatar-line">
+                    <span class="avatar">토</span>
+                    <div>
+                      <h3>토론러</h3>
+                      <p class="muted">방금 전</p>
+                    </div>
+                  </div>
+                  <span class="badge info">사실 주장</span>
+                </div>
+                <p class="comment-body">
+                  영상에서는 2024년에 수치가 증가했다고 말하는데, 정확히 어느 구간에서 나오는지 같이
+                  보면 좋겠습니다.
+                </p>
+                <div class="comment-actions">
+                  <span class="badge success">근거 후보 3개</span>
+                  <button class="btn">근거 후보 보기</button>
+                  <button class="btn">답글</button>
+                </div>
+              </article>
+
+              <article class="comment reply">
+                <div class="comment-head">
+                  <div class="avatar-line">
+                    <span class="avatar">A</span>
+                    <div>
+                      <h3>arena-user</h3>
+                      <p class="muted">1분 전</p>
+                    </div>
+                  </div>
+                </div>
+                <p class="comment-body">
+                  00:12 근처에서 언급되는 듯합니다. 다만 영상 전체 맥락도 같이 봐야 할 것 같습니다.
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel" aria-label="shadcn comparison">
+            <div class="section-title">
+              <div>
+                <p class="eyebrow">shadcn/ui comparison</p>
+                <h2>기본 컴포넌트 톤</h2>
+              </div>
+              <span class="badge">radius 8px</span>
+            </div>
+            <div class="component-grid">
+              <div class="component-sample">
+                <h3>Buttons</h3>
+                <div class="chips">
+                  <button class="btn primary">Primary</button>
+                  <button class="btn">Secondary</button>
+                  <button class="btn destructive">Delete</button>
+                </div>
+              </div>
+              <div class="component-sample">
+                <h3>Form</h3>
+                <div class="field">
+                  <span class="label">Title</span>
+                  <input class="input" value="영상 속 주장에 대해 토론해봅시다" />
+                </div>
+                <div class="field">
+                  <span class="label">Comment</span>
+                  <textarea class="textarea">관련 자막 구간을 함께 확인하고 싶습니다.</textarea>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="side-stack" aria-label="Side preview">
+          <section class="panel">
+            <div class="section-title">
+              <h2>영상 처리 상태</h2>
+              <span class="badge warning">진행 중</span>
+            </div>
+            <div class="status-grid">
+              <div class="status-line">
+                <span>Metadata</span>
+                <span class="badge success">준비됨</span>
+              </div>
+              <div class="status-line">
+                <span>Transcript</span>
+                <span class="badge warning">처리 중</span>
+              </div>
+              <div class="status-line">
+                <span>Embedding</span>
+                <span class="badge">대기 중</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Agent 질문</h2>
+              <span class="badge info">RUNNING</span>
+            </div>
+            <div class="agent-box">
+              <div class="field">
+                <span class="label">Question</span>
+                <textarea class="textarea">
+이 게시글의 핵심 주장과 관련된 자막 근거 후보를 찾아줘.</textarea
+                >
+              </div>
+              <button class="btn primary">질문 보내기</button>
+              <div class="answer">
+                자막 검색 결과를 확인하는 중입니다. 답변에는 근거 후보와 한계를 함께 표시합니다.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel evidence-sheet">
+            <div class="section-title">
+              <h2>근거 후보 sheet</h2>
+              <span class="badge success">3개</span>
+            </div>
+            <div class="sheet-surface">
+              <div class="evidence-item">
+                <div class="meta">
+                  <span>00:12 - 00:20</span>
+                  <span>similarity 0.84</span>
+                </div>
+                <p class="comment-body">영상에서 2024년 수치 증가를 설명하는 자막 구간입니다.</p>
+              </div>
+              <p class="muted">
+                근거 후보는 관련 있을 수 있는 자막 구간이며, 사실 여부를 최종 판정하지 않습니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h2>Admin queue</h2>
+              <span class="badge warning">NEEDS_REVIEW</span>
+            </div>
+            <div class="admin-list">
+              <article class="admin-row">
+                <div>
+                  <h3>검토가 필요한 댓글</h3>
+                  <p class="muted">commentType TOXIC · aiAnalysis SUCCESS</p>
+                </div>
+                <div class="chips">
+                  <button class="btn">Retry</button>
+                  <button class="btn destructive">Delete</button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script>
+      const presetButtons = document.querySelectorAll('[data-preset]');
+      const presetDescription = document.querySelector('[data-preset-description]');
+      const presetRadius = document.querySelector('[data-preset-radius]');
+      const presetDensity = document.querySelector('[data-preset-density]');
+
+      function applyPreset(theme) {
+        const selected = [...presetButtons].find((button) => button.dataset.preset === theme);
+
+        if (!selected) {
+          return;
+        }
+
+        document.body.dataset.theme = theme;
+        presetDescription.textContent = selected.dataset.description;
+        presetRadius.textContent = selected.dataset.radius;
+        presetDensity.textContent = selected.dataset.density;
+
+        presetButtons.forEach((button) => {
+          const isActive = button === selected;
+          button.classList.toggle('is-active', isActive);
+          button.setAttribute('aria-pressed', String(isActive));
+        });
+      }
+
+      presetButtons.forEach((button) => {
+        button.addEventListener('click', () => applyPreset(button.dataset.preset));
+      });
+
+      applyPreset('neutral');
+    </script>
+  </body>
+</html>

@@ -11,14 +11,51 @@ from app.schemas.ai import (
     TagSuggestionResponse,
 )
 from app.services.mcp_client_service import McpClientError, search_places_with_mcp
+from app.services.embedding_service import find_similar_posts_by_vector
 from app.services.rag_service import find_similar_posts, suggest_tags
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 @router.post("/similar-posts", response_model=SimilarPostResponse)
-@router.post("/rag/similar-posts", response_model=SimilarPostResponse)
+@router.post("/vector-similar-posts", response_model=SimilarPostResponse)
 def get_similar_posts(
+    request_data: SimilarPostRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        items = find_similar_posts_by_vector(
+            db=db,
+            title=request_data.title,
+            content=request_data.content,
+            tag_names=request_data.tag_names,
+            limit=request_data.limit,
+        )
+    except Exception:
+        items = []
+
+    if request_data.exclude_post_id is not None:
+        items = [
+            item for item in items
+            if item["id"] != request_data.exclude_post_id
+        ]
+
+    if not items:
+        items = find_similar_posts(
+            db=db,
+            title=request_data.title,
+            content=request_data.content,
+            store_name=request_data.store_name,
+            tag_names=request_data.tag_names,
+            limit=request_data.limit,
+            exclude_post_id=request_data.exclude_post_id,
+        )
+
+    return {"items": items}
+
+
+@router.post("/rag/similar-posts", response_model=SimilarPostResponse)
+def get_keyword_similar_posts(
     request_data: SimilarPostRequest,
     db: Session = Depends(get_db),
 ):

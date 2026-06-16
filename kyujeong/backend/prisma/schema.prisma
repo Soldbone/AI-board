@@ -1,0 +1,164 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  nickname     String
+  createdAt    DateTime @default(now())
+
+  posts    Post[]
+  comments Comment[]
+  aiRecommendations AiRecipeRecommendation[]
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String   @db.VarChar(200)
+  content   String   @db.Text
+  imageUrl  String?  @db.Text
+  category  PostCategory @default(QUESTION)
+  authorId  Int
+  viewCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author   User      @relation(fields: [authorId], references: [id])
+  comments Comment[]
+  postTags PostTag[]
+  ragDocument PostRagDocument?
+  aiRecommendations AiRecipeRecommendation[]
+  aiRecommendationReferences AiRecommendationReference[]
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.VarChar(500)
+  authorId  Int
+  postId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id])
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model Tag {
+  id   Int    @id @default(autoincrement())
+  name String @unique @db.VarChar(20)
+
+  postTags PostTag[]
+}
+
+model PostTag {
+  postId Int
+  tagId  Int
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id])
+
+  @@id([postId, tagId])
+}
+
+model PostRagDocument {
+  id                Int      @id @default(autoincrement())
+  postId            Int      @unique
+  title             String   @default("") @db.VarChar(200)
+  author            String   @default("") @db.VarChar(80)
+  postUrl           String   @default("") @db.Text
+  contentSummary    String   @default("") @db.Text
+  ingredients       String[] @default([])
+  ingredientAliases String[] @default([])
+  dishNames         String[] @default([])
+  cookingMethods    String[] @default([])
+  situationTags     String[] @default([])
+  difficulty        String   @default("미정") @db.VarChar(40)
+  cookingTime       String   @default("미정") @db.VarChar(40)
+  popularityScore   Float    @default(0)
+  searchableText    String   @default("") @db.Text
+  documentText      String   @db.Text
+  embedding         Unsupported("vector(1536)")
+  embeddingModel    String   @default("local-hash-v1")
+  embeddedAt        DateTime @default(now())
+  isStale           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model BoardRagChatLog {
+  id                   Int      @id @default(autoincrement())
+  userMessage          String   @db.Text
+  extractedIngredients String[] @default([])
+  retrievedPostIds     Int[]    @default([])
+  selectedPostIds      Int[]    @default([])
+  scores               Json
+  answerText           String   @db.Text
+  createdAt            DateTime @default(now())
+}
+
+model AiRecipeRecommendation {
+  id                   Int                    @id @default(autoincrement())
+  postId               Int?
+  requestedById        Int?
+  menuName             String                 @db.VarChar(120)
+  reason               String                 @db.Text
+  availableIngredients String[]
+  missingIngredients   String[]
+  estimatedCookingTime Int?
+  difficulty           String                 @db.VarChar(40)
+  content              String                 @db.Text
+  thumbnailUrl         String?                @db.Text
+  nutritionMetadata    Json?
+  status               AiRecommendationStatus @default(ACTIVE)
+  grounding            AiRecommendationGrounding @default(COMMUNITY_RAG)
+  createdAt            DateTime               @default(now())
+
+  post       Post?                       @relation(fields: [postId], references: [id], onDelete: SetNull)
+  requestedBy User?                       @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  references AiRecommendationReference[]
+
+  @@index([requestedById, createdAt])
+}
+
+model AiRecommendationReference {
+  id               Int   @id @default(autoincrement())
+  recommendationId Int
+  postId           Int
+  similarity       Float
+  rank             Int
+
+  recommendation AiRecipeRecommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  post           Post                   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([recommendationId, postId])
+}
+
+enum AiRecommendationStatus {
+  ACTIVE
+  STALE
+}
+
+enum AiRecommendationGrounding {
+  COMMUNITY_RAG
+  GENERAL_AI
+}
+
+enum PostCategory {
+  QUESTION
+  RECIPE_SHARE
+  COOKING_TIP_REVIEW
+  TREND
+}

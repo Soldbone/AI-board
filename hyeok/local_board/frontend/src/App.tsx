@@ -729,6 +729,18 @@ function App() {
     setMessage('')
   }
 
+  const searchPostsByTag = useCallback((tagName: string) => {
+    const nextTag = tagName.trim()
+
+    if (!nextTag) return
+
+    setActiveTag(nextTag)
+    setActiveKeyword('')
+    setKeywordInput('')
+    goList()
+    void loadPosts(1, { keyword: '', tag: nextTag, postType: activePostType, sort: activeSort })
+  }, [activePostType, activeSort, loadPosts])
+
   useEffect(() => {
     updateBrowserHistory('list', 'replace')
 
@@ -882,6 +894,7 @@ function App() {
             onRequestAgentRecommendation={handleAgentRecommendation}
             onOpenSimilarPost={(postId) => void openDetail(postId)}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
+            onTagSearch={searchPostsByTag}
             post={selectedPost}
             replyTargetId={replyTargetId}
           />

@@ -19,6 +19,7 @@ class SimilarPostItem(BaseModel):
     region: str | None
     store_name: str | None
     category: str | None
+    comment_count: int = 0
     score: int
     matched_keywords: list[str]
     matched_fields: list[str]

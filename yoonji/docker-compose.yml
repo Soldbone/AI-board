@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: figure_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: figure_user
+      POSTGRES_PASSWORD: figure_password
+      POSTGRES_DB: figure_community
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

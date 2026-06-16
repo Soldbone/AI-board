@@ -1,0 +1,1814 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Web App Backend Study Guide</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --surface: #ffffff;
+        --surface-soft: #eef2f6;
+        --text: #17202a;
+        --muted: #657386;
+        --line: #d9e0e8;
+        --accent: #256f6d;
+        --accent-strong: #174f4d;
+        --accent-soft: #dff1ee;
+        --warn: #8a5a00;
+        --warn-soft: #fff4d8;
+        --good: #19633f;
+        --good-soft: #e0f4e9;
+        --bad: #9b2c2c;
+        --bad-soft: #fde4e4;
+        --shadow: 0 18px 45px rgba(27, 39, 51, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background: var(--bg);
+        font-family:
+          "Pretendard",
+          "Noto Sans KR",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.65;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(246, 247, 249, 0.92);
+        backdrop-filter: blur(14px);
+      }
+
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 14px 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        color: white;
+        background: var(--accent);
+      }
+
+      .progress-wrap {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 260px;
+      }
+
+      .progress-label {
+        color: var(--muted);
+        font-size: 14px;
+        white-space: nowrap;
+      }
+
+      .progress-track {
+        width: 180px;
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--line);
+      }
+
+      .progress-bar {
+        width: 0%;
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.25s ease;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 28px;
+        width: min(1180px, calc(100% - 32px));
+        margin: 28px auto 56px;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 82px;
+        align-self: start;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar h2 {
+        margin: 0 0 12px;
+        font-size: 15px;
+      }
+
+      .nav-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .nav-list a {
+        display: block;
+        padding: 9px 10px;
+        border-radius: 6px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      .nav-list a:hover,
+      .nav-list a:focus-visible {
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        outline: none;
+      }
+
+      .main {
+        display: grid;
+        gap: 22px;
+      }
+
+      .hero,
+      .section,
+      .quiz-panel,
+      .summary-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+        gap: 28px;
+        padding: 34px;
+        overflow: hidden;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-weight: 800;
+        font-size: 14px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: clamp(32px, 4vw, 48px);
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .flow-visual {
+        display: grid;
+        gap: 10px;
+        align-content: center;
+        min-height: 300px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: linear-gradient(180deg, #f9fbfc, #eef3f5);
+      }
+
+      .flow-node {
+        display: grid;
+        grid-template-columns: 38px 1fr;
+        align-items: center;
+        gap: 12px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .node-index {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 7px;
+        color: white;
+        background: var(--accent);
+        font-weight: 800;
+      }
+
+      .flow-node strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      .flow-node span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .section {
+        padding: 28px;
+      }
+
+      .section h2,
+      .quiz-panel h2,
+      .summary-panel h2 {
+        margin: 0 0 14px;
+        font-size: 26px;
+      }
+
+      .section h3 {
+        margin: 26px 0 10px;
+        font-size: 19px;
+      }
+
+      .section p,
+      .section li {
+        color: #2f3b49;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .concept-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .concept {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+      }
+
+      .concept strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--accent-strong);
+      }
+
+      .concept p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .path {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .path li {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        align-items: start;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+      }
+
+      .path-number {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        color: white;
+        background: var(--accent);
+        font-weight: 800;
+        font-size: 14px;
+      }
+
+      .callout {
+        margin: 18px 0 0;
+        padding: 16px;
+        border: 1px solid #e7d29d;
+        border-radius: 8px;
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .quiz-panel,
+      .summary-panel {
+        padding: 28px;
+      }
+
+      .quiz-header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .score {
+        padding: 8px 12px;
+        border-radius: 999px;
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .question {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+      }
+
+      .question + .question {
+        margin-top: 14px;
+      }
+
+      .question h3 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .options {
+        display: grid;
+        gap: 8px;
+      }
+
+      .option {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+      }
+
+      .option:hover {
+        border-color: var(--accent);
+      }
+
+      .option input {
+        width: 18px;
+        height: 18px;
+        margin-top: 3px;
+        accent-color: var(--accent);
+      }
+
+      .feedback {
+        display: none;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+
+      .feedback.good {
+        display: block;
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .feedback.bad {
+        display: block;
+        color: var(--bad);
+        background: var(--bad-soft);
+      }
+
+      .quiz-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .btn {
+        min-height: 42px;
+        padding: 10px 16px;
+        border: 1px solid var(--accent);
+        border-radius: 7px;
+        color: white;
+        background: var(--accent);
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .btn.secondary {
+        color: var(--accent-strong);
+        background: white;
+      }
+
+      .btn:hover {
+        background: var(--accent-strong);
+      }
+
+      .btn.secondary:hover {
+        color: white;
+      }
+
+      .short-answer {
+        width: 100%;
+        min-height: 92px;
+        resize: vertical;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .reflection {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .reflection-item {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+      }
+
+      .reflection-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .terms {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .term {
+        padding: 14px;
+        border-left: 4px solid var(--accent);
+        border-radius: 6px;
+        background: var(--surface-soft);
+      }
+
+      .term strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .term span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .deep-block {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+      }
+
+      .deep-block h3:first-child {
+        margin-top: 0;
+      }
+
+      .study-table {
+        width: 100%;
+        margin: 16px 0;
+        border-collapse: collapse;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .study-table th,
+      .study-table td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .study-table th {
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        font-size: 14px;
+      }
+
+      .study-table tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .mini-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        margin: 3px 4px 3px 0;
+        padding: 3px 8px;
+        border-radius: 999px;
+        color: var(--accent-strong);
+        background: var(--accent-soft);
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .diagram {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0;
+      }
+
+      .diagram-row {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr);
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .diagram-key,
+      .diagram-value {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .diagram-key {
+        color: white;
+        background: var(--accent);
+        font-weight: 800;
+      }
+
+      .checklist {
+        display: grid;
+        gap: 10px;
+        margin: 16px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .checklist li {
+        display: grid;
+        grid-template-columns: 26px 1fr;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .check {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        color: white;
+        background: var(--accent);
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      @media (max-width: 900px) {
+        .layout,
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+        }
+
+        .progress-wrap {
+          min-width: 0;
+        }
+
+        .progress-track {
+          width: 120px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .topbar-inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .hero,
+        .section,
+        .quiz-panel,
+        .summary-panel {
+          padding: 22px;
+        }
+
+        .concept-grid,
+        .terms,
+        .diagram-row {
+          grid-template-columns: 1fr;
+        }
+
+        .quiz-header {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark">B</span>
+          <span>AI 웹앱 백엔드 학습 노트</span>
+        </div>
+        <div class="progress-wrap" aria-label="학습 진행률">
+          <span class="progress-label" id="progressText">퀴즈 0 / 7</span>
+          <div class="progress-track">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <h2>학습 순서</h2>
+        <ul class="nav-list">
+          <li><a href="#overview">전체 흐름</a></li>
+          <li><a href="#assignment">과제 요구사항</a></li>
+          <li><a href="#nest">NestJS 역할 분리</a></li>
+          <li><a href="#auth">인증과 JWT</a></li>
+          <li><a href="#board">게시글과 댓글</a></li>
+          <li><a href="#data">데이터 관계</a></li>
+          <li><a href="#ai">RAG/MCP 구분</a></li>
+          <li><a href="#rag-deep">RAG 심화</a></li>
+          <li><a href="#mcp-deep">MCP 심화</a></li>
+          <li><a href="#rag-mcp-together">RAG+MCP 연결</a></li>
+          <li><a href="#deliverable">README 관점</a></li>
+          <li><a href="#quiz">개념 퀴즈</a></li>
+          <li><a href="#scenario">시나리오 문제</a></li>
+        </ul>
+      </aside>
+
+      <main class="main">
+        <section class="hero" id="overview">
+          <div>
+            <p class="eyebrow">과제 요구사항과 연결해서 보기</p>
+            <h1>백엔드는 게시판 기능과 AI 응용 기능을 연결하는 중심 시스템이다.</h1>
+            <p>
+              이 자료는 과제 페이지의 요구사항을 기준으로, 우리 프로젝트의 백엔드가 어떤 역할을
+              하는지 이해하기 위한 학습용입니다. 문법보다 요청 흐름, 데이터 흐름, RAG, MCP,
+              Agent가 왜 필요한지를 중심으로 보면 됩니다.
+            </p>
+          </div>
+          <div class="flow-visual" aria-label="백엔드 요청 흐름">
+            <div class="flow-node">
+              <span class="node-index">1</span>
+              <div>
+                <strong>Request</strong>
+                <span>프론트엔드나 사용자가 서버에 요청을 보냄</span>
+              </div>
+            </div>
+            <div class="flow-node">
+              <span class="node-index">2</span>
+              <div>
+                <strong>Controller</strong>
+                <span>요청 주소와 방식을 보고 어떤 기능인지 판단</span>
+              </div>
+            </div>
+            <div class="flow-node">
+              <span class="node-index">3</span>
+              <div>
+                <strong>Service</strong>
+                <span>실제 규칙, 검증, 데이터 처리 흐름을 담당</span>
+              </div>
+            </div>
+            <div class="flow-node">
+              <span class="node-index">4</span>
+              <div>
+                <strong>Database / API</strong>
+                <span>필요한 데이터를 저장하거나 외부 정보를 조회</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="assignment">
+          <h2>과제 요구사항을 먼저 해석하기</h2>
+          <p class="lead">
+            이번 과제의 핵심은 “프론트엔드, 백엔드, 데이터베이스, AI 응용기술을 직접 설계하고
+            구현해보는 경험”입니다. 따라서 기능을 만들었다는 사실보다, 왜 그런 구조로 만들었는지
+            설명할 수 있어야 합니다.
+          </p>
+
+          <div class="concept-grid">
+            <div class="concept">
+              <strong>프론트엔드: React</strong>
+              <p>사용자가 게시글을 쓰고, 검색하고, AI 기능을 실행하는 화면을 담당합니다.</p>
+            </div>
+            <div class="concept">
+              <strong>백엔드: NestJS</strong>
+              <p>요청을 받고, 인증과 권한을 확인하고, DB와 AI 기능을 연결하는 중심 역할입니다.</p>
+            </div>
+            <div class="concept">
+              <strong>데이터베이스: PostgreSQL</strong>
+              <p>사용자, 게시글, 댓글, 태그, AI 추천 결과와 근거 데이터를 저장합니다.</p>
+            </div>
+            <div class="concept">
+              <strong>LLM: 상용 모델</strong>
+              <p>직접 모델을 만드는 대신, 완성된 모델을 서비스 기능 안에서 활용합니다.</p>
+            </div>
+          </div>
+
+          <h3>이 과제에서 AI 기능이 중요한 이유</h3>
+          <p>
+            과제는 단순 게시판이 아니라 AI 웹 애플리케이션을 요구합니다. 그래서 기본 CRUD 위에
+            RAG, MCP, Agent가 각각 다른 방식으로 붙습니다. RAG는 내부 데이터를 LLM과 연결하고,
+            MCP는 외부 시스템을 LLM이 사용할 수 있게 하며, Agent는 여러 도구를 순서대로 실행하는
+            흐름을 관리합니다.
+          </p>
+
+          <ol class="path">
+            <li>
+              <span class="path-number">1</span>
+              <div><strong>기본 게시판</strong><br />회원가입, 로그인, 게시글, 댓글, 태그, 페이징, 검색으로 서비스의 기본 뼈대를 만듭니다.</div>
+            </li>
+            <li>
+              <span class="path-number">2</span>
+              <div><strong>RAG 기능</strong><br />게시글과 댓글을 근거 데이터로 활용해 AI 추천의 품질과 설명 가능성을 높입니다.</div>
+            </li>
+            <li>
+              <span class="path-number">3</span>
+              <div><strong>MCP 기능</strong><br />식품 영양정보 같은 외부 데이터를 표준화된 방식으로 가져와 AI 기능의 근거를 보강합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">4</span>
+              <div><strong>Agent 기능</strong><br />재료 추출, 영양정보 확인, 글 평가, 초안 재작성 같은 여러 단계를 하나의 추론 흐름으로 묶습니다.</div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="section" id="nest">
+          <h2>NestJS에서 역할을 나누는 이유</h2>
+          <p class="lead">
+            백엔드가 커질수록 중요한 것은 “어디에 무엇을 둘 것인가”입니다. NestJS는 기능을
+            역할별로 나누도록 도와줍니다.
+          </p>
+
+          <div class="concept-grid">
+            <div class="concept">
+              <strong>Module</strong>
+              <p>관련된 기능을 하나의 묶음으로 정리합니다. 인증, 게시글, 댓글처럼 영역을 나누는 기준입니다.</p>
+            </div>
+            <div class="concept">
+              <strong>Controller</strong>
+              <p>사용자의 요청이 들어오는 입구입니다. 주소와 요청 방식을 기준으로 기능을 연결합니다.</p>
+            </div>
+            <div class="concept">
+              <strong>Service</strong>
+              <p>실제 작업이 일어나는 곳입니다. 데이터 조회, 저장, 권한 확인, 외부 API 호출 같은 일을 맡습니다.</p>
+            </div>
+            <div class="concept">
+              <strong>DTO</strong>
+              <p>요청으로 들어오는 데이터의 모양을 정합니다. 서버가 기대하는 입력값의 약속입니다.</p>
+            </div>
+          </div>
+
+          <div class="callout">
+            생각 포인트: Controller가 모든 일을 직접 하면 처음에는 쉬워 보이지만, 기능이 늘어날수록
+            수정하기 어려워집니다. 그래서 요청의 입구와 실제 처리 로직을 나눕니다.
+          </div>
+        </section>
+
+        <section class="section" id="auth">
+          <h2>인증과 JWT</h2>
+          <p class="lead">
+            인증은 “이 사용자가 누구인지 서버가 믿을 수 있게 확인하는 과정”입니다.
+            이 프로젝트에서는 회원가입, 로그인, 토큰 검증 흐름으로 나뉩니다.
+          </p>
+
+          <h3>회원가입 흐름</h3>
+          <ol class="path">
+            <li>
+              <span class="path-number">1</span>
+              <div><strong>이메일 중복 확인</strong><br />이미 가입된 이메일인지 먼저 확인합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">2</span>
+              <div><strong>비밀번호 해시</strong><br />비밀번호 원문을 저장하지 않고, 해시된 값만 저장합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">3</span>
+              <div><strong>사용자 저장</strong><br />이메일, 닉네임, 해시된 비밀번호를 데이터베이스에 저장합니다.</div>
+            </li>
+          </ol>
+
+          <h3>로그인 흐름</h3>
+          <ol class="path">
+            <li>
+              <span class="path-number">1</span>
+              <div><strong>사용자 찾기</strong><br />이메일을 기준으로 가입된 사용자를 찾습니다.</div>
+            </li>
+            <li>
+              <span class="path-number">2</span>
+              <div><strong>비밀번호 비교</strong><br />입력된 비밀번호가 저장된 해시와 맞는지 확인합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">3</span>
+              <div><strong>토큰 발급</strong><br />로그인 이후 요청에서 사용할 JWT를 발급합니다.</div>
+            </li>
+          </ol>
+
+          <div class="callout">
+            핵심 개념: 서버는 비밀번호를 기억하는 것이 아니라, 비밀번호가 맞는지 확인할 수 있는
+            안전한 흔적만 저장합니다.
+          </div>
+        </section>
+
+        <section class="section" id="board">
+          <h2>게시글과 댓글 흐름</h2>
+          <p class="lead">
+            게시판 기능은 백엔드 기본기를 익히기에 좋습니다. 조회, 생성, 수정, 삭제와 권한 확인이
+            모두 들어 있기 때문입니다.
+          </p>
+
+          <h3>게시글에서 보는 핵심 개념</h3>
+          <ul>
+            <li>목록 조회는 많은 데이터를 간단히 보여주는 흐름입니다.</li>
+            <li>상세 조회는 한 게시글의 전체 내용을 보여주며, 조회 수도 증가합니다.</li>
+            <li>작성, 수정, 삭제는 로그인한 사용자 정보가 필요합니다.</li>
+            <li>수정과 삭제는 작성자 본인인지 확인해야 합니다.</li>
+          </ul>
+
+          <h3>댓글에서 보는 핵심 개념</h3>
+          <ul>
+            <li>댓글은 특정 게시글에 종속됩니다.</li>
+            <li>댓글 작성 전에는 대상 게시글이 존재하는지 확인해야 합니다.</li>
+            <li>댓글 수정과 삭제도 작성자 권한 확인이 필요합니다.</li>
+            <li>게시글이 삭제되면 연결된 댓글도 함께 정리될 수 있습니다.</li>
+          </ul>
+        </section>
+
+        <section class="section" id="data">
+          <h2>데이터 관계 이해하기</h2>
+          <p class="lead">
+            백엔드를 제대로 이해하려면 “기능이 어떤 데이터를 만들고, 어떤 관계를 바꾸는가”를
+            같이 봐야 합니다.
+          </p>
+
+          <div class="terms">
+            <div class="term">
+              <strong>User</strong>
+              <span>게시글, 댓글, AI 추천 요청의 주체입니다.</span>
+            </div>
+            <div class="term">
+              <strong>Post</strong>
+              <span>사용자가 작성한 게시글이며, 댓글과 태그를 가질 수 있습니다.</span>
+            </div>
+            <div class="term">
+              <strong>Comment</strong>
+              <span>게시글에 연결되는 반응 데이터입니다.</span>
+            </div>
+            <div class="term">
+              <strong>Tag</strong>
+              <span>게시글을 분류하고 검색을 돕는 짧은 이름입니다.</span>
+            </div>
+            <div class="term">
+              <strong>RAG Document</strong>
+              <span>AI 추천이 참고할 수 있도록 게시글을 의미 단위로 저장한 자료입니다.</span>
+            </div>
+            <div class="term">
+              <strong>AI Recommendation</strong>
+              <span>사용자 요청과 기존 게시글 근거를 바탕으로 생성된 추천 결과입니다.</span>
+            </div>
+          </div>
+
+          <div class="callout">
+            질문해볼 지점: 게시글 내용이나 댓글이 바뀌면, 이전 AI 추천 결과를 그대로 믿어도 될까요?
+            이 프로젝트에서는 그런 경우 추천 결과를 오래된 정보로 볼 수 있게 관리합니다.
+          </div>
+        </section>
+
+        <section class="section" id="ai">
+          <h2>RAG와 MCP를 먼저 구분하기</h2>
+          <p class="lead">
+            이 과제에서 AI 기능을 제대로 설명하려면 RAG, MCP, Agent를 한 덩어리로 외우면 안 됩니다.
+            셋은 모두 LLM을 더 유용하게 만들지만, 해결하는 문제가 다릅니다.
+          </p>
+
+          <table class="study-table">
+            <thead>
+              <tr>
+                <th>기술</th>
+                <th>핵심 질문</th>
+                <th>우리 프로젝트에서의 역할</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>RAG</strong></td>
+                <td>LLM이 무엇을 근거로 답하게 할 것인가?</td>
+                <td>게시글, 댓글, 태그를 검색해서 레시피 추천의 근거로 사용합니다.</td>
+              </tr>
+              <tr>
+                <td><strong>MCP</strong></td>
+                <td>LLM 또는 Agent가 외부 시스템을 어떻게 호출하게 할 것인가?</td>
+                <td>공공 식품 영양정보 API를 도구처럼 호출할 수 있게 연결합니다.</td>
+              </tr>
+              <tr>
+                <td><strong>Agent</strong></td>
+                <td>여러 도구를 어떤 순서로 실행하고 상태를 어떻게 관리할 것인가?</td>
+                <td>재료 추출, 영양 분석, 글 평가, 초안 재작성을 단계적으로 실행합니다.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            공부할 때는 이렇게 나누면 좋습니다. RAG는 “근거 검색”, MCP는 “외부 도구 연결”,
+            Agent는 “도구 실행 흐름 관리”입니다.
+          </div>
+        </section>
+
+        <section class="section" id="rag-deep">
+          <h2>RAG 자세히 이해하기</h2>
+          <p class="lead">
+            RAG는 Retrieval-Augmented Generation의 줄임말입니다. 말 그대로 먼저 검색하고,
+            그 검색 결과로 LLM의 생성을 보강하는 방식입니다.
+          </p>
+
+          <div class="deep-block">
+            <h3>왜 RAG가 필요한가</h3>
+            <p>
+              LLM은 문장을 자연스럽게 만들 수 있지만, 우리 서비스 안에 있는 최신 게시글이나 댓글을
+              자동으로 알고 있지는 않습니다. 게시판에 어떤 재료 질문이 올라왔는지, 댓글에서 어떤 조리 팁이
+              나왔는지, 어떤 글이 비슷한 상황인지 알게 하려면 LLM에게 관련 자료를 넣어줘야 합니다.
+            </p>
+            <p>
+              RAG는 이 문제를 해결합니다. LLM이 답하기 전에 서비스 내부 데이터를 검색하고,
+              그 결과를 “참고 자료”로 넘겨줍니다. 그래서 AI 추천은 단순한 상상 답변이 아니라,
+              커뮤니티 데이터와 연결된 답변이 됩니다.
+            </p>
+          </div>
+
+          <div class="deep-block">
+            <h3>RAG 전체 흐름</h3>
+            <div class="diagram">
+              <div class="diagram-row">
+                <div class="diagram-key">1. 데이터 수집</div>
+                <div class="diagram-value">게시글 제목, 본문, 댓글, 태그, 조회 수 같은 데이터를 추천용 문서로 묶습니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">2. 문서화</div>
+                <div class="diagram-value">LLM이 참고하기 좋은 형태로 글의 상황, 재료, 댓글 조언, 태그를 정리합니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">3. 임베딩</div>
+                <div class="diagram-value">문서의 의미를 숫자 벡터로 바꿉니다. 의미가 비슷한 글은 벡터 공간에서도 가까워집니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">4. 벡터 저장</div>
+                <div class="diagram-value">PostgreSQL의 pgvector 컬럼에 임베딩을 저장합니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">5. 유사도 검색</div>
+                <div class="diagram-value">추천 요청이 들어오면 요청 내용도 임베딩하고, 기존 게시글 벡터와 비교합니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">6. 근거 필터링</div>
+                <div class="diagram-value">유사도가 낮거나, 재료 연결이 없거나, 댓글 근거가 없는 글은 참고 자료에서 제외합니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">7. 생성과 저장</div>
+                <div class="diagram-value">선별된 근거와 현재 재료를 LLM에 전달해 추천을 만들고, 추천 결과와 참고 게시글을 저장합니다.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="deep-block">
+            <h3>이 프로젝트에서 RAG 데이터로 무엇을 쓰는가</h3>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>데이터</th>
+                  <th>RAG에서의 의미</th>
+                  <th>주의할 점</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>게시글 제목</td>
+                  <td>사용자가 어떤 문제나 상황을 말하는지 파악하는 힌트</td>
+                  <td>제목만으로 판단하면 맥락이 부족할 수 있습니다.</td>
+                </tr>
+                <tr>
+                  <td>게시글 본문</td>
+                  <td>질문자의 상황, 보유 재료, 원하는 방향을 담은 문맥</td>
+                  <td>본문은 질문에 가깝기 때문에 레시피 근거로 과신하면 안 됩니다.</td>
+                </tr>
+                <tr>
+                  <td>댓글</td>
+                  <td>다른 사용자의 실제 조언, 조리 팁, 답변 근거</td>
+                  <td>이 프로젝트에서는 댓글 조언을 커뮤니티 근거로 더 중요하게 봅니다.</td>
+                </tr>
+                <tr>
+                  <td>태그</td>
+                  <td>재료나 주제를 빠르게 파악하는 분류 정보</td>
+                  <td>태그는 보조 정보이지, 본문과 댓글을 대체하지 않습니다.</td>
+                </tr>
+                <tr>
+                  <td>조회 수</td>
+                  <td>사용자 관심도를 보여주는 부가 신호</td>
+                  <td>조회 수가 높다고 항상 좋은 근거는 아닙니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="deep-block">
+            <h3>pgvector를 선택한 이유</h3>
+            <p>
+              벡터 검색을 하려면 Pinecone, FAISS, ChromaDB 같은 별도 벡터 DB를 쓸 수도 있습니다.
+              하지만 이 프로젝트는 이미 PostgreSQL을 사용하고 있습니다. 그래서 pgvector를 쓰면
+              게시글 데이터와 벡터 데이터를 같은 DB 안에서 관리할 수 있습니다.
+            </p>
+            <ul class="checklist">
+              <li><span class="check">✓</span><div>별도 벡터 DB 서버를 추가하지 않아도 됩니다.</div></li>
+              <li><span class="check">✓</span><div>게시글, 댓글, 추천 결과와 벡터 근거를 같은 트랜잭션/관계 안에서 추적하기 쉽습니다.</div></li>
+              <li><span class="check">✓</span><div>과제 규모에서는 아키텍처가 과하게 복잡해지는 것을 막을 수 있습니다.</div></li>
+              <li><span class="check">✓</span><div>나중에 검색 품질이 더 중요해지면 LlamaIndex 같은 오케스트레이션 도구를 추가할 수 있습니다.</div></li>
+            </ul>
+          </div>
+
+          <div class="deep-block">
+            <h3>COMMUNITY_RAG와 GENERAL_AI</h3>
+            <p>
+              RAG에서 중요한 태도는 “근거가 없으면 없다고 말하는 것”입니다. 비슷한 게시글이 없는데도
+              커뮤니티를 참고했다고 말하면 사용자를 속이는 결과가 됩니다.
+            </p>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>상태</th>
+                  <th>의미</th>
+                  <th>사용자에게 보여줄 설명</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>COMMUNITY_RAG</strong></td>
+                  <td>유사한 커뮤니티 게시글과 댓글을 1개 이상 근거로 사용한 추천</td>
+                  <td>“비슷한 커뮤니티 글과 댓글을 참고한 추천입니다.”</td>
+                </tr>
+                <tr>
+                  <td><strong>GENERAL_AI</strong></td>
+                  <td>쓸 만한 커뮤니티 근거가 없어 현재 입력과 일반 요리 지식으로 만든 추천</td>
+                  <td>“현재 입력과 일반 요리 지식을 기준으로 만든 추천입니다.”</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="deep-block">
+            <h3>RAG에서 자주 생기는 문제</h3>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>문제</th>
+                  <th>왜 생기는가</th>
+                  <th>설계 대응</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>엉뚱한 게시글이 근거로 잡힘</td>
+                  <td>문장 분위기는 비슷하지만 실제 재료가 다를 수 있습니다.</td>
+                  <td>유사도 기준과 최소 재료 겹침 기준을 함께 둡니다.</td>
+                </tr>
+                <tr>
+                  <td>추천 근거가 너무 약함</td>
+                  <td>게시글은 있지만 댓글 조언이 없을 수 있습니다.</td>
+                  <td>댓글 근거가 없는 글은 커뮤니티 근거로 쓰지 않습니다.</td>
+                </tr>
+                <tr>
+                  <td>오래된 추천이 계속 보임</td>
+                  <td>게시글이나 댓글이 수정되면 이전 추천의 근거가 달라질 수 있습니다.</td>
+                  <td>관련 글/댓글이 바뀌면 추천을 stale 상태로 보고 다시 추천하게 합니다.</td>
+                </tr>
+                <tr>
+                  <td>첫 사용자는 근거가 없음</td>
+                  <td>커뮤니티 데이터가 아직 적기 때문입니다.</td>
+                  <td>실패로 처리하지 않고 GENERAL_AI로 분리해 정직하게 표시합니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout">
+            RAG를 설명할 때 가장 중요한 문장: “AI가 답하기 전에 우리 서비스의 게시글과 댓글을 먼저 검색하고,
+            그 검색 결과를 근거로 추천을 생성한다.”
+          </div>
+        </section>
+
+        <section class="section" id="mcp-deep">
+          <h2>MCP 자세히 이해하기</h2>
+          <p class="lead">
+            MCP는 Model Context Protocol의 줄임말입니다. 쉽게 말하면 LLM이 외부 시스템을 도구처럼
+            사용할 수 있도록 만드는 약속입니다.
+          </p>
+
+          <div class="deep-block">
+            <h3>왜 MCP가 필요한가</h3>
+            <p>
+              LLM은 문장을 잘 만들지만, 그 자체로는 외부 API를 안전하게 호출하거나, API Key를 관리하거나,
+              외부 서비스의 응답 형식을 표준화하지 못합니다. MCP는 이런 외부 기능을 “도구 목록”으로
+              제공하고, LLM이나 Agent가 필요한 도구를 호출할 수 있게 해줍니다.
+            </p>
+            <p>
+              이 프로젝트에서는 공공 식품 영양정보 API가 외부 시스템입니다. 사용자가 “계란, 두부, 대파”를
+              입력하면, AI가 감으로 영양정보를 말하는 것이 아니라 MCP 도구를 통해 실제 메타데이터를
+              조회할 수 있습니다.
+            </p>
+          </div>
+
+          <div class="deep-block">
+            <h3>MCP 통신 흐름</h3>
+            <div class="diagram">
+              <div class="diagram-row">
+                <div class="diagram-key">initialize</div>
+                <div class="diagram-value">클라이언트가 MCP 서버에게 연결을 시작하고, 서버 정보와 지원 기능을 확인합니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">tools/list</div>
+                <div class="diagram-value">MCP 서버가 사용 가능한 도구 목록과 각 도구의 입력 형식을 알려줍니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">tools/call</div>
+                <div class="diagram-value">클라이언트가 특정 도구 이름과 입력값을 보내고, 서버가 결과를 돌려줍니다.</div>
+              </div>
+              <div class="diagram-row">
+                <div class="diagram-key">structuredContent</div>
+                <div class="diagram-value">도구 실행 결과를 사람이 읽는 문자열뿐 아니라 구조화된 데이터로도 전달합니다.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="deep-block">
+            <h3>JSON-RPC는 어떤 역할인가</h3>
+            <p>
+              JSON-RPC는 요청과 응답을 JSON 형식으로 주고받기 위한 규칙입니다. 핵심은
+              “어떤 method를 호출할지”, “어떤 params를 넘길지”, “그 요청의 id가 무엇인지”를 명확히
+              적는 것입니다.
+            </p>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>필드</th>
+                  <th>의미</th>
+                  <th>예시 감각</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>id</td>
+                  <td>요청과 응답을 연결하는 번호</td>
+                  <td>“내가 보낸 3번 요청에 대한 답이구나”</td>
+                </tr>
+                <tr>
+                  <td>method</td>
+                  <td>실행하고 싶은 동작 이름</td>
+                  <td>initialize, tools/list, tools/call</td>
+                </tr>
+                <tr>
+                  <td>params</td>
+                  <td>동작에 필요한 입력값</td>
+                  <td>도구 이름, 음식 이름, 재료 목록</td>
+                </tr>
+                <tr>
+                  <td>result</td>
+                  <td>성공했을 때의 응답</td>
+                  <td>도구 목록이나 영양정보 결과</td>
+                </tr>
+                <tr>
+                  <td>error</td>
+                  <td>실패했을 때의 응답</td>
+                  <td>없는 도구, 잘못된 입력, 내부 오류</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="deep-block">
+            <h3>우리 프로젝트의 MCP 도구</h3>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>도구</th>
+                  <th>하는 일</th>
+                  <th>AI 기능에서의 의미</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>search_food_items</strong></td>
+                  <td>한국어 음식명으로 공공 데이터 후보를 검색합니다.</td>
+                  <td>사용자 입력이 실제 데이터에 있는 음식인지 후보를 찾습니다.</td>
+                </tr>
+                <tr>
+                  <td><strong>get_food_nutrition</strong></td>
+                  <td>특정 음식의 영양정보를 가져옵니다.</td>
+                  <td>AI가 재료의 칼로리, 단백질, 나트륨 같은 사실 정보를 참고할 수 있습니다.</td>
+                </tr>
+                <tr>
+                  <td><strong>analyze_ingredients_nutrition</strong></td>
+                  <td>여러 재료를 한 번에 분석하고 합계/평균을 요약합니다.</td>
+                  <td>게시글 작성 보조 Agent가 재료 기반 피드백을 만들 때 사용할 수 있습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="deep-block">
+            <h3>MCP의 경계가 중요한 이유</h3>
+            <p>
+              MCP 도구가 할 일과 하지 말아야 할 일을 구분해야 시스템이 안정적입니다. 이 프로젝트에서
+              식품 메타데이터 MCP는 음식 데이터를 제공하는 역할입니다. 메뉴를 최종 결정하거나,
+              레시피를 생성하거나, 커뮤니티 근거를 주장하는 역할은 아닙니다.
+            </p>
+            <div>
+              <span class="mini-label">할 수 있음: 음식명 정규화</span>
+              <span class="mini-label">할 수 있음: 영양정보 조회</span>
+              <span class="mini-label">할 수 있음: API 오류 보고</span>
+              <span class="mini-label">하면 안 됨: 최종 메뉴 결정</span>
+              <span class="mini-label">하면 안 됨: 조리법 생성</span>
+              <span class="mini-label">하면 안 됨: 커뮤니티 근거 주장</span>
+            </div>
+          </div>
+
+          <div class="deep-block">
+            <h3>API Key와 권한 관리</h3>
+            <p>
+              외부 API Key는 프론트엔드에 두면 안 됩니다. 브라우저에 노출되는 순간 누구나 그 키를 볼 수
+              있기 때문입니다. 그래서 API Key는 백엔드 또는 MCP 서버의 환경변수로 관리하고, 프론트엔드는
+              백엔드에 요청만 보내는 구조가 안전합니다.
+            </p>
+            <ul class="checklist">
+              <li><span class="check">✓</span><div>API Key는 서버 환경변수에 둡니다.</div></li>
+              <li><span class="check">✓</span><div>로그에는 API Key를 출력하지 않습니다.</div></li>
+              <li><span class="check">✓</span><div>키가 없을 때는 서버가 터지는 대신 configuration_missing 같은 상태를 돌려줍니다.</div></li>
+              <li><span class="check">✓</span><div>외부 API 장애나 rate limit은 api_error 같은 구조화된 상태로 처리합니다.</div></li>
+            </ul>
+          </div>
+
+          <div class="deep-block">
+            <h3>MCP에서 자주 생기는 문제</h3>
+            <table class="study-table">
+              <thead>
+                <tr>
+                  <th>문제</th>
+                  <th>왜 중요한가</th>
+                  <th>대응 방식</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>입력값이 비어 있음</td>
+                  <td>외부 API에 의미 없는 요청을 보내게 됩니다.</td>
+                  <td>도구 입력 스키마와 서버 검증으로 막습니다.</td>
+                </tr>
+                <tr>
+                  <td>음식명이 여러 후보와 매칭됨</td>
+                  <td>AI가 잘못된 영양정보를 참고할 수 있습니다.</td>
+                  <td>후보 목록과 matchStatus를 함께 돌려줍니다.</td>
+                </tr>
+                <tr>
+                  <td>외부 API 장애</td>
+                  <td>AI 기능 전체가 실패한 것처럼 보일 수 있습니다.</td>
+                  <td>도구 실패를 구조화하고, 사용자에게는 제한적으로 안내합니다.</td>
+                </tr>
+                <tr>
+                  <td>도구 책임이 커짐</td>
+                  <td>MCP가 추천 생성까지 맡으면 RAG/Agent와 책임이 섞입니다.</td>
+                  <td>MCP는 사실 데이터 제공까지만 맡도록 경계를 둡니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout">
+            MCP를 설명할 때 가장 중요한 문장: “LLM이 직접 알 수 없는 외부 식품 영양정보를,
+            표준화된 도구 호출 방식으로 안전하게 가져오도록 만든 구조다.”
+          </div>
+        </section>
+
+        <section class="section" id="rag-mcp-together">
+          <h2>RAG와 MCP가 함께 쓰이는 방식</h2>
+          <p class="lead">
+            RAG와 MCP는 경쟁 관계가 아닙니다. 이 프로젝트에서는 서로 다른 근거를 제공하는 두 축으로
+            같이 사용됩니다.
+          </p>
+
+          <div class="deep-block">
+            <h3>AI 레시피 추천을 예로 보기</h3>
+            <ol class="path">
+              <li>
+                <span class="path-number">1</span>
+                <div><strong>사용자 입력</strong><br />사용자가 게시글 또는 직접 입력으로 보유 재료와 상황을 제공합니다.</div>
+              </li>
+              <li>
+                <span class="path-number">2</span>
+                <div><strong>RAG 검색</strong><br />비슷한 게시글과 댓글 조언을 찾아 커뮤니티 근거를 확보합니다.</div>
+              </li>
+              <li>
+                <span class="path-number">3</span>
+                <div><strong>MCP 메타데이터</strong><br />재료의 영양정보를 외부 공공 데이터에서 조회합니다.</div>
+              </li>
+              <li>
+                <span class="path-number">4</span>
+                <div><strong>LLM 생성</strong><br />커뮤니티 근거와 식품 메타데이터를 함께 참고해 추천 결과를 만듭니다.</div>
+              </li>
+              <li>
+                <span class="path-number">5</span>
+                <div><strong>결과 저장</strong><br />추천 내용, 참고 게시글, grounding 상태, 썸네일 등을 저장합니다.</div>
+              </li>
+            </ol>
+          </div>
+
+          <table class="study-table">
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th>RAG</th>
+                <th>MCP</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>데이터 성격</td>
+                <td>서비스 내부 커뮤니티 데이터</td>
+                <td>외부 공공 식품 데이터</td>
+              </tr>
+              <tr>
+                <td>질문</td>
+                <td>이 사용자 상황과 비슷한 글이 있었나?</td>
+                <td>이 재료의 실제 영양정보는 무엇인가?</td>
+              </tr>
+              <tr>
+                <td>결과</td>
+                <td>참고 게시글, 댓글 조언, 유사도</td>
+                <td>음식 후보, 영양성분, 매칭 상태</td>
+              </tr>
+              <tr>
+                <td>실패 시</td>
+                <td>GENERAL_AI로 정직하게 분리</td>
+                <td>configuration_missing, not_found, api_error 등으로 구조화</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            발표나 README에서 이렇게 말하면 좋습니다. “RAG는 우리 게시판 안의 경험을 찾고,
+            MCP는 외부 식품 데이터를 가져옵니다. LLM은 이 두 근거를 조합해 추천을 생성합니다.”
+          </div>
+        </section>
+
+        <section class="section" id="deliverable">
+          <h2>README 제출물 관점으로 정리하기</h2>
+          <p class="lead">
+            과제 제출물에는 소스뿐 아니라 README가 중요합니다. README는 “무엇을 만들었는지”보다
+            “어떤 요구사항을 어떤 구조로 만족했는지”를 설명하는 문서라고 보면 됩니다.
+          </p>
+
+          <div class="terms">
+            <div class="term">
+              <strong>1. 프로젝트 개요</strong>
+              <span>어떤 문제를 해결하는 AI 웹앱인지 한 문단으로 설명합니다.</span>
+            </div>
+            <div class="term">
+              <strong>2. 주요 구현 기능</strong>
+              <span>게시판 기본 기능과 AI 활용 기능을 나누어 정리합니다.</span>
+            </div>
+            <div class="term">
+              <strong>3. 전체 아키텍처</strong>
+              <span>React, NestJS, PostgreSQL, LLM, 외부 API가 어떻게 연결되는지 설명합니다.</span>
+            </div>
+            <div class="term">
+              <strong>4. AI 아키텍처</strong>
+              <span>RAG, MCP, Agent 각각의 데이터 흐름과 책임을 따로 설명합니다.</span>
+            </div>
+            <div class="term">
+              <strong>5. 데모</strong>
+              <span>화면 캡처와 함께 사용자가 어떤 흐름으로 기능을 쓰는지 보여줍니다.</span>
+            </div>
+            <div class="term">
+              <strong>6. 회고</strong>
+              <span>한계점, 어려웠던 점, 개선 아이디어를 솔직하게 정리합니다.</span>
+            </div>
+          </div>
+
+          <h3>설명할 때 좋은 순서</h3>
+          <ol class="path">
+            <li>
+              <span class="path-number">1</span>
+              <div><strong>기본 서비스 흐름</strong><br />회원가입, 로그인, 게시글, 댓글, 검색이 어떻게 이어지는지 설명합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">2</span>
+              <div><strong>AI 기능이 붙는 지점</strong><br />게시글 작성, 추천 요청, 재료 분석처럼 사용자가 체감하는 순간을 기준으로 설명합니다.</div>
+            </li>
+            <li>
+              <span class="path-number">3</span>
+              <div><strong>기술 선택 이유</strong><br />NestJS, PostgreSQL, pgvector, MCP 구조를 선택한 이유를 과제 요구사항과 연결합니다.</div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="quiz-panel" id="quiz">
+          <div class="quiz-header">
+            <div>
+              <h2>개념 퀴즈</h2>
+              <p class="lead">정답을 고른 뒤 채점해보세요. 틀린 문제는 해설을 읽고 다시 풀 수 있습니다.</p>
+            </div>
+            <div class="score" id="scoreBox">점수: 0 / 15</div>
+          </div>
+
+          <form id="quizForm">
+            <div class="question" data-answer="b">
+              <h3>1. Controller의 가장 가까운 역할은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q1" value="a" />데이터베이스 테이블을 직접 설계한다.</label>
+                <label class="option"><input type="radio" name="q1" value="b" />요청이 들어오는 입구에서 어떤 기능인지 연결한다.</label>
+                <label class="option"><input type="radio" name="q1" value="c" />비밀번호를 암호화하는 알고리즘만 담당한다.</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. Controller는 요청의 입구 역할을 합니다." data-bad="다시 생각해보세요. Controller는 실제 로직보다 요청을 받아 연결하는 역할에 가깝습니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <h3>2. Service를 따로 두는 가장 큰 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q2" value="a" />파일 개수를 무조건 늘리기 위해서</label>
+                <label class="option"><input type="radio" name="q2" value="b" />HTML 화면을 꾸미기 위해서</label>
+                <label class="option"><input type="radio" name="q2" value="c" />실제 처리 로직을 요청 입구와 분리하기 위해서</label>
+              </div>
+              <div class="feedback" data-good="좋아요. Service는 비즈니스 로직의 중심입니다." data-bad="핵심은 책임 분리입니다. 요청을 받는 곳과 실제 처리하는 곳을 나눕니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <h3>3. 회원가입에서 비밀번호 원문을 저장하지 않는 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q3" value="a" />데이터가 유출되어도 피해를 줄이기 위해서</label>
+                <label class="option"><input type="radio" name="q3" value="b" />로그인 속도를 느리게 만들기 위해서</label>
+                <label class="option"><input type="radio" name="q3" value="c" />사용자 이메일을 숨기기 위해서</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. 서버는 원문이 아니라 검증 가능한 해시를 저장합니다." data-bad="비밀번호 해시는 보안 사고가 났을 때 원문 노출을 막기 위한 기본 장치입니다."></div>
+            </div>
+
+            <div class="question" data-answer="b">
+              <h3>4. JWT는 로그인 이후 주로 어떤 역할을 하나요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q4" value="a" />게시글 제목을 자동으로 추천한다.</label>
+                <label class="option"><input type="radio" name="q4" value="b" />요청한 사용자가 누구인지 서버가 확인하게 해준다.</label>
+                <label class="option"><input type="radio" name="q4" value="c" />데이터베이스를 자동으로 백업한다.</label>
+              </div>
+              <div class="feedback" data-good="맞습니다. JWT는 로그인 상태를 증명하는 표식처럼 쓰입니다." data-bad="JWT의 핵심은 사용자를 식별하고 보호된 요청을 통과시키는 것입니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <h3>5. 게시글 수정에서 작성자 확인이 필요한 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q5" value="a" />조회 수를 더 많이 올리기 위해서</label>
+                <label class="option"><input type="radio" name="q5" value="b" />태그 이름을 짧게 만들기 위해서</label>
+                <label class="option"><input type="radio" name="q5" value="c" />다른 사용자가 남의 글을 바꾸지 못하게 하기 위해서</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. 인증과 권한은 다른 개념입니다." data-bad="로그인 여부만으로는 부족합니다. 그 글의 작성자인지도 확인해야 합니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <h3>6. RAG를 사용하는 이유로 가장 알맞은 것은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q6" value="a" />AI가 서비스 내부 자료를 참고해 더 근거 있는 답을 하게 하기 위해서</label>
+                <label class="option"><input type="radio" name="q6" value="b" />로그인을 완전히 없애기 위해서</label>
+                <label class="option"><input type="radio" name="q6" value="c" />댓글을 전부 삭제하기 위해서</label>
+              </div>
+              <div class="feedback" data-good="좋습니다. RAG는 검색된 근거를 AI 응답에 연결하는 방식입니다." data-bad="RAG의 목적은 AI 답변에 참고 자료와 서비스 맥락을 붙이는 것입니다."></div>
+            </div>
+
+            <div class="question" data-answer="b">
+              <h3>7. 임베딩은 어떤 개념에 가장 가까운가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q7" value="a" />사용자 비밀번호를 다시 원문으로 복구하는 과정</label>
+                <label class="option"><input type="radio" name="q7" value="b" />문장의 의미를 숫자 벡터로 표현하는 과정</label>
+                <label class="option"><input type="radio" name="q7" value="c" />프론트엔드 색상을 정하는 과정</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. 임베딩 덕분에 의미가 비슷한 글을 비교할 수 있습니다." data-bad="임베딩은 의미를 숫자 형태로 바꾸어 비교할 수 있게 만드는 개념입니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <h3>8. 과제 요구사항에서 MCP 기능을 설명할 때 가장 중요한 관점은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q8" value="a" />프론트엔드 화면 색상을 자동으로 고르는 기능</label>
+                <label class="option"><input type="radio" name="q8" value="b" />게시글 목록의 페이지 번호만 계산하는 기능</label>
+                <label class="option"><input type="radio" name="q8" value="c" />LLM이 외부 시스템이나 데이터를 도구처럼 호출할 수 있게 하는 기능</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. MCP는 외부 도구와 LLM 사이의 연결 규칙에 가깝습니다." data-bad="MCP는 화면이나 페이지 계산보다는 외부 시스템 호출을 표준화하는 쪽에 가깝습니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <h3>9. Agent 기능에서 무한 루프 방지가 필요한 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q9" value="a" />도구 호출이 끝없이 반복되면 비용과 응답 시간이 커지고 서비스가 불안정해질 수 있기 때문</label>
+                <label class="option"><input type="radio" name="q9" value="b" />댓글을 반드시 하나만 작성해야 하기 때문</label>
+                <label class="option"><input type="radio" name="q9" value="c" />데이터베이스 테이블 이름을 숨겨야 하기 때문</label>
+              </div>
+              <div class="feedback" data-good="맞습니다. Agent는 스스로 단계를 반복할 수 있으므로 호출 횟수와 실패 처리가 중요합니다." data-bad="Agent의 핵심 위험은 도구 사용 흐름이 통제되지 않는 상황입니다."></div>
+            </div>
+
+            <div class="question" data-answer="b">
+              <h3>10. README에서 AI 기능을 설명할 때 가장 좋은 방식은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q10" value="a" />사용한 기술 이름만 나열한다.</label>
+                <label class="option"><input type="radio" name="q10" value="b" />사용자 흐름, 데이터 흐름, 기술 선택 이유를 함께 설명한다.</label>
+                <label class="option"><input type="radio" name="q10" value="c" />퀴즈 점수만 적는다.</label>
+              </div>
+              <div class="feedback" data-good="좋아요. 제출 문서는 기능, 구조, 선택 이유가 같이 보여야 설득력이 생깁니다." data-bad="기술 이름만 쓰면 구현 의도를 알기 어렵습니다. 흐름과 선택 이유를 같이 설명해야 합니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <h3>11. RAG에서 게시글 본문보다 댓글 근거를 더 조심스럽게 보는 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q11" value="a" />본문은 주로 질문자의 상황이고, 댓글은 실제 조언이나 답변일 가능성이 높기 때문</label>
+                <label class="option"><input type="radio" name="q11" value="b" />본문은 데이터베이스에 저장되지 않기 때문</label>
+                <label class="option"><input type="radio" name="q11" value="c" />댓글은 항상 LLM이 직접 작성하기 때문</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. 질문과 답변의 성격을 구분해야 근거 품질이 좋아집니다." data-bad="본문은 상황 설명일 수 있고, 댓글이 실제 조리 팁이나 답변 근거일 수 있다는 점을 떠올려보세요."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <h3>12. pgvector를 이 프로젝트에서 먼저 선택한 이유로 가장 알맞은 것은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q12" value="a" />React 화면을 더 예쁘게 만들기 위해서</label>
+                <label class="option"><input type="radio" name="q12" value="b" />JWT 토큰을 없애기 위해서</label>
+                <label class="option"><input type="radio" name="q12" value="c" />이미 쓰는 PostgreSQL 안에서 게시글 데이터와 벡터 검색을 함께 관리할 수 있기 때문</label>
+              </div>
+              <div class="feedback" data-good="맞습니다. 과제 규모에서는 DB 경계를 늘리지 않는 장점이 큽니다." data-bad="pgvector는 PostgreSQL 안에서 벡터 검색을 가능하게 하는 선택입니다."></div>
+            </div>
+
+            <div class="question" data-answer="b">
+              <h3>13. GENERAL_AI 상태를 따로 두는 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q13" value="a" />무조건 AI 추천을 실패 처리하기 위해서</label>
+                <label class="option"><input type="radio" name="q13" value="b" />커뮤니티 근거가 없을 때도 그 사실을 숨기지 않고 정직하게 표시하기 위해서</label>
+                <label class="option"><input type="radio" name="q13" value="c" />사용자 회원가입을 막기 위해서</label>
+              </div>
+              <div class="feedback" data-good="좋아요. 근거가 없으면 없다고 말하는 것이 RAG 품질의 핵심입니다." data-bad="GENERAL_AI는 실패가 아니라, 커뮤니티 근거 없이 생성된 정상 경로입니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <h3>14. MCP 도구가 최종 메뉴를 직접 결정하지 않도록 경계를 두는 이유는 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q14" value="a" />MCP는 외부 데이터 제공 역할이고, 추천 판단은 RAG/LLM/Agent 흐름의 책임이기 때문</label>
+                <label class="option"><input type="radio" name="q14" value="b" />MCP는 숫자를 전혀 다룰 수 없기 때문</label>
+                <label class="option"><input type="radio" name="q14" value="c" />외부 API는 항상 메뉴명을 삭제하기 때문</label>
+              </div>
+              <div class="feedback" data-good="정답입니다. 도구의 책임을 좁게 유지해야 구조가 선명해집니다." data-bad="MCP는 사실 데이터 제공에 집중하고, 메뉴 추천 판단은 다른 흐름이 맡는다고 보면 됩니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <h3>15. RAG와 MCP가 함께 쓰일 때 가장 알맞은 설명은 무엇인가요?</h3>
+              <div class="options">
+                <label class="option"><input type="radio" name="q15" value="a" />둘 다 같은 데이터베이스 테이블 이름만 바꾸는 기술이다.</label>
+                <label class="option"><input type="radio" name="q15" value="b" />RAG가 외부 API Key를 숨기고, MCP가 게시글 유사도를 계산한다.</label>
+                <label class="option"><input type="radio" name="q15" value="c" />RAG는 내부 커뮤니티 근거를 찾고, MCP는 외부 식품 메타데이터를 가져와 LLM의 근거를 보강한다.</label>
+              </div>
+              <div class="feedback" data-good="정확합니다. 이 문장은 README나 발표에도 그대로 쓸 수 있는 핵심 설명입니다." data-bad="RAG와 MCP는 서로 다른 종류의 근거를 가져오는 역할로 구분하면 이해하기 쉽습니다."></div>
+            </div>
+
+            <div class="quiz-actions">
+              <button class="btn" type="button" id="gradeBtn">채점하기</button>
+              <button class="btn secondary" type="button" id="resetBtn">다시 풀기</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="summary-panel" id="scenario">
+          <h2>시나리오 문제</h2>
+          <p class="lead">
+            정답이 하나로 딱 떨어지는 문제보다, 흐름을 설명해보는 연습이 백엔드 공부에 더 도움이 됩니다.
+          </p>
+
+          <div class="question">
+            <h3>상황 1</h3>
+            <p>
+              사용자가 게시글을 수정했습니다. 그런데 이 게시글을 근거로 예전에 만들어둔 AI 추천 결과가 있습니다.
+              이 추천 결과를 그대로 최신 정보라고 보여줘도 괜찮을까요?
+            </p>
+            <textarea class="short-answer" placeholder="내 생각을 적어보세요."></textarea>
+          </div>
+
+          <div class="question">
+            <h3>상황 2</h3>
+            <p>
+              어떤 사용자가 로그인은 했지만, 다른 사람이 작성한 댓글을 삭제하려고 합니다.
+              서버는 어떤 기준으로 이 요청을 막아야 할까요?
+            </p>
+            <textarea class="short-answer" placeholder="내 생각을 적어보세요."></textarea>
+          </div>
+
+          <div class="question">
+            <h3>상황 3</h3>
+            <p>
+              README에 RAG, MCP, Agent를 모두 구현했다고 적으려고 합니다. 단순히 기술명을 나열하는 대신,
+              각각을 어떤 사용자 기능과 연결해서 설명하면 좋을까요?
+            </p>
+            <textarea class="short-answer" placeholder="내 생각을 적어보세요."></textarea>
+          </div>
+
+          <div class="question">
+            <h3>상황 4</h3>
+            <p>
+              사용자가 “계란이랑 두부가 있는데 뭐 해먹을까?”라고 입력했습니다. 이때 RAG는 어떤 정보를 찾고,
+              MCP는 어떤 정보를 가져오면 좋을까요?
+            </p>
+            <textarea class="short-answer" placeholder="RAG와 MCP 역할을 나눠서 적어보세요."></textarea>
+          </div>
+
+          <div class="question">
+            <h3>상황 5</h3>
+            <p>
+              유사도 검색 결과는 나왔지만, 비슷한 게시글에 댓글 조언이 하나도 없습니다. 이 글을
+              COMMUNITY_RAG 근거로 써도 될까요?
+            </p>
+            <textarea class="short-answer" placeholder="근거 품질 관점에서 적어보세요."></textarea>
+          </div>
+
+          <div class="question">
+            <h3>상황 6</h3>
+            <p>
+              식품 공공 데이터 API Key가 설정되지 않았습니다. MCP 도구는 서버를 바로 죽이는 대신
+              어떤 식으로 응답하는 것이 좋을까요?
+            </p>
+            <textarea class="short-answer" placeholder="실패 처리와 사용자 경험을 함께 생각해보세요."></textarea>
+          </div>
+
+          <div class="quiz-actions">
+            <button class="btn secondary" type="button" id="showGuideBtn">생각 가이드 보기</button>
+          </div>
+
+          <div class="reflection hidden" id="guideBox">
+            <div class="reflection-item">
+              <strong>상황 1 가이드</strong>
+              게시글 내용이 바뀌면 그 글을 근거로 만든 추천 결과도 오래된 정보가 될 수 있습니다.
+              그래서 추천 결과를 다시 만들거나, 최소한 최신 근거가 아닐 수 있다는 상태를 관리하는 것이 좋습니다.
+            </div>
+            <div class="reflection-item">
+              <strong>상황 2 가이드</strong>
+              로그인 여부와 권한은 다릅니다. 서버는 토큰으로 사용자를 확인한 뒤, 댓글의 작성자 ID와
+              요청한 사용자 ID가 같은지 비교해야 합니다.
+            </div>
+            <div class="reflection-item">
+              <strong>상황 3 가이드</strong>
+              RAG는 유사 게시글 기반 추천, MCP는 외부 식품 영양정보 조회, Agent는 게시글 초안 작성 보조처럼
+              사용자가 실제로 경험하는 기능과 연결해서 설명하면 좋습니다.
+            </div>
+            <div class="reflection-item">
+              <strong>상황 4 가이드</strong>
+              RAG는 계란/두부와 비슷한 재료 상황의 기존 게시글과 댓글 조언을 찾습니다. MCP는 계란과 두부의
+              실제 영양정보, 후보 매칭 상태, 단백질이나 나트륨 같은 메타데이터를 가져옵니다.
+            </div>
+            <div class="reflection-item">
+              <strong>상황 5 가이드</strong>
+              댓글 조언이 없다면 커뮤니티의 실제 답변 근거가 약합니다. 이 경우 COMMUNITY_RAG라고 주장하기보다
+              GENERAL_AI로 분리하거나, 근거 부족 상태를 사용자에게 정직하게 보여주는 편이 좋습니다.
+            </div>
+            <div class="reflection-item">
+              <strong>상황 6 가이드</strong>
+              API Key가 없을 때는 서버가 갑자기 죽는 것보다 configuration_missing 같은 구조화된 상태를
+              반환하는 것이 좋습니다. 그래야 Agent나 백엔드가 실패를 해석하고 대체 흐름을 선택할 수 있습니다.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const form = document.getElementById("quizForm");
+      const gradeBtn = document.getElementById("gradeBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const scoreBox = document.getElementById("scoreBox");
+      const progressText = document.getElementById("progressText");
+      const progressBar = document.getElementById("progressBar");
+      const showGuideBtn = document.getElementById("showGuideBtn");
+      const guideBox = document.getElementById("guideBox");
+      const questions = Array.from(document.querySelectorAll(".question[data-answer]"));
+
+      function updateProgress(correctCount = 0) {
+        const total = questions.length;
+        const percent = total ? Math.round((correctCount / total) * 100) : 0;
+        scoreBox.textContent = `점수: ${correctCount} / ${total}`;
+        progressText.textContent = `퀴즈 ${correctCount} / ${total}`;
+        progressBar.style.width = `${percent}%`;
+      }
+
+      function gradeQuiz() {
+        let correctCount = 0;
+
+        questions.forEach((question, index) => {
+          const answer = question.dataset.answer;
+          const selected = form.querySelector(`input[name="q${index + 1}"]:checked`);
+          const feedback = question.querySelector(".feedback");
+          const isCorrect = selected && selected.value === answer;
+
+          if (isCorrect) {
+            correctCount += 1;
+            feedback.textContent = feedback.dataset.good;
+            feedback.className = "feedback good";
+          } else {
+            feedback.textContent = feedback.dataset.bad;
+            feedback.className = "feedback bad";
+          }
+        });
+
+        updateProgress(correctCount);
+      }
+
+      function resetQuiz() {
+        form.reset();
+        questions.forEach((question) => {
+          const feedback = question.querySelector(".feedback");
+          feedback.textContent = "";
+          feedback.className = "feedback";
+        });
+        updateProgress(0);
+      }
+
+      gradeBtn.addEventListener("click", gradeQuiz);
+      resetBtn.addEventListener("click", resetQuiz);
+      showGuideBtn.addEventListener("click", () => {
+        guideBox.classList.toggle("hidden");
+        showGuideBtn.textContent = guideBox.classList.contains("hidden")
+          ? "생각 가이드 보기"
+          : "생각 가이드 숨기기";
+      });
+
+      updateProgress(0);
+    </script>
+  </body>
+</html>

@@ -18,6 +18,7 @@ export type PostListItem = {
 
 export type PostRead = PostListItem & {
   content: string
+  tag_names: string[]
   updated_at: string
 }
 
