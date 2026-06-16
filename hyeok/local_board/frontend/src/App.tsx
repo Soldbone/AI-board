@@ -127,7 +127,7 @@ function formatDate(value: string) {
 }
 
 function buildDetailSimilarTagNames(post: PostRead) {
-  return [post.region, post.store_name, post.category].filter(
+  return [...post.tag_names, post.region, post.store_name, post.category].filter(
     (value): value is string => Boolean(value),
   )
 }

@@ -32,6 +32,7 @@ def get_similar_posts(
             limit=request_data.limit,
         )
     except Exception:
+        db.rollback()
         items = []
 
     if request_data.exclude_post_id is not None:
