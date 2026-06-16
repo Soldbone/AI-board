@@ -24,9 +24,7 @@ export class PostDraftAgentRunner {
   async run(input: PostDraftAgentInput): Promise<PostDraftAgentResponse> {
     let state = this.createInitialState(input);
 
-    state = this.runNode(state, 'analyze_request', (currentState) =>
-      this.analyzeRequest(currentState),
-    );
+    state = this.analyzeRequest(state);
 
     if (state.missingInfoQuestions.length > 0) {
       state = this.runNode(state, 'ask_followup_questions', (currentState) => ({
@@ -37,22 +35,27 @@ export class PostDraftAgentRunner {
       return this.toResponse(state);
     }
 
-    state = this.runNode(state, 'extract_ingredients', (currentState) =>
-      this.runTool(
-        currentState,
-        'extract_ingredients',
-        '초안에서 재료와 조건 추출',
-        (toolState) => {
-          const result = this.extractIngredientsTool.run(toolState.input);
+    state = await this.runAsyncNode(
+      state,
+      'extract_ingredients',
+      (currentState) =>
+        this.runAsyncTool(
+          currentState,
+          'extract_ingredients',
+          '초안에서 재료와 조건 추출',
+          async (toolState) => {
+            const result = await this.extractIngredientsTool.run(
+              toolState.input,
+            );
 
-          return {
-            ...toolState,
-            ingredients: result.ingredients,
-            signals: result.signals,
-            missingInfoQuestions: result.missingInfoQuestions,
-          };
-        },
-      ),
+            return {
+              ...toolState,
+              ingredients: result.ingredients,
+              signals: result.signals,
+              missingInfoQuestions: result.missingInfoQuestions,
+            };
+          },
+        ),
     );
 
     if (state.missingInfoQuestions.length > 0) {
@@ -60,23 +63,26 @@ export class PostDraftAgentRunner {
       return this.toResponse(state);
     }
 
-    state = await this.runAsyncNode(state, 'analyze_food_metadata', (currentState) =>
-      this.runAsyncTool(
-        currentState,
-        'analyze_food_metadata',
-        `${currentState.ingredients.join(', ')} MCP 영양성분 조회`,
-        async (toolState) => {
-          const result = await this.analyzeFoodMetadataTool.run(
-            toolState.ingredients,
-          );
+    state = await this.runAsyncNode(
+      state,
+      'analyze_food_metadata',
+      (currentState) =>
+        this.runAsyncTool(
+          currentState,
+          'analyze_food_metadata',
+          `${currentState.ingredients.join(', ')} MCP 영양성분 조회`,
+          async (toolState) => {
+            const result = await this.analyzeFoodMetadataTool.run(
+              toolState.ingredients,
+            );
 
-          return {
-            ...toolState,
-            nutritionAnalysis: result.analysis,
-            nutritionSummary: result.summary,
-          };
-        },
-      ),
+            return {
+              ...toolState,
+              nutritionAnalysis: result.analysis,
+              nutritionSummary: result.summary,
+            };
+          },
+        ),
     );
 
     state = this.runNode(state, 'evaluate_post_success', (currentState) =>
@@ -96,30 +102,33 @@ export class PostDraftAgentRunner {
       ),
     );
 
-    state = await this.runAsyncNode(state, 'rewrite_post_draft', (currentState) =>
-      this.runAsyncTool(
-        currentState,
-        'rewrite_post_draft',
-        '게시글 초안 재작성',
-        async (toolState) => {
-          const result = await this.rewritePostDraftTool.run({
-            draft: toolState.input,
-            ingredients: toolState.ingredients,
-            signals: toolState.signals,
-            nutritionAnalysis: toolState.nutritionAnalysis,
-            nutritionSummary: toolState.nutritionSummary,
-            successPlan: toolState.successPlan,
-          });
+    state = await this.runAsyncNode(
+      state,
+      'rewrite_post_draft',
+      (currentState) =>
+        this.runAsyncTool(
+          currentState,
+          'rewrite_post_draft',
+          '게시글 초안 재작성',
+          async (toolState) => {
+            const result = await this.rewritePostDraftTool.run({
+              draft: toolState.input,
+              ingredients: toolState.ingredients,
+              signals: toolState.signals,
+              nutritionAnalysis: toolState.nutritionAnalysis,
+              nutritionSummary: toolState.nutritionSummary,
+              successPlan: toolState.successPlan,
+            });
 
-          return {
-            ...toolState,
-            status: result.source === 'OPENAI' ? 'completed' : 'fallback',
-            suggestedTitle: result.suggestedTitle,
-            suggestedBody: result.suggestedBody,
-            suggestedTags: result.suggestedTags,
-          };
-        },
-      ),
+            return {
+              ...toolState,
+              status: result.source === 'OPENAI' ? 'completed' : 'fallback',
+              suggestedTitle: result.suggestedTitle,
+              suggestedBody: result.suggestedBody,
+              suggestedTags: result.suggestedTags,
+            };
+          },
+        ),
     );
 
     return this.toResponse(state);
@@ -157,7 +166,6 @@ export class PostDraftAgentRunner {
 
   private analyzeRequest(state: PostDraftAgentState): PostDraftAgentState {
     const text = `${state.input.title} ${state.input.content} ${state.input.additionalRequest}`;
-    const preliminary = this.extractIngredientsTool.run(state.input);
 
     if (text.replace(/\s/g, '').length < 8) {
       return {
@@ -170,9 +178,6 @@ export class PostDraftAgentRunner {
 
     return {
       ...state,
-      ingredients: preliminary.ingredients,
-      signals: preliminary.signals,
-      missingInfoQuestions: preliminary.missingInfoQuestions,
     };
   }
 
@@ -182,10 +187,19 @@ export class PostDraftAgentRunner {
     action: (state: PostDraftAgentState) => PostDraftAgentState,
   ) {
     if (state.stepCount >= state.maxSteps) {
-      return this.failStep(state, node, '최대 추론 단계를 초과해 중단했습니다.');
+      return this.failStep(
+        state,
+        node,
+        '최대 추론 단계를 초과해 중단했습니다.',
+      );
     }
 
-    const startedState = this.addStep(state, node, 'started', '노드를 실행합니다.');
+    const startedState = this.addStep(
+      state,
+      node,
+      'started',
+      '노드를 실행합니다.',
+    );
 
     try {
       const nextState = action(startedState);
@@ -210,10 +224,19 @@ export class PostDraftAgentRunner {
     action: (state: PostDraftAgentState) => Promise<PostDraftAgentState>,
   ) {
     if (state.stepCount >= state.maxSteps) {
-      return this.failStep(state, node, '최대 추론 단계를 초과해 중단했습니다.');
+      return this.failStep(
+        state,
+        node,
+        '최대 추론 단계를 초과해 중단했습니다.',
+      );
     }
 
-    const startedState = this.addStep(state, node, 'started', '노드를 실행합니다.');
+    const startedState = this.addStep(
+      state,
+      node,
+      'started',
+      '노드를 실행합니다.',
+    );
 
     try {
       const nextState = await action(startedState);
@@ -247,7 +270,12 @@ export class PostDraftAgentRunner {
 
       return this.completeTool(nextState, toolName, inputSummary);
     } catch (error) {
-      return this.failTool(state, toolName, inputSummary, this.getErrorMessage(error));
+      return this.failTool(
+        state,
+        toolName,
+        inputSummary,
+        this.getErrorMessage(error),
+      );
     }
   }
 
@@ -266,7 +294,12 @@ export class PostDraftAgentRunner {
 
       return this.completeTool(nextState, toolName, inputSummary);
     } catch (error) {
-      return this.failTool(state, toolName, inputSummary, this.getErrorMessage(error));
+      return this.failTool(
+        state,
+        toolName,
+        inputSummary,
+        this.getErrorMessage(error),
+      );
     }
   }
 
@@ -420,6 +453,8 @@ export class PostDraftAgentRunner {
   }
 
   private getErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return error instanceof Error
+      ? error.message
+      : '알 수 없는 오류가 발생했습니다.';
   }
 }

@@ -104,7 +104,8 @@ describe('AiAgentService', () => {
   it('creates a post draft using food metadata tool evidence', async () => {
     const result = await service.assistPostDraft({
       title: '계란 김치',
-      content: '계란, 김치, 양파가 있어요. 10분 안에 저녁으로 매콤하게 먹고 싶어요.',
+      content:
+        '계란, 김치, 양파가 있어요. 10분 안에 저녁으로 매콤하게 먹고 싶어요.',
       additionalRequest: '초보자도 쉬운 메뉴면 좋겠어요',
     });
 
@@ -118,6 +119,18 @@ describe('AiAgentService', () => {
       'analyze_food_metadata',
     );
     expect(foodMetadataService.analyzeIngredientsNutrition).toHaveBeenCalled();
+  });
+
+  it('keeps cooking actions out of extracted ingredients', async () => {
+    const result = await service.assistPostDraft({
+      title: '참치 두부',
+      content: '참치, 두부로 만들고 싶어요. 10분 안에 간단하게 먹고 싶어요.',
+    });
+
+    expect(result.ingredients).toEqual(
+      expect.arrayContaining(['참치', '두부']),
+    );
+    expect(result.ingredients).not.toContain('만들고');
   });
 
   it('reflects attention-grabbing requests without replacing the community post', async () => {
