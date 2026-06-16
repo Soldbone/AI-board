@@ -24,7 +24,7 @@ class Tag(Base):
     normalized_name: Mapped[str] = mapped_column(String(100), index=True)
     tag_type: Mapped[TagType] = mapped_column(
         enum_column_type(TagType, "tag_type"),
-        default=TagType.GENERAL,
+        default=TagType.CHARACTER,
     )
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[TagStatus] = mapped_column(

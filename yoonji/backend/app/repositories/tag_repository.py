@@ -12,6 +12,7 @@ def list_active_tags(
     normalized_query: str | None,
     tag_type: TagType | None,
     limit: int,
+    tag_types: set[TagType] | None = None,
 ) -> list[Tag]:
     statement = select(Tag).where(Tag.status == TagStatus.ACTIVE)
 
@@ -20,6 +21,8 @@ def list_active_tags(
 
     if tag_type is not None:
         statement = statement.where(Tag.tag_type == tag_type)
+    elif tag_types:
+        statement = statement.where(Tag.tag_type.in_(tag_types))
 
     statement = statement.order_by(
         Tag.usage_count.desc(),

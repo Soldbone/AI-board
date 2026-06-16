@@ -12,6 +12,7 @@ import SimilarPostList from "../components/post/SimilarPostList";
 import ProductInfoCard from "../components/product/ProductInfoCard";
 import { useComments } from "../hooks/useComments";
 import { getApiErrorMessage, usePostDetail } from "../hooks/usePosts";
+import { formatPriceRange } from "../utils/priceRange";
 
 
 function PostDetailPage({
@@ -178,7 +179,7 @@ function PostDetailPage({
             </div>
             <div>
               <dt>가격대</dt>
-              <dd>{post.figure_info.price_range || "-"}</dd>
+              <dd>{formatPriceRange(post.figure_info.price_range)}</dd>
             </div>
             <div>
               <dt>만족도</dt>
@@ -194,18 +195,11 @@ function PostDetailPage({
         ))}
       </section>
 
-      {post.tags.length > 0 && (
-        <div className="tag-row" aria-label="tags">
-          {post.tags.map((tag) => (
-            <span key={tag.id}>{tag.name}</span>
-          ))}
-        </div>
-      )}
-
-      </section>
-
       {post.images.length > 0 && (
-        <section className="image-grid" aria-label="post images">
+        <section
+          className="image-grid detail-inline-image-grid"
+          aria-label="post images"
+        >
           {post.images.map((image) => (
             <img
               key={image.id}
@@ -215,6 +209,16 @@ function PostDetailPage({
           ))}
         </section>
       )}
+
+      {post.tags.length > 0 && (
+        <div className="tag-row" aria-label="tags">
+          {post.tags.map((tag) => (
+            <span key={tag.id}>{tag.name}</span>
+          ))}
+        </div>
+      )}
+
+      </section>
 
       {post.board.code === "REVIEW" && (
         <>
@@ -233,7 +237,7 @@ function PostDetailPage({
         />
       )}
 
-      {["REVIEW", "QUESTION"].includes(post.board.code) && (
+      {post.board.code === "QUESTION" && (
         <AgentAnswerBox
           autoRunVersion={post.updated_at}
           boardCode={post.board.code}

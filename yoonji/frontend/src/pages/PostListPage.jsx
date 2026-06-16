@@ -27,11 +27,12 @@ function PostListPage({
   const [page, setPage] = useState(1);
   const [boardErrorMessage, setBoardErrorMessage] = useState("");
   const [tagErrorMessage, setTagErrorMessage] = useState("");
+  const pageSize = boardCode === "REVIEW" ? 12 : PAGE_SIZE;
   const posts = usePostList({
     boardCode,
     page,
     q: appliedSearchQuery,
-    size: PAGE_SIZE,
+    size: pageSize,
     sort,
     tag: tagFilter,
   });
@@ -135,9 +136,11 @@ function PostListPage({
   }
 
   const selectedBoard = boards.find((board) => board.code === boardCode);
+  const pageStackClassName =
+    boardCode === "REVIEW" ? "page-stack review-list-page" : "page-stack";
 
   return (
-    <div className="page-stack">
+    <div className={pageStackClassName}>
       <section className="page-section" aria-labelledby="post-list-title">
         <div className="section-heading">
           <div>
@@ -273,6 +276,7 @@ function PostListPage({
         {tagFilter && <p className="empty-text">선택한 태그: {tagFilter}</p>}
 
         <PostList
+          boardCode={boardCode}
           errorMessage={posts.errorMessage}
           isLoading={posts.isLoading}
           posts={posts.posts}

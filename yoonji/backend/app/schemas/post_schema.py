@@ -28,7 +28,6 @@ class PostFigureInfoRequest(BaseModel):
     manufacturer: str | None = Field(default=None, max_length=200)
     figure_type: FigureType | None = None
     price_amount: Decimal | None = Field(default=None, ge=0)
-    price_range: PriceRange | None = None
     purchase_date: date | None = None
     satisfaction_score: int | None = Field(default=None, ge=1, le=5)
     target_type: FigureTargetType = FigureTargetType.REVIEW_TARGET

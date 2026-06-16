@@ -15,6 +15,7 @@ from app.models.enums import (
     FigureTargetType,
     PostStatus,
     TagStatus,
+    TagType,
 )
 from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
@@ -34,6 +35,8 @@ def build_post_document(post: Post) -> Document | None:
 
     figure_info = _primary_figure_info(post)
     tags = _active_tag_names(post)
+    character_tags = _active_tag_names(post, tag_type=TagType.CHARACTER)
+    work_tags = _active_tag_names(post, tag_type=TagType.WORK)
     metadata = _compact_metadata(
         {
             "source_type": ContentSourceType.POST,
@@ -51,6 +54,8 @@ def build_post_document(post: Post) -> Document | None:
                 figure_info.satisfaction_score if figure_info else None
             ),
             "tags": tags,
+            "character_tags": character_tags,
+            "work_tags": work_tags,
             "published_at": post.published_at,
             "created_at": post.created_at,
             "updated_at": post.updated_at,
@@ -160,13 +165,18 @@ def _primary_figure_info(post: Post) -> PostFigureInfo | None:
     return post.figure_infos[0] if post.figure_infos else None
 
 
-def _active_tag_names(post: Post) -> list[str]:
+def _active_tag_names(post: Post, *, tag_type: TagType | None = None) -> list[str]:
     names: list[str] = []
 
     for tag_link in post.tag_links:
         tag = tag_link.tag
-        if tag.status == TagStatus.ACTIVE:
-            names.append(tag.name)
+        if tag is None or tag.status != TagStatus.ACTIVE:
+            continue
+
+        if tag_type is not None and tag.tag_type != tag_type:
+            continue
+
+        names.append(tag.name)
 
     return sorted(names)
 

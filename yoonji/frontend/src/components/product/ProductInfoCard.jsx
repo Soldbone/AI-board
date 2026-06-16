@@ -16,8 +16,17 @@ function ProductInfoCard({ currentUser, postId }) {
 
   const isWorking = WORKING_STATUSES.has(enrichment?.status);
   const canRequest = Boolean(currentUser) && !isLoading && !isRequesting && !isWorking;
-  const matchedProduct = enrichment?.matched_product_json;
-  const candidates = enrichment?.candidates_json || [];
+  const candidates = useMemo(() => {
+    if (Array.isArray(enrichment?.candidates_json) && enrichment.candidates_json.length > 0) {
+      return enrichment.candidates_json;
+    }
+
+    if (enrichment?.matched_product_json) {
+      return [enrichment.matched_product_json];
+    }
+
+    return [];
+  }, [enrichment]);
 
   useEffect(() => {
     let ignore = false;
@@ -98,20 +107,12 @@ function ProductInfoCard({ currentUser, postId }) {
     }
   }
 
-  const headingText = useMemo(() => {
-    if (enrichment?.match_status === "VERIFIED") {
-      return "Official Product";
-    }
-
-    return "Official Product Check";
-  }, [enrichment]);
-
   return (
     <section className="product-info-section" aria-labelledby="product-info-title">
       <div className="product-info-heading">
         <div>
-          <p className="eyebrow">Good Smile SmartStore</p>
-          <h3 id="product-info-title">{headingText}</h3>
+          <p className="eyebrow">Naver Shopping</p>
+          <h3 id="product-info-title">상품 후보</h3>
         </div>
         <Button
           disabled={!canRequest}
@@ -123,32 +124,28 @@ function ProductInfoCard({ currentUser, postId }) {
       </div>
 
       {!currentUser && !enrichment && (
-        <p className="empty-text">로그인하면 공식 판매 정보를 조회할 수 있습니다.</p>
+        <p className="empty-text">로그인하면 네이버 쇼핑 상품 후보를 조회할 수 있습니다.</p>
       )}
 
-      {isLoading && <p className="empty-text">공식 판매 정보를 확인하는 중입니다.</p>}
+      {isLoading && <p className="empty-text">저장된 상품 후보를 확인하는 중입니다.</p>}
 
       {errorMessage && <p className="form-message error">{errorMessage}</p>}
 
       {isWorking && (
-        <p className="empty-text">공식 스마트스토어 후보를 확인하는 중입니다.</p>
+        <p className="empty-text">네이버 쇼핑에서 상품 후보를 찾는 중입니다.</p>
       )}
 
-      {enrichment?.match_status === "VERIFIED" && matchedProduct && (
-        <OfficialProductCard product={matchedProduct} />
+      {enrichment?.status === "COMPLETED" && candidates.length > 0 && (
+        <CandidatePanel candidates={candidates} queryText={enrichment.query_text} />
       )}
 
-      {enrichment?.match_status === "CANDIDATES_ONLY" && (
-        <CandidateOnlyPanel candidates={candidates} />
-      )}
-
-      {enrichment?.match_status === "NO_MATCH" && enrichment.status === "COMPLETED" && (
-        <p className="empty-text">공식 상품 정보를 찾지 못했습니다.</p>
+      {enrichment?.status === "COMPLETED" && candidates.length === 0 && (
+        <p className="empty-text">네이버 쇼핑에서 표시할 상품 후보를 찾지 못했습니다.</p>
       )}
 
       {enrichment?.status === "FAILED" && (
         <p className="form-message error">
-          {enrichment.error_message || "외부 상품 정보 조회에 실패했습니다."}
+          {enrichment.error_message || "네이버 쇼핑 상품 후보 조회에 실패했습니다."}
         </p>
       )}
     </section>
@@ -156,17 +153,38 @@ function ProductInfoCard({ currentUser, postId }) {
 }
 
 
-function OfficialProductCard({ product }) {
-  const title = product.metadata?.title || product.title || product.normalized_title;
-  const image = product.metadata?.image || product.image;
-  const price = product.metadata?.price || product.lprice || product.hprice;
-  const url = product.metadata?.final_url || product.link || product.metadata?.product_url;
+function CandidatePanel({ candidates, queryText }) {
+  return (
+    <div className="product-candidate-panel">
+      <p className="form-message">
+        네이버 쇼핑 검색 결과입니다. 공식 판매처로 검증된 정보는 아니므로 상품명과 판매처를 확인해 주세요.
+      </p>
+      {queryText && <p className="product-search-query">검색어: {queryText}</p>}
+      <div className="product-candidate-list">
+        {candidates.slice(0, 3).map((candidate) => (
+          <CandidateCard
+            candidate={candidate}
+            key={candidate.link || candidate.product_id || candidate.title}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function CandidateCard({ candidate }) {
+  const title = candidate.title || candidate.normalized_title || "상품명 없음";
+  const image = candidate.image || candidate.metadata?.image;
+  const price = candidate.lprice || candidate.metadata?.price || candidate.hprice;
+  const url = candidate.link || candidate.metadata?.final_url || candidate.metadata?.product_url;
+  const mallName = candidate.mall_name || "-";
 
   return (
-    <article className="official-product-card">
+    <article className="shopping-product-card">
       {image && <img src={image} alt="" />}
-      <div>
-        <p className="product-status-pill">VERIFIED</p>
+      <div className="shopping-product-body">
+        <p className="product-status-pill">검색 후보</p>
         <h4>{title}</h4>
         <dl>
           <div>
@@ -174,47 +192,17 @@ function OfficialProductCard({ product }) {
             <dd>{formatPrice(price)}</dd>
           </div>
           <div>
-            <dt>브랜드</dt>
-            <dd>{product.brand || product.maker || "-"}</dd>
-          </div>
-          <div>
-            <dt>매칭</dt>
-            <dd>{formatScore(product.match_score)}</dd>
+            <dt>쇼핑몰</dt>
+            <dd>{mallName}</dd>
           </div>
         </dl>
         {url && (
           <a href={url} target="_blank" rel="noreferrer">
-            공식 스토어 보기
+            네이버 쇼핑에서 보기
           </a>
         )}
       </div>
     </article>
-  );
-}
-
-
-function CandidateOnlyPanel({ candidates }) {
-  return (
-    <div className="product-candidate-panel">
-      <p className="form-message">
-        정확한 공식 상품을 확정할 수 없습니다.
-      </p>
-      {candidates.length > 0 && (
-        <div className="product-candidate-list">
-          {candidates.slice(0, 3).map((candidate) => (
-            <a
-              key={candidate.link || candidate.product_id || candidate.title}
-              href={candidate.link}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span>{formatScore(candidate.match_score)}</span>
-              {candidate.title || candidate.normalized_title}
-            </a>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -225,15 +213,6 @@ function formatPrice(value) {
   }
 
   return `${Number(value).toLocaleString("ko-KR")}원`;
-}
-
-
-function formatScore(value) {
-  if (typeof value !== "number") {
-    return "-";
-  }
-
-  return `${Math.round(value * 100)}%`;
 }
 
 

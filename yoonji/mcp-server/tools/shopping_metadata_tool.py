@@ -90,6 +90,18 @@ def _candidate_from_naver_item(item: dict[str, Any]) -> ProductCandidate | None:
     if not is_gsc_smartstore_url(link):
         return None
 
+    return _product_candidate_from_naver_item(item, is_official_store_url=True)
+
+
+def _product_candidate_from_naver_item(
+    item: dict[str, Any],
+    *,
+    is_official_store_url: bool = False,
+) -> ProductCandidate | None:
+    link = str(item.get("link") or "").strip()
+    if not link:
+        return None
+
     title = strip_html_tags(str(item.get("title") or ""))
     return ProductCandidate(
         title=title,
@@ -107,6 +119,7 @@ def _candidate_from_naver_item(item: dict[str, Any]) -> ProductCandidate | None:
         category2=item.get("category2") or None,
         category3=item.get("category3") or None,
         category4=item.get("category4") or None,
+        is_official_store_url=is_official_store_url,
     )
 
 
@@ -152,6 +165,70 @@ async def search_gsc_smartstore_products(
             continue
 
         candidate = _candidate_from_naver_item(item)
+        if candidate is not None:
+            candidates.append(candidate)
+
+    return SearchProductsResponse(
+        ok=True,
+        query=request.query,
+        total=int(result.get("total") or 0),
+        display=int(result.get("display") or request.display),
+        returned_count=len(candidates),
+        discarded_count=max(len(raw_items) - len(candidates), 0),
+        candidates=candidates,
+    )
+
+
+async def search_naver_shopping_products(
+    query: str,
+    display: int = 3,
+    sort: str = "sim",
+) -> SearchProductsResponse:
+    """Search Naver Shopping and return general product candidates.
+
+    This tool intentionally does not verify whether a result is an official
+    product page. The backend and UI must present these rows as search
+    candidates, not confirmed official sales information.
+    """
+
+    try:
+        request = SearchProductsRequest(query=query, display=display, sort=sort)
+    except ValidationError as exc:
+        return SearchProductsResponse(
+            ok=False,
+            query=query,
+            error=_validation_error(exc),
+        )
+
+    client = NaverShoppingClient()
+
+    try:
+        result = await client.search_products(
+            query=request.query,
+            display=request.display,
+            sort=request.sort,
+        )
+    except NaverShoppingClientError as exc:
+        return SearchProductsResponse(
+            ok=False,
+            query=request.query,
+            display=request.display,
+            error=_tool_error(exc.code, exc.message, exc.details),
+        )
+
+    raw_items = result.get("items", [])
+    if not isinstance(raw_items, list):
+        raw_items = []
+
+    candidates: list[ProductCandidate] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+
+        candidate = _product_candidate_from_naver_item(
+            item,
+            is_official_store_url=is_gsc_smartstore_url(str(item.get("link") or "")),
+        )
         if candidate is not None:
             candidates.append(candidate)
 

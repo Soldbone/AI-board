@@ -11,6 +11,7 @@ from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
 from app.models.post_tag import PostTag
 from app.models.tag import Tag
+from app.utils.price_range import price_range_filter_values
 
 PostSort = Literal["latest", "views", "satisfaction", "comments", "relevance"]
 
@@ -515,7 +516,11 @@ def _search_post_filters(
         )
 
     if price_range is not None:
-        filters.append(Post.figure_infos.any(PostFigureInfo.price_range == price_range))
+        filters.append(
+            Post.figure_infos.any(
+                PostFigureInfo.price_range.in_(price_range_filter_values(price_range))
+            )
+        )
 
     return filters
 

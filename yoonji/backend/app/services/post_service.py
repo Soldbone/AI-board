@@ -33,6 +33,7 @@ from app.schemas.post_schema import (
 )
 from app.schemas.user_schema import UserSummary
 from app.utils.normalizer import normalize_tag_name
+from app.utils.price_range import amount_to_price_range
 
 MVP_WRITABLE_BOARD_CODES = {
     BoardCode.REVIEW,
@@ -459,7 +460,7 @@ def _build_figure_info_values(payload: PostFigureInfoRequest) -> dict:
         "manufacturer_text": payload.manufacturer,
         "figure_type": payload.figure_type,
         "price_amount": payload.price_amount,
-        "price_range": payload.price_range or PriceRange.UNKNOWN,
+        "price_range": amount_to_price_range(payload.price_amount),
         "purchase_date": payload.purchase_date,
         "satisfaction_score": payload.satisfaction_score,
         "target_type": payload.target_type,
@@ -479,8 +480,14 @@ def _merge_figure_info_values(
     }
 
     for field_name, value in incoming.items():
+        if field_name == "price_range":
+            continue
+
         model_field_name = field_map.get(field_name, field_name)
         values[model_field_name] = value
+
+    if "price_amount" in incoming:
+        values["price_range"] = amount_to_price_range(incoming["price_amount"])
 
     if values.get("price_range") is None:
         values["price_range"] = PriceRange.UNKNOWN

@@ -67,6 +67,22 @@ class ProductMetadataMcpClient:
             },
         )
 
+    def search_naver_shopping_products(
+        self,
+        *,
+        query: str,
+        display: int = 3,
+        sort: str = "sim",
+    ) -> dict[str, Any]:
+        return self._call_tool(
+            "search_naver_shopping_products",
+            {
+                "query": query,
+                "display": display,
+                "sort": sort,
+            },
+        )
+
     def fetch_gsc_product_metadata(self, *, product_url: str) -> dict[str, Any]:
         return self._call_tool(
             "fetch_gsc_product_metadata",

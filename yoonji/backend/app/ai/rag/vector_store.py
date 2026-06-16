@@ -44,6 +44,7 @@ class DatabaseVectorStore:
         source_types: list[ContentSourceType] | None = None,
         limit: int = 5,
         exclude_post_id: int | None = None,
+        include_post_ids: set[int] | None = None,
     ) -> list[VectorSearchResult]:
         chunks = content_chunk_repository.list_indexed_chunks(
             db,
@@ -55,6 +56,9 @@ class DatabaseVectorStore:
 
         for chunk in chunks:
             if exclude_post_id is not None and chunk.post_id == exclude_post_id:
+                continue
+
+            if include_post_ids is not None and chunk.post_id not in include_post_ids:
                 continue
 
             if not chunk.embedding_vector:

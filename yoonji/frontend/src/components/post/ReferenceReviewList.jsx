@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL } from "../../api/client";
 import { getPosts } from "../../api/postApi";
 import { getApiErrorMessage } from "../../hooks/usePosts";
+import { formatPriceRange } from "../../utils/priceRange";
 
 
-const MAX_REFERENCE_REVIEWS = 4;
+const MAX_REFERENCE_REVIEWS = 3;
 const MAX_SEARCH_TERMS = 6;
 const STOP_WORDS = new Set([
   "구매",
@@ -100,7 +101,10 @@ function ReferenceReviewList({ onSelectPost, post }) {
   }, [post, searchTerms]);
 
   return (
-    <section className="similar-posts-section" aria-labelledby="reference-reviews-title">
+    <section
+      className="similar-posts-section reference-review-section"
+      aria-labelledby="reference-reviews-title"
+    >
       <div className="similar-posts-heading">
         <div>
           <p className="eyebrow">Review Board</p>
@@ -151,7 +155,6 @@ function ReferenceReviewCard({ item, onSelectPost }) {
       <div>
         <span>{item.matchReason}</span>
         <h4>{review.title}</h4>
-        <p>{review.summary}</p>
 
         {review.tags.length > 0 && (
           <div className="post-card-tags" aria-label="review tags">
@@ -164,7 +167,7 @@ function ReferenceReviewCard({ item, onSelectPost }) {
         <dl>
           <div>
             <dt>가격대</dt>
-            <dd>{figureInfo?.price_range || "-"}</dd>
+            <dd>{formatPriceRange(figureInfo?.price_range)}</dd>
           </div>
           <div>
             <dt>만족도</dt>

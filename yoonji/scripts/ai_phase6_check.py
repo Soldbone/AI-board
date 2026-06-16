@@ -71,7 +71,7 @@ class CheckFailure(AssertionError):
 @dataclass(frozen=True)
 class SeedPostTargets:
     review_title: str = "하츠네 미쿠 NT 넨도로이드 후기 - 표정 파츠가 좋아요"
-    isolated_review_title: str = "알베도 1/7 스케일 피규어 후기"
+    isolated_review_title: str = "카가미네 린 넨도로이드 후기 - 비슷한 가격대 만족"
     question_title: str = "장식장 조명을 어떤 색온도로 맞추면 좋을까요?"
     question_context_title: str = "장식장 LED 조명 색온도 써보신 분?"
     purchase_same_title: str = "하츠네 미쿠 NT 넨도로이드 살까요?"
@@ -311,13 +311,12 @@ def check_purchase_outputs(
     assert_generated_output(
         similar_price_output,
         expected_type=AiOutputType.PURCHASE_SUMMARY,
-        allowed_grounding={
-            GroundingStatus.GROUNDED,
-            GroundingStatus.PARTIALLY_GROUNDED,
-        },
+        allowed_grounding={GroundingStatus.NO_EVIDENCE},
         label="similar price purchase summary",
     )
-    assert_sources(similar_price_output, min_count=1, label="similar price summary")
+
+    if similar_price_output.sources:
+        raise CheckFailure("similar price fallback summary should not have sources")
 
     no_evidence_post = post_by_title[targets.purchase_no_evidence_title]
     no_evidence_output = get_latest_ai_output(

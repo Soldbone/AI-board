@@ -10,10 +10,13 @@ function Layout({ auth, children }) {
 
       <div className="below-banner-layout">
         <aside className="side-ad-stack side-ad-stack-left" aria-label="left side advertisements">
-          <img src="/ads/miku-left-top.jpg" alt="Hatsune Miku left side advertisement" />
-          <img src="/ads/miku-left-bottom.jpg" alt="Hatsune Miku widget advertisement" />
-          <img src="/ads/miku-left-bottom-extra.jpg" alt="Hatsune Miku fashion advertisement" />
-          <img src="/ads/miku-left-extra-2.png" alt="Hatsune Miku singing figure advertisement" />
+          <img src="/ads/miku-left-top-replacement.gif" alt="Hatsune Miku left side animation advertisement" />
+          <img src="/ads/miku-left-second-replacement.gif" alt="Hatsune Miku animated figure advertisement" />
+          <img src="/ads/miku-left-third-insert.gif" alt="Hatsune Miku guitar animation advertisement" />
+          <img src="/ads/miku-left-fourth-insert.gif" alt="Hatsune Miku trio stage animation advertisement" />
+          <img src="/ads/miku-left-project-diva-x.jpg" alt="Hatsune Miku Project DIVA X advertisement" />
+          <img src="/ads/miku-left-sixth-replacement.gif" alt="Hatsune Miku keyboard animation advertisement" />
+          <img src="/ads/miku-left-header.jpg" alt="Hatsune Miku left side banner advertisement" />
         </aside>
 
         <div className="content-column">
@@ -25,10 +28,12 @@ function Layout({ auth, children }) {
         </div>
 
         <aside className="side-ad-stack side-ad-stack-right" aria-label="right side advertisements">
-          <img src="/ads/miku-side-top.jpg" alt="Hatsune Miku side advertisement" />
-          <img src="/ads/miku-side-bottom.jpg" alt="Hatsune Miku poster advertisement" />
-          <img src="/ads/miku-side-extra.jpg" alt="Hatsune Miku customization advertisement" />
+          <img src="/ads/miku-side-top-replacement.gif" alt="Hatsune Miku right side animation advertisement" />
+          <img src="/ads/miku-side-second-replacement.gif" alt="Hatsune Miku full-body animated figure advertisement" />
+          <img src="/ads/miku-side-third-replacement.gif" alt="Hatsune Miku rhythm game animation advertisement" />
           <img src="/ads/miku-side-extra-2.jpg" alt="Hatsune Miku cat ear figure advertisement" />
+          <img src="/ads/miku-side-fourth-insert.gif" alt="Hatsune Miku snow stage animation advertisement" />
+          <img src="/ads/miku-lucky-star.jpg" alt="Hatsune Miku Lucky Star figure advertisement" />
         </aside>
       </div>
     </div>

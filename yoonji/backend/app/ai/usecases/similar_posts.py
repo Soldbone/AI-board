@@ -14,6 +14,7 @@ from app.schemas.ai_schema import (
     SimilarPostListResponse,
     SimilarPostSummary,
 )
+from app.utils.price_range import price_ranges_are_same
 
 
 def get_similar_review_posts(
@@ -100,7 +101,7 @@ def _build_reason(
         if _same_text(target_info.manufacturer_text, candidate_info.manufacturer_text):
             reason_parts.append("same manufacturer")
 
-        if target_info.price_range == candidate_info.price_range:
+        if price_ranges_are_same(target_info.price_range, candidate_info.price_range):
             reason_parts.append("similar price range")
 
     shared_tags = _active_tag_names(target_post) & _active_tag_names(candidate_post)

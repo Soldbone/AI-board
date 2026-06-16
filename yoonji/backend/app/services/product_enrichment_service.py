@@ -12,7 +12,7 @@ from app.core.exceptions import AppException
 from app.db.database import SessionLocal
 from app.mcp.client import McpClientError, ProductMetadataMcpClient
 from app.mcp.matching import ProductMatchContext, match_product_candidates
-from app.models.enums import BoardCode, ProductEnrichmentStatus
+from app.models.enums import BoardCode, ProductEnrichmentStatus, ProductMatchStatus
 from app.models.mcp_product_enrichment import McpProductEnrichment
 from app.models.post import Post
 from app.models.post_figure_info import PostFigureInfo
@@ -23,7 +23,7 @@ from app.schemas.product_enrichment_schema import ProductEnrichmentResponse
 logger = logging.getLogger(__name__)
 
 DEFAULT_PRODUCT_ENRICHMENT_CACHE_TTL_HOURS = 24
-DEFAULT_PRODUCT_SEARCH_DISPLAY = 10
+DEFAULT_PRODUCT_SEARCH_DISPLAY = 3
 
 
 def get_product_enrichment(
@@ -53,7 +53,7 @@ def request_product_enrichment(
 
     if not force_refresh:
         cached = _get_cached_enrichment(db, post_id=post.id)
-        if cached is not None:
+        if cached is not None and _is_naver_shopping_candidate_cache(cached):
             return ProductEnrichmentResponse.model_validate(cached)
 
     query_text = _build_product_search_query(post)
@@ -112,7 +112,7 @@ def process_product_enrichment(
     client = mcp_client or ProductMetadataMcpClient()
 
     try:
-        search_result = client.search_gsc_smartstore_products(
+        search_result = client.search_naver_shopping_products(
             query=enrichment.query_text,
             display=DEFAULT_PRODUCT_SEARCH_DISPLAY,
             sort="sim",
@@ -148,28 +148,42 @@ def process_product_enrichment(
         )
         return ProductEnrichmentResponse.model_validate(enrichment)
 
-    candidates = _safe_candidate_list(search_result.get("candidates"))
-    match_result = match_product_candidates(
-        context=_build_match_context(post),
-        raw_candidates=candidates,
-    )
-
-    matched_product = match_result.matched_product
-    if matched_product and match_result.source_url:
-        matched_product = _attach_best_effort_metadata(
-            client,
-            matched_product=matched_product,
-            product_url=match_result.source_url,
+    candidates = _safe_candidate_list(search_result.get("candidates"))[:3]
+    if not candidates:
+        product_enrichment_repository.mark_product_enrichment_completed(
+            enrichment,
+            match_status=ProductMatchStatus.NO_MATCH,
+            confidence_score=None,
+            matched_product_json=None,
+            candidates_json=[],
+            match_reasons_json=[
+                {
+                    "code": "NO_NAVER_SHOPPING_CANDIDATES",
+                    "message": "Naver Shopping did not return usable product candidates.",
+                }
+            ],
+            source_url=None,
         )
+        return ProductEnrichmentResponse.model_validate(enrichment)
 
     product_enrichment_repository.mark_product_enrichment_completed(
         enrichment,
-        match_status=match_result.match_status,
-        confidence_score=match_result.confidence_score,
-        matched_product_json=matched_product,
-        candidates_json=match_result.candidates,
-        match_reasons_json=match_result.match_reasons,
-        source_url=match_result.source_url,
+        match_status=ProductMatchStatus.CANDIDATES_ONLY,
+        confidence_score=None,
+        matched_product_json=None,
+        candidates_json=candidates,
+        match_reasons_json=[
+            {
+                "code": "NAVER_SHOPPING_SEARCH_CANDIDATES",
+                "message": (
+                    "These products came from Naver Shopping search results and "
+                    "are not verified official product pages."
+                ),
+                "returned_count": len(candidates),
+                "total": search_result.get("total"),
+            }
+        ],
+        source_url=candidates[0].get("link"),
     )
 
     return ProductEnrichmentResponse.model_validate(enrichment)
@@ -217,6 +231,15 @@ def _get_cached_enrichment(
         db,
         post_id=post_id,
         fetched_after=fetched_after,
+    )
+
+
+def _is_naver_shopping_candidate_cache(enrichment: McpProductEnrichment) -> bool:
+    reasons = enrichment.match_reasons_json or []
+    return any(
+        isinstance(reason, dict)
+        and reason.get("code") == "NAVER_SHOPPING_SEARCH_CANDIDATES"
+        for reason in reasons
     )
 
 
@@ -284,18 +307,12 @@ def _build_match_context(post: Post) -> ProductMatchContext:
 
 def _build_product_search_query(post: Post) -> str:
     figure_info = _primary_figure_info(post)
-    tag_names = [
-        link.tag.name
-        for link in post.tag_links
-        if link.tag is not None
-    ]
-    parts = [
-        figure_info.figure_name_text if figure_info else None,
-        figure_info.manufacturer_text if figure_info else None,
-        post.title,
-        *tag_names[:4],
-    ]
-    query = " ".join(part.strip() for part in parts if part and part.strip())
+    query = (
+        figure_info.figure_name_text
+        if figure_info and figure_info.figure_name_text
+        else post.title
+    )
+    query = " ".join(query.strip().split())
     return query[:200]
 
 

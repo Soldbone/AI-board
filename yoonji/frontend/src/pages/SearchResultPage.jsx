@@ -4,19 +4,10 @@ import { getBoards } from "../api/boardApi";
 import { searchPosts } from "../api/searchApi";
 import PostList from "../components/post/PostList";
 import { getApiErrorMessage } from "../hooks/usePosts";
+import { PRICE_RANGE_FILTER_OPTIONS } from "../utils/priceRange";
 
 
 const PAGE_SIZE = 10;
-
-const PRICE_RANGE_OPTIONS = [
-  { value: "", label: "전체 가격대" },
-  { value: "UNDER_30000", label: "3만원 미만" },
-  { value: "30000_50000", label: "3만원-5만원" },
-  { value: "50000_100000", label: "5만원-10만원" },
-  { value: "100000_200000", label: "10만원-20만원" },
-  { value: "OVER_200000", label: "20만원 이상" },
-  { value: "UNKNOWN", label: "가격대 미상" },
-];
 
 const SORT_OPTIONS = [
   { value: "latest", label: "최신순" },
@@ -208,7 +199,7 @@ function SearchResultPage({ onBackHome, onOpenPost }) {
               value={filters.price_range}
               onChange={handleFilterChange}
             >
-              {PRICE_RANGE_OPTIONS.map((option) => (
+              {PRICE_RANGE_FILTER_OPTIONS.map((option) => (
                 <option key={option.value || "all"} value={option.value}>
                   {option.label}
                 </option>

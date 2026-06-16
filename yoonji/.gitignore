@@ -17,5 +17,8 @@ frontend/dist/
 # Local editor files
 .vscode/
 
+# Local runtime logs
+mcp-server/.codex-mcp.*.log
+
 # Uploaded local files
 uploads/temp/

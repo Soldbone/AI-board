@@ -6,7 +6,8 @@ import unicodedata
 from decimal import Decimal
 from urllib.parse import urlparse
 
-from app.models.enums import FigureType, PriceRange
+from app.models.enums import FigureType
+from app.utils.price_range import amount_to_price_range, price_ranges_are_near
 
 
 OFFICIAL_SMARTSTORE_HOST = "smartstore.naver.com"
@@ -129,41 +130,6 @@ def candidate_price_amount(candidate: dict) -> Decimal | None:
     return None
 
 
-def amount_to_price_range(amount: Decimal | None) -> PriceRange:
-    if amount is None:
-        return PriceRange.UNKNOWN
-
-    if amount < Decimal("30000"):
-        return PriceRange.UNDER_30000
-    if amount < Decimal("50000"):
-        return PriceRange.PRICE_30000_50000
-    if amount < Decimal("100000"):
-        return PriceRange.PRICE_50000_100000
-    if amount < Decimal("200000"):
-        return PriceRange.PRICE_100000_200000
-    return PriceRange.OVER_200000
-
-
-def price_ranges_are_near(left: PriceRange | str | None, right: PriceRange | str | None) -> bool:
-    left_value = _price_range_value(left)
-    right_value = _price_range_value(right)
-
-    if left_value is None or right_value is None:
-        return False
-
-    if PriceRange.UNKNOWN in {left_value, right_value}:
-        return False
-
-    order = [
-        PriceRange.UNDER_30000,
-        PriceRange.PRICE_30000_50000,
-        PriceRange.PRICE_50000_100000,
-        PriceRange.PRICE_100000_200000,
-        PriceRange.OVER_200000,
-    ]
-    return abs(order.index(left_value) - order.index(right_value)) <= 1
-
-
 def _is_meaningful_token(token: str) -> bool:
     if not token or token in GENERIC_TOKENS:
         return False
@@ -180,15 +146,3 @@ def _to_decimal(value) -> Decimal | None:
     except Exception:
         return None
 
-
-def _price_range_value(value: PriceRange | str | None) -> PriceRange | None:
-    if value is None:
-        return None
-
-    if isinstance(value, PriceRange):
-        return value
-
-    try:
-        return PriceRange(str(value))
-    except ValueError:
-        return None

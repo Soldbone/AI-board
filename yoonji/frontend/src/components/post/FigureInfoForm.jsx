@@ -9,17 +9,6 @@ const FIGURE_TYPE_OPTIONS = [
   { value: "OTHER", label: "기타" },
 ];
 
-const PRICE_RANGE_OPTIONS = [
-  { value: "", label: "선택 안 함" },
-  { value: "UNDER_30000", label: "3만원 미만" },
-  { value: "30000_50000", label: "3만원 이상 5만원 미만" },
-  { value: "50000_100000", label: "5만원 이상 10만원 미만" },
-  { value: "100000_200000", label: "10만원 이상 20만원 미만" },
-  { value: "OVER_200000", label: "20만원 이상" },
-  { value: "UNKNOWN", label: "잘 모르겠음" },
-];
-
-
 function FigureInfoForm({ value, onChange }) {
   function updateField(fieldName, fieldValue) {
     onChange({
@@ -61,20 +50,6 @@ function FigureInfoForm({ value, onChange }) {
             onChange={(event) => updateField("figure_type", event.target.value)}
           >
             {FIGURE_TYPE_OPTIONS.map((option) => (
-              <option key={option.value || "empty"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          가격대
-          <select
-            value={value.price_range}
-            onChange={(event) => updateField("price_range", event.target.value)}
-          >
-            {PRICE_RANGE_OPTIONS.map((option) => (
               <option key={option.value || "empty"} value={option.value}>
                 {option.label}
               </option>

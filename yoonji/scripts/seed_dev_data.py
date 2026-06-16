@@ -60,6 +60,8 @@ from app.utils.normalizer import normalize_tag_name
 DEV_PASSWORD = "devpass1234!"
 DEV_EMBEDDING_MODEL = "dev-deterministic-embedding-v1"
 DEV_IMAGE_DIR_NAME = "dev-seed"
+RIN_NENDOROID_IMAGE_SOURCE = ROOT_DIR / "scripts" / "assets" / "rin-nendoroid.png"
+MIKU_NT_REISSUE_IMAGE_SOURCE = ROOT_DIR / "scripts" / "assets" / "miku-nt-reissue.png"
 
 DEV_USERS = [
     {
@@ -75,6 +77,12 @@ DEV_USERS = [
         "role": UserRole.USER,
     },
     {
+        "email": "miku@example.com",
+        "login_id": "miku",
+        "nickname": "miku",
+        "role": UserRole.USER,
+    },
+    {
         "email": "dev_collector@example.com",
         "login_id": "dev_collector",
         "nickname": "Collector Kim",
@@ -83,44 +91,6 @@ DEV_USERS = [
 ]
 
 POST_SEEDS = [
-    {
-        "board_code": BoardCode.REVIEW,
-        "author": "dev_miku",
-        "title": "하츠네 미쿠 NT 넨도로이드 후기 - 표정 파츠가 좋아요",
-        "content": (
-            "하츠네 미쿠 NT 넨도로이드는 표정 파츠 구성이 풍부해서 전시 분위기를 바꾸기 좋았습니다. "
-            "Good Smile Company 특유의 도색 마감은 깔끔했고, 머리카락 파츠의 그라데이션도 만족스러웠습니다. "
-            "다만 트윈테일 조인트가 작아서 조립할 때 힘을 너무 주지 않는 편이 좋고, 작은 손 파츠는 분실 방지가 필요합니다. "
-            "7만원 안팎 가격대에서는 입문자에게도 추천할 만한 구성이었습니다."
-        ),
-        "view_count": 128,
-        "figure_info": {
-            "figure_name_text": "하츠네 미쿠 NT 넨도로이드",
-            "manufacturer_text": "Good Smile Company",
-            "figure_type": FigureType.NENDOROID,
-            "price_amount": Decimal("68000.00"),
-            "price_range": PriceRange.PRICE_50000_100000,
-            "purchase_date": date(2026, 4, 20),
-            "satisfaction_score": 5,
-        },
-        "tags": [
-            ("하츠네 미쿠", TagType.CHARACTER),
-            ("넨도로이드", TagType.GENERAL),
-            ("Good Smile Company", TagType.MANUFACTURER),
-            ("입문추천", TagType.TOPIC),
-        ],
-        "image": {
-            "filename": "miku-nt-nendoroid.svg",
-            "label": "Miku NT",
-            "color": "#38d2d2",
-        },
-        "comments": [
-            {
-                "author": "dev_collector",
-                "content": "저도 트윈테일 조인트만 조심하면 만족도가 높았습니다. 표정 파츠가 정말 좋아요.",
-            }
-        ],
-    },
     {
         "board_code": BoardCode.REVIEW,
         "author": "dev_collector",
@@ -147,9 +117,14 @@ POST_SEEDS = [
             ("조립주의", TagType.TOPIC),
         ],
         "image": {
-            "filename": "miku-nt-reissue.svg",
+            "filename": "miku-nt-reissue.png",
             "label": "Miku Reissue",
             "color": "#2f5f63",
+            "source_path": MIKU_NT_REISSUE_IMAGE_SOURCE,
+            "mime_type": "image/png",
+            "size_bytes": 375491,
+            "width": 573,
+            "height": 523,
         },
         "comments": [],
     },
@@ -179,78 +154,14 @@ POST_SEEDS = [
             ("입문추천", TagType.TOPIC),
         ],
         "image": {
-            "filename": "rin-nendoroid.svg",
+            "filename": "rin-nendoroid.png",
             "label": "Rin",
             "color": "#f7d154",
-        },
-        "comments": [],
-    },
-    {
-        "board_code": BoardCode.REVIEW,
-        "author": "dev_collector",
-        "title": "라이자 1/7 스케일 피규어 첫 구매 후기",
-        "content": (
-            "첫 스케일 피규어로 라이자 1/7을 구매했는데, 넨도로이드보다 공간은 많이 차지하지만 존재감이 확실했습니다. "
-            "도색은 피부 톤과 의상 경계가 깔끔했고 베이스가 넓어 장식장 높이와 깊이를 먼저 재는 것이 중요했습니다. "
-            "15만원대 예산이라면 배송비와 장식 공간까지 함께 계산하는 편이 안전합니다."
-        ),
-        "view_count": 92,
-        "figure_info": {
-            "figure_name_text": "라이자 1/7 스케일 피규어",
-            "manufacturer_text": "Good Smile Company",
-            "figure_type": FigureType.SCALE,
-            "price_amount": Decimal("158000.00"),
-            "price_range": PriceRange.PRICE_100000_200000,
-            "purchase_date": date(2026, 2, 3),
-            "satisfaction_score": 4,
-        },
-        "tags": [
-            ("라이자", TagType.CHARACTER),
-            ("스케일", TagType.GENERAL),
-            ("첫스케일", TagType.TOPIC),
-            ("장식장", TagType.TOPIC),
-        ],
-        "image": {
-            "filename": "ryza-scale.svg",
-            "label": "Ryza",
-            "color": "#d97706",
-        },
-        "comments": [
-            {
-                "author": "dev_yoonji",
-                "content": "첫 스케일이면 장식장 깊이부터 확인하는 게 정말 중요하더라고요.",
-            }
-        ],
-    },
-    {
-        "board_code": BoardCode.REVIEW,
-        "author": "dev_miku",
-        "title": "알베도 1/7 스케일 피규어 후기",
-        "content": (
-            "알베도 1/7 스케일은 조형 밀도가 높고 날개 파츠가 화려해서 만족도는 높았습니다. "
-            "대신 20만원이 넘는 가격대라 예약 전 마감 사진과 실제 전시 공간을 꼭 확인하는 편이 좋습니다. "
-            "먼지가 잘 보이는 어두운 파츠가 많아 케이스 전시가 더 어울렸습니다."
-        ),
-        "view_count": 111,
-        "figure_info": {
-            "figure_name_text": "알베도 1/7 스케일 피규어",
-            "manufacturer_text": "Alter",
-            "figure_type": FigureType.SCALE,
-            "price_amount": Decimal("238000.00"),
-            "price_range": PriceRange.OVER_200000,
-            "purchase_date": date(2026, 1, 18),
-            "satisfaction_score": 4,
-        },
-        "tags": [
-            ("알베도", TagType.CHARACTER),
-            ("스케일", TagType.GENERAL),
-            ("Alter", TagType.MANUFACTURER),
-            ("고가피규어", TagType.PRICE),
-        ],
-        "image": {
-            "filename": "albedo-scale.svg",
-            "label": "Albedo",
-            "color": "#7c3aed",
+            "source_path": RIN_NENDOROID_IMAGE_SOURCE,
+            "mime_type": "image/png",
+            "size_bytes": 309938,
+            "width": 567,
+            "height": 535,
         },
         "comments": [],
     },
@@ -421,6 +332,195 @@ POST_SEEDS = [
         ],
         "comments": [],
     },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "miku",
+        "title": "Rody 미쿠 피규어 살까요 말까요",
+        "content": (
+            "Rody 콜라보 하츠네 미쿠 피규어가 색감도 귀엽고 포즈도 마음에 드는데, "
+            "가격이 10만원이라서 조금 고민돼요. "
+            "이미 미쿠 피규어가 몇 개 있어서 캐릭터가 겹치는 것도 살짝 고민이에요."
+        ),
+        "view_count": 42,
+        "published_offset_days": 0,
+        "tags": [
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("Rody", TagType.GENERAL),
+            ("경품", TagType.GENERAL),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_collector",
+        "title": "POP UP PARADE 미쿠 재판 기다릴까요 지금 살까요?",
+        "content": (
+            "하츠네 미쿠 POP UP PARADE를 중고로 4만원대에 봤는데, 재판 가능성이 있으면 기다리는 게 나을지 고민입니다. "
+            "크기는 적당해 보여서 책상 위 전시용으로는 좋아 보이는데, 현재 프리미엄이 붙은 가격인지 감이 안 와요."
+        ),
+        "view_count": 31,
+        "tags": [
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("POP UP PARADE", TagType.GENERAL),
+            ("중고", TagType.TOPIC),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_miku",
+        "title": "넨도로이드 미쿠 NT 중고 7만원 괜찮나요?",
+        "content": (
+            "하츠네 미쿠 NT 넨도로이드를 중고 미개봉 7만원에 살 수 있는데, 파츠가 많아서 입문용으로 괜찮을지 궁금합니다. "
+            "작은 부품 분실이나 조인트 헐거움이 걱정돼서 후기를 보고 결정하고 싶어요."
+        ),
+        "view_count": 58,
+        "tags": [
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("넨도로이드", TagType.GENERAL),
+            ("Good Smile Company", TagType.MANUFACTURER),
+            ("중고", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_yoonji",
+        "title": "라이자 1/7 첫 스케일로 살만할까요?",
+        "content": (
+            "첫 스케일 피규어로 라이자 1/7을 고민 중입니다. 가격은 15만원대라 예산 안에는 들어오는데, "
+            "전시 공간이 넉넉하지 않아서 박스 크기와 받침대가 부담될까 봐 망설이고 있어요."
+        ),
+        "view_count": 27,
+        "tags": [
+            ("라이자", TagType.CHARACTER),
+            ("스케일", TagType.GENERAL),
+            ("첫스케일", TagType.TOPIC),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_collector",
+        "title": "알베도 스케일 24만원 예산 오버인데 고민",
+        "content": (
+            "알베도 1/7 스케일이 너무 예뻐서 예약하고 싶은데 24만원이면 예산을 꽤 넘습니다. "
+            "Alter 제품이라 퀄리티는 기대되지만, 같은 돈으로 다른 피규어 두 개를 사는 게 나을지도 고민돼요."
+        ),
+        "view_count": 19,
+        "tags": [
+            ("알베도", TagType.CHARACTER),
+            ("스케일", TagType.GENERAL),
+            ("Alter", TagType.MANUFACTURER),
+            ("고가피규어", TagType.PRICE),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_miku",
+        "title": "사쿠라 미쿠 AMP+ 경품퀄 괜찮을까요?",
+        "content": (
+            "사쿠라 미쿠 AMP+를 3만원 안쪽으로 살 수 있는데 사진으로는 색감이 정말 좋아 보입니다. "
+            "다만 경품 피규어는 도색 편차가 있을까 봐 걱정돼서, 가격 대비 만족도가 괜찮은지 궁금해요."
+        ),
+        "view_count": 36,
+        "tags": [
+            ("사쿠라 미쿠", TagType.CHARACTER),
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("AMP+", TagType.GENERAL),
+            ("경품", TagType.GENERAL),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_yoonji",
+        "title": "카가미네 린 넨도로이드 미쿠랑 같이 둘까요?",
+        "content": (
+            "미쿠 넨도로이드가 있어서 카가미네 린 넨도로이드도 같이 전시할까 고민 중입니다. "
+            "가격은 6만원대라 괜찮은데, 같은 라인으로 모으기 시작하면 끝이 없을 것 같아서 망설여져요."
+        ),
+        "view_count": 23,
+        "tags": [
+            ("카가미네 린", TagType.CHARACTER),
+            ("넨도로이드", TagType.GENERAL),
+            ("Good Smile Company", TagType.MANUFACTURER),
+            ("전시", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_collector",
+        "title": "진열장 자리 부족한데 큰 스케일 예약해도 될까요?",
+        "content": (
+            "이미 장식장 한 칸이 거의 꽉 찼는데 큰 스케일 피규어 예약을 고민하고 있습니다. "
+            "피규어 자체는 마음에 들지만 박스 보관, 먼지 관리, 배치까지 생각하면 지금은 참는 게 맞을까요?"
+        ),
+        "view_count": 14,
+        "tags": [
+            ("스케일", TagType.GENERAL),
+            ("진열장", TagType.TOPIC),
+            ("전시", TagType.TOPIC),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_miku",
+        "title": "중고 미개봉 미쿠 피규어 박스 눌림 감수할까요?",
+        "content": (
+            "하츠네 미쿠 피규어 중고 미개봉 매물을 찾았는데 박스 모서리가 꽤 눌려 있다고 합니다. "
+            "본체만 멀쩡하면 괜찮을 것 같기도 한데, 나중에 다시 팔 생각까지 하면 박스 상태를 신경 써야 할까요?"
+        ),
+        "view_count": 25,
+        "tags": [
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("중고", TagType.TOPIC),
+            ("미개봉", TagType.TOPIC),
+            ("박스손상", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_yoonji",
+        "title": "프리미엄 붙은 한정 미쿠 지금 사도 될까요?",
+        "content": (
+            "한정판 하츠네 미쿠 피규어가 정가보다 5만원 정도 비싸졌는데 계속 눈에 밟힙니다. "
+            "재판 가능성이 낮다면 지금 사는 게 나을지, 아니면 비슷한 가격대의 다른 신작을 기다릴지 고민돼요."
+        ),
+        "view_count": 33,
+        "tags": [
+            ("하츠네 미쿠", TagType.CHARACTER),
+            ("한정판", TagType.TOPIC),
+            ("프리미엄", TagType.PRICE),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
+    {
+        "board_code": BoardCode.PURCHASE_HELP,
+        "author": "dev_collector",
+        "title": "첫 피규어로 3만원대 경품 vs 넨도로이드 고민",
+        "content": (
+            "처음 피규어를 사보려는데 3만원대 경품 피규어로 가볍게 시작할지, "
+            "조금 더 보태서 넨도로이드를 살지 고민입니다. 책상 위에 둘 예정이라 크기와 관리 난이도도 중요해요."
+        ),
+        "view_count": 47,
+        "tags": [
+            ("경품", TagType.GENERAL),
+            ("넨도로이드", TagType.GENERAL),
+            ("입문추천", TagType.TOPIC),
+            ("구매고민", TagType.TOPIC),
+        ],
+        "comments": [],
+    },
 ]
 
 AI_OUTPUT_SEEDS = [
@@ -452,7 +552,6 @@ AI_OUTPUT_SEEDS = [
         "grounding_status": GroundingStatus.GROUNDED,
         "confidence_score": 0.91,
         "source_titles": [
-            "하츠네 미쿠 NT 넨도로이드 후기 - 표정 파츠가 좋아요",
             "하츠네 미쿠 NT 넨도로이드 재판판 조립 후기",
             "카가미네 린 넨도로이드 후기 - 비슷한 가격대 만족",
         ],
@@ -462,18 +561,11 @@ AI_OUTPUT_SEEDS = [
         "target_title": "첫 스케일 피규어 예약 고민입니다",
         "requester": "dev_collector",
         "output_type": AiOutputType.PURCHASE_SUMMARY,
-        "title": "AI 구매 요약 예시",
-        "content": (
-            "동일 제품 후기는 없지만, 비슷한 10만~20만원대 스케일 후기에서는 장식장 깊이와 배송비를 먼저 확인하라는 조언이 반복됩니다.\n"
-            "장점은 스케일 피규어 특유의 존재감이고, 주의점은 넨도로이드보다 공간을 많이 차지한다는 점입니다.\n"
-            "예약 전에는 실제 양산품 후기와 예약 취소 규정을 같이 확인하는 것이 좋습니다."
-        ),
-        "grounding_status": GroundingStatus.PARTIALLY_GROUNDED,
-        "confidence_score": 0.78,
-        "source_titles": [
-            "라이자 1/7 스케일 피규어 첫 구매 후기",
-            "알베도 1/7 스케일 피규어 후기",
-        ],
+        "title": "AI 구매 요약 예시 - 근거 부족",
+        "content": "관련 후기 근거가 부족해 구매 요약이나 추천을 생성할 수 없습니다.",
+        "grounding_status": GroundingStatus.NO_EVIDENCE,
+        "confidence_score": 0.0,
+        "source_titles": [],
         "source_comment_contains": [],
     },
     {
@@ -658,6 +750,7 @@ def upsert_posts(
     for index, post_seed in enumerate(POST_SEEDS):
         author = users[post_seed["author"]]
         board = boards[post_seed["board_code"]]
+        published_at = seed_published_at(post_seed, index=index, now=now)
         post = (
             db.query(Post)
             .filter(Post.author_id == author.id, Post.title == post_seed["title"])
@@ -674,7 +767,7 @@ def upsert_posts(
                 status=PostStatus.PUBLISHED,
                 view_count=post_seed["view_count"],
                 comment_count=0,
-                published_at=now - timedelta(days=len(POST_SEEDS) - index),
+                published_at=published_at,
                 deleted_at=None,
             )
             db.add(post)
@@ -689,9 +782,7 @@ def upsert_posts(
             post.status = PostStatus.PUBLISHED
             post.view_count = post_seed["view_count"]
             post.comment_count = 0
-            post.published_at = post.published_at or now - timedelta(
-                days=len(POST_SEEDS) - index
-            )
+            post.published_at = published_at
             post.deleted_at = None
 
         figure_info = post_seed.get("figure_info")
@@ -716,10 +807,10 @@ def upsert_posts(
                     file_url=f"/uploads/{DEV_IMAGE_DIR_NAME}/{image_seed['filename']}",
                     thumbnail_url=f"/uploads/{DEV_IMAGE_DIR_NAME}/{image_seed['filename']}",
                     original_name=image_seed["filename"],
-                    mime_type="image/svg+xml",
-                    size_bytes=2048,
-                    width=960,
-                    height=720,
+                    mime_type=image_seed.get("mime_type", "image/svg+xml"),
+                    size_bytes=image_seed.get("size_bytes", 2048),
+                    width=image_seed.get("width", 960),
+                    height=image_seed.get("height", 720),
                     sort_order=0,
                     status=ImageStatus.ATTACHED,
                 )
@@ -743,6 +834,15 @@ def upsert_posts(
 
     db.flush()
     return posts
+
+
+def seed_published_at(post_seed: dict[str, Any], *, index: int, now: datetime) -> datetime:
+    offset_days = post_seed.get("published_offset_days")
+
+    if offset_days is None:
+        offset_days = len(POST_SEEDS) - index
+
+    return now - timedelta(days=offset_days)
 
 
 def rebuild_content_chunks(
@@ -1151,6 +1251,10 @@ def write_placeholder_images() -> None:
             continue
 
         image_path = image_root / image_seed["filename"]
+        if source_path := image_seed.get("source_path"):
+            shutil.copyfile(source_path, image_path)
+            continue
+
         image_path.write_text(
             build_svg_placeholder(
                 label=image_seed["label"],

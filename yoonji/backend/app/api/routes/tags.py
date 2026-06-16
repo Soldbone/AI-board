@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Query, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.enums import TagType
-from app.schemas.tag_schema import TagListResponse, TagRequest, TagResponse
+from app.schemas.tag_schema import (
+    AllowedTagType,
+    TagListResponse,
+    TagRequest,
+    TagResponse,
+)
 from app.services import tag_service
 
 
@@ -13,7 +17,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 def list_tags(
     db: DbSession,
     q: str | None = Query(default=None, max_length=100),
-    type: TagType | None = Query(default=None),
+    type: AllowedTagType | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=50),
 ) -> TagListResponse:
     return tag_service.list_tags(

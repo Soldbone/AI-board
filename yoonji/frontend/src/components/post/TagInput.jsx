@@ -5,13 +5,13 @@ import { getApiErrorMessage } from "../../hooks/usePosts";
 
 
 const TAG_TYPE_OPTIONS = [
-  { value: "GENERAL", label: "일반" },
-  { value: "CHARACTER", label: "캐릭터" },
-  { value: "WORK", label: "작품" },
-  { value: "MANUFACTURER", label: "제조사" },
-  { value: "TOPIC", label: "주제" },
-  { value: "PRICE", label: "가격" },
+  { value: "CHARACTER", label: "캐릭터명" },
+  { value: "WORK", label: "작품명" },
 ];
+
+const TAG_TYPE_LABELS = Object.fromEntries(
+  TAG_TYPE_OPTIONS.map((option) => [option.value, option.label]),
+);
 
 
 function TagInput({
@@ -21,7 +21,7 @@ function TagInput({
   value = [],
 }) {
   const [query, setQuery] = useState("");
-  const [tagType, setTagType] = useState("GENERAL");
+  const [tagType, setTagType] = useState("CHARACTER");
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -88,7 +88,7 @@ function TagInput({
 
     const nextTag = {
       name: cleanedName,
-      tag_type: tag.tag_type || tagType,
+      tag_type: normalizeTagType(tag.tag_type || tagType),
     };
     const nextKey = makeTagKey(nextTag.name, nextTag.tag_type);
 
@@ -174,7 +174,7 @@ function TagInput({
               disabled={disabled || selectedKeys.has(makeTagKey(tag.name, tag.tag_type))}
             >
               <span>{tag.name}</span>
-              <small>{tag.tag_type}</small>
+              <small>{formatTagType(tag.tag_type)}</small>
             </button>
           ))}
         </div>
@@ -194,7 +194,7 @@ function TagInput({
               disabled={disabled}
             >
               <span>{tag.name}</span>
-              <small>{tag.tag_type}</small>
+              <small>{formatTagType(tag.tag_type)}</small>
             </button>
           ))}
         </div>
@@ -205,12 +205,22 @@ function TagInput({
 
 
 function makeTagKey(name, tagType) {
-  return `${normalizeTagName(name)}::${tagType}`;
+  return `${normalizeTagName(name)}::${normalizeTagType(tagType)}`;
 }
 
 
 function normalizeTagName(name) {
   return String(name || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+
+function normalizeTagType(tagType) {
+  return TAG_TYPE_LABELS[tagType] ? tagType : "CHARACTER";
+}
+
+
+function formatTagType(tagType) {
+  return TAG_TYPE_LABELS[normalizeTagType(tagType)];
 }
 
 

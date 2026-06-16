@@ -5,7 +5,12 @@ from app.models.enums import TagStatus, TagType
 from app.models.post import Post
 from app.models.tag import Tag
 from app.repositories import tag_repository
-from app.schemas.tag_schema import TagListResponse, TagRequest, TagResponse
+from app.schemas.tag_schema import (
+    ALLOWED_TAG_TYPES,
+    TagListResponse,
+    TagRequest,
+    TagResponse,
+)
 from app.utils.normalizer import clean_tag_name, normalize_tag_name
 
 
@@ -16,11 +21,19 @@ def list_tags(
     tag_type: TagType | None,
     limit: int,
 ) -> TagListResponse:
+    if tag_type is not None and tag_type not in ALLOWED_TAG_TYPES:
+        raise AppException(
+            "Tag type must be CHARACTER or WORK.",
+            code="TAG_TYPE_NOT_SUPPORTED",
+            status_code=400,
+        )
+
     normalized_query = normalize_tag_name(q) if q else None
     tags = tag_repository.list_active_tags(
         db,
         normalized_query=normalized_query,
         tag_type=tag_type,
+        tag_types=None if tag_type is not None else ALLOWED_TAG_TYPES,
         limit=limit,
     )
     return TagListResponse(items=[TagResponse.model_validate(tag) for tag in tags])

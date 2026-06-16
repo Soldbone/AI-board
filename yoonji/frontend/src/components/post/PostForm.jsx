@@ -12,7 +12,6 @@ const EMPTY_FIGURE_INFO = {
   manufacturer: "",
   figure_type: "",
   price_amount: "",
-  price_range: "",
   purchase_date: "",
   satisfaction_score: "",
 };
@@ -89,7 +88,7 @@ function PostForm({
     payload.image_ids = images.map((image) => image.id);
     payload.tags = tags.map((tag) => ({
       name: tag.name,
-      tag_type: tag.tag_type,
+      tag_type: normalizeTagType(tag.tag_type),
     }));
 
     onSubmit(payload);
@@ -184,8 +183,13 @@ function PostForm({
 function buildInitialTags(post) {
   return (post?.tags || []).map((tag) => ({
     name: tag.name,
-    tag_type: tag.tag_type || "GENERAL",
+    tag_type: normalizeTagType(tag.tag_type),
   }));
+}
+
+
+function normalizeTagType(tagType) {
+  return ["CHARACTER", "WORK"].includes(tagType) ? tagType : "CHARACTER";
 }
 
 
@@ -203,7 +207,6 @@ function buildInitialFigureInfo(post) {
       post.figure_info.price_amount === undefined
         ? ""
         : String(post.figure_info.price_amount),
-    price_range: post.figure_info.price_range || "",
     purchase_date: post.figure_info.purchase_date || "",
     satisfaction_score:
       post.figure_info.satisfaction_score === null ||
@@ -220,7 +223,6 @@ function buildFigureInfoPayload(figureInfo) {
     manufacturer: optionalText(figureInfo.manufacturer),
     figure_type: optionalText(figureInfo.figure_type),
     price_amount: optionalNumber(figureInfo.price_amount),
-    price_range: optionalText(figureInfo.price_range),
     purchase_date: optionalText(figureInfo.purchase_date),
     satisfaction_score: optionalNumber(figureInfo.satisfaction_score),
     target_type: "REVIEW_TARGET",

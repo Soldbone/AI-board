@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../../api/client";
 import { getSimilarPosts } from "../../api/postApi";
 import { getApiErrorMessage } from "../../hooks/usePosts";
+import { formatPriceRange } from "../../utils/priceRange";
 
 
 function SimilarPostList({ onSelectPost, postId }) {
@@ -52,11 +53,13 @@ function SimilarPostList({ onSelectPost, postId }) {
   const items = data?.items || [];
 
   return (
-    <section className="similar-posts-section" aria-labelledby="similar-posts-title">
+    <section
+      className="similar-posts-section similar-review-section"
+      aria-labelledby="similar-posts-title"
+    >
       <div className="similar-posts-heading">
         <div>
-          <p className="eyebrow">RAG Recommendation</p>
-          <h3 id="similar-posts-title">Similar Reviews</h3>
+          <h3 id="similar-posts-title">비슷한 후기글</h3>
         </div>
       </div>
 
@@ -90,7 +93,7 @@ function SimilarPostList({ onSelectPost, postId }) {
                 <dl>
                   <div>
                     <dt>Price</dt>
-                    <dd>{item.post.price_range || "-"}</dd>
+                    <dd>{formatPriceRange(item.post.price_range)}</dd>
                   </div>
                   <div>
                     <dt>Score</dt>

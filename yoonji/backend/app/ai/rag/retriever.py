@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import re
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.rag import document_loader
@@ -15,8 +17,18 @@ from app.ai.rag.embedding_client import (
 from app.ai.rag.vector_store import VectorStoreError, get_vector_store
 from app.core.config import settings
 from app.core.exceptions import AppException
-from app.models.enums import BoardCode, ContentSourceType, PriceRange
+from app.models.board import Board
+from app.models.enums import (
+    BoardCode,
+    ContentSourceType,
+    PostStatus,
+    PriceRange,
+    TagStatus,
+)
 from app.models.post import Post
+from app.models.post_tag import PostTag
+from app.models.tag import Tag
+from app.utils.price_range import amount_to_price_range, price_ranges_are_same
 
 
 @dataclass
@@ -48,11 +60,30 @@ def retrieve_similar_review_posts(
     if document is None or post.board.code != BoardCode.REVIEW:
         return []
 
-    query_vector = _embed_query(_build_similar_review_query_text(document))
+    target_tags = _active_tag_normalized_names(post)
+    if not target_tags:
+        return []
+
+    candidates_by_post_id = _tag_match_candidates_by_post_id(
+        db,
+        target_tags=target_tags,
+        exclude_post_id=post.id,
+    )
+    eligible_post_ids = set(candidates_by_post_id)
+    if not eligible_post_ids:
+        return []
+
+    try:
+        query_vector = _embed_query(_build_similar_review_query_text(document))
+    except AppException:
+        if candidates_by_post_id:
+            return _sorted_similar_candidates(candidates_by_post_id, limit)
+        raise
+
     target_metadata = document.metadata
     target_figure_name = _as_text(target_metadata.get("figure_name"))
     target_manufacturer = _as_text(target_metadata.get("manufacturer"))
-    target_tags = _normalize_tags(target_metadata.get("tags", []))
+    target_tag_names = _normalize_tags(target_metadata.get("tags", []))
     target_price_range = _price_range_from_metadata(target_metadata.get("price_range"))
 
     try:
@@ -61,17 +92,19 @@ def retrieve_similar_review_posts(
             query_vector=query_vector,
             board_code=BoardCode.REVIEW,
             source_types=[ContentSourceType.POST],
-            limit=max(limit * 12, 30),
+            limit=max(limit * 20, 50),
             exclude_post_id=post.id,
+            include_post_ids=eligible_post_ids,
         )
     except VectorStoreError as exc:
+        if candidates_by_post_id:
+            return _sorted_similar_candidates(candidates_by_post_id, limit)
+
         raise AppException(
             "Vector store search failed.",
             code="VECTOR_STORE_SEARCH_FAILED",
             status_code=500,
         ) from exc
-
-    candidates_by_post_id: dict[int, SimilarPostCandidate] = {}
 
     for result in search_results:
         chunk = result.chunk
@@ -88,7 +121,7 @@ def retrieve_similar_review_posts(
             chunk_metadata=chunk.metadata_json or {},
             target_figure_name=target_figure_name,
             target_manufacturer=target_manufacturer,
-            target_tags=target_tags,
+            target_tags=target_tag_names,
             target_price_range=target_price_range,
             base_score=score,
         )
@@ -106,11 +139,82 @@ def retrieve_similar_review_posts(
         ) > _similar_review_candidate_sort_key(current):
             candidates_by_post_id[chunk.post_id] = candidate
 
+    return _sorted_similar_candidates(candidates_by_post_id, limit)
+
+
+def _sorted_similar_candidates(
+    candidates_by_post_id: dict[int, SimilarPostCandidate],
+    limit: int,
+) -> list[SimilarPostCandidate]:
     return sorted(
         candidates_by_post_id.values(),
         key=_similar_review_candidate_sort_key,
         reverse=True,
     )[:limit]
+
+
+def _active_tag_normalized_names(post: Post) -> set[str]:
+    return {
+        tag_link.tag.normalized_name.strip().casefold()
+        for tag_link in post.tag_links
+        if tag_link.tag is not None
+        and tag_link.tag.status == TagStatus.ACTIVE
+        and tag_link.tag.normalized_name.strip()
+    }
+
+
+def _tag_match_candidates_by_post_id(
+    db: Session,
+    *,
+    target_tags: set[str],
+    exclude_post_id: int,
+) -> dict[int, SimilarPostCandidate]:
+    shared_tag_count = func.count(Tag.id)
+    statement = (
+        select(Post.id, shared_tag_count.label("shared_tag_count"))
+        .join(Post.board)
+        .join(Post.tag_links)
+        .join(PostTag.tag)
+        .where(
+            Post.status == PostStatus.PUBLISHED,
+            Post.deleted_at.is_(None),
+            Post.id != exclude_post_id,
+            Board.is_active.is_(True),
+            Board.code == BoardCode.REVIEW,
+            Tag.status == TagStatus.ACTIVE,
+            Tag.normalized_name.in_(target_tags),
+        )
+        .group_by(Post.id, Post.published_at, Post.created_at)
+        .order_by(
+            shared_tag_count.desc(),
+            Post.published_at.desc(),
+            Post.created_at.desc(),
+            Post.id.desc(),
+        )
+    )
+
+    candidates: dict[int, SimilarPostCandidate] = {}
+
+    for post_id, count in db.execute(statement).all():
+        shared_count = _safe_int(count)
+        # A shared tag is an explicit user-provided signal, so it should be a
+        # valid recommendation even when no vector chunk has been indexed yet.
+        score = round(min(0.6 + shared_count * 0.08, 0.95), 4)
+        candidates[post_id] = SimilarPostCandidate(
+            post_id=post_id,
+            score=score,
+            chunk_id=0,
+            metadata={
+                "match_kind": "shared_tags",
+                "match_priority": 2,
+                "matched_signals": ["shared tags"],
+                "shared_tag_count": shared_count,
+                "retrieval_score": 0,
+                "rerank_score": score,
+            },
+        )
+
+    return candidates
 
 
 def _build_similar_review_query_text(document: Any) -> str:
@@ -513,26 +617,14 @@ def _infer_price_range(text: str) -> PriceRange | None:
 
     amount = max(amounts)
 
-    if amount < 30000:
-        return PriceRange.UNDER_30000
-
-    if amount < 50000:
-        return PriceRange.PRICE_30000_50000
-
-    if amount < 100000:
-        return PriceRange.PRICE_50000_100000
-
-    if amount < 200000:
-        return PriceRange.PRICE_100000_200000
-
-    return PriceRange.OVER_200000
+    return amount_to_price_range(Decimal(str(amount)))
 
 
 def _same_price_range(
     left: PriceRange | None,
     right: PriceRange | None,
 ) -> bool:
-    return left is not None and right is not None and left == right
+    return price_ranges_are_same(left, right)
 
 
 def _price_range_from_metadata(value: Any) -> PriceRange | None:

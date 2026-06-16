@@ -9,15 +9,17 @@ from mcp.server.fastmcp import FastMCP
 from tools.shopping_metadata_tool import (
     fetch_gsc_product_metadata,
     search_gsc_smartstore_products,
+    search_naver_shopping_products,
 )
 
 
 SERVER_NAME = "Yoonji GSC SmartStore MCP"
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+MCP_SERVER_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_SERVER_ROOT.parent
 
 
+load_dotenv(MCP_SERVER_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / ".env")
-load_dotenv()
 
 
 def _parse_port(value: str | None, default: int = 8765) -> int:
@@ -61,6 +63,16 @@ def create_mcp_server() -> FastMCP:
             "to the official Good Smile Company Korea SmartStore channel."
         ),
     )(search_gsc_smartstore_products)
+
+    mcp.tool(
+        name="search_naver_shopping_products",
+        title="Search Naver Shopping Products",
+        description=(
+            "Search Naver Shopping and return general product candidates with "
+            "title, image, URL, price, mall, maker, brand, and category fields. "
+            "Returned products are search candidates, not verified official pages."
+        ),
+    )(search_naver_shopping_products)
 
     mcp.tool(
         name="fetch_gsc_product_metadata",
