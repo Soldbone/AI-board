@@ -49,11 +49,14 @@ class FigureType(str, Enum):
 
 
 class PriceRange(str, Enum):
+    PRICE_0_50000 = "0_50000"
     UNDER_30000 = "UNDER_30000"
     PRICE_30000_50000 = "30000_50000"
     PRICE_50000_100000 = "50000_100000"
     PRICE_100000_200000 = "100000_200000"
+    PRICE_200000_500000 = "200000_500000"
     OVER_200000 = "OVER_200000"
+    OVER_500000 = "OVER_500000"
     UNKNOWN = "UNKNOWN"
 
 
@@ -89,6 +92,53 @@ class ImageStatus(str, Enum):
     ATTACHED = "ATTACHED"
     DELETED = "DELETED"
     FAILED = "FAILED"
+
+
+class ContentSourceType(str, Enum):
+    POST = "POST"
+    COMMENT = "COMMENT"
+    NOTICE = "NOTICE"
+    FAQ = "FAQ"
+
+
+class ContentChunkStatus(str, Enum):
+    PENDING = "PENDING"
+    INDEXED = "INDEXED"
+    FAILED = "FAILED"
+    STALE = "STALE"
+    DELETED = "DELETED"
+
+
+class AiOutputType(str, Enum):
+    QUESTION_REFERENCE_ANSWER = "QUESTION_REFERENCE_ANSWER"
+    PURCHASE_SUMMARY = "PURCHASE_SUMMARY"
+    AGENT_ANSWER = "AGENT_ANSWER"
+
+
+class AiOutputStatus(str, Enum):
+    REQUESTED = "REQUESTED"
+    PROCESSING = "PROCESSING"
+    GENERATED = "GENERATED"
+    FAILED = "FAILED"
+
+
+class GroundingStatus(str, Enum):
+    GROUNDED = "GROUNDED"
+    PARTIALLY_GROUNDED = "PARTIALLY_GROUNDED"
+    NO_EVIDENCE = "NO_EVIDENCE"
+
+
+class ProductEnrichmentStatus(str, Enum):
+    REQUESTED = "REQUESTED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class ProductMatchStatus(str, Enum):
+    VERIFIED = "VERIFIED"
+    CANDIDATES_ONLY = "CANDIDATES_ONLY"
+    NO_MATCH = "NO_MATCH"
 
 
 def enum_column_type(enum_class: type[Enum], name: str) -> SQLAlchemyEnum:

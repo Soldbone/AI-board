@@ -20,7 +20,7 @@
 | 필드 | 설명 |
 | --- | --- |
 | `id` | 사용자 ID |
-| `email` | 이메일 |
+| `email` | 이메일, 선택값 |
 | `login_id` | 로그인 ID |
 | `password_hash` | 암호화된 비밀번호 |
 | `nickname` | 닉네임 |
@@ -120,8 +120,6 @@
 `source_type`
 
 - `USER`
-- `AI_DRAFT`
-- `AI_PUBLISHED`
 
 `status`
 
@@ -308,48 +306,11 @@ MVP에서는 대댓글은 제외하고, 게시글에 직접 달리는 댓글만 
 
 ---
 
-## 1.10 ExternalLinkPreview
-
-AI/MCP가 자동으로 찾은 외부 URL 메타데이터와 미리보기 카드를 저장하는 엔티티.
-
-사용자가 URL을 별도로 입력하지 않고, AI/MCP 기반 자동 사이트 탐색 결과를 게시글에 연결할 때 사용한다.
-
-핵심 필드 후보:
-
-| 필드 | 설명 |
-| --- | --- |
-| `id` | 링크 미리보기 ID |
-| `post_id` | 게시글 ID |
-| `url` | AI/MCP가 자동 탐색한 URL |
-| `canonical_url` | 정규화된 URL |
-| `domain` | 도메인 |
-| `title` | 페이지 제목 |
-| `summary` | 요약문 |
-| `thumbnail_url` | 대표 이미지 |
-| `provider` | 제공자 |
-| `metadata_json` | 원본 메타데이터 |
-| `fetch_status` | 수집 상태 |
-| `fetched_at` | 수집 시각 |
-| `error_message` | 실패 메시지 |
-| `created_at` | 생성 시각 |
-
-상태값 후보:
-
-`fetch_status`
-
-- `PENDING`
-- `SUCCESS`
-- `FAILED`
-- `UNSUPPORTED`
-- `STALE`
-
----
-
-## 1.11 ContentChunk
+## 1.10 ContentChunk
 
 RAG 검색을 위해 게시글과 댓글을 잘게 나눈 문서 조각 엔티티.
 
-AI Q&A, 질문 참고 답변, 구매 고민 요약, 유사 게시글 검색의 기반 데이터가 된다.
+AI Q&A, 게시글 맥락 Agent 답변, 구매 고민 요약, 유사 게시글 검색의 기반 데이터가 된다.
 
 핵심 필드 후보:
 
@@ -359,13 +320,17 @@ AI Q&A, 질문 참고 답변, 구매 고민 요약, 유사 게시글 검색의 �
 | `source_type` | 원본 유형 |
 | `post_id` | 게시글 ID |
 | `comment_id` | 댓글 ID |
+| `board_code` | 원본 게시글의 게시판 코드 |
+| `chunk_index` | 같은 원본 안에서의 청크 순서 |
 | `chunk_text` | 청크 텍스트 |
 | `embedding_model` | 임베딩 모델명 |
 | `embedding_vector` | 임베딩 벡터 |
 | `token_count` | 토큰 수 |
 | `index_status` | 인덱싱 상태 |
+| `metadata_json` | 피규어명, 제조사, 가격대, 태그, seed 정보 등 검색 보조 메타데이터 |
 | `indexed_at` | 인덱싱 시각 |
 | `created_at` | 생성 시각 |
+| `updated_at` | 수정 시각 |
 
 상태값 후보:
 
@@ -386,7 +351,7 @@ AI Q&A, 질문 참고 답변, 구매 고민 요약, 유사 게시글 검색의 �
 
 ---
 
-## 1.12 AiOutput
+## 1.11 AiOutput
 
 AI가 생성한 답변, 요약, 정보글 초안 등을 저장하는 엔티티.
 
@@ -408,28 +373,20 @@ AI 기능 디버깅을 위해 사용자가 실제로 입력한 질문 또는 작
 | `confidence_score` | 신뢰도 점수 |
 | `model_name` | 사용 모델명 |
 | `metadata_json` | 요청 옵션, 프롬프트 버전, 토큰 사용량 등 |
-| `published_post_id` | AI 초안이 게시글로 발행된 경우 연결 게시글 ID |
-| `reviewer_id` | 검수자 ID |
-| `reviewed_at` | 검수 시각 |
 | `created_at` | 생성 시각 |
 
 상태값 후보:
 
 `output_type`
 
-- `QNA_ANSWER`
-- `QUESTION_REFERENCE_ANSWER`
 - `PURCHASE_SUMMARY`
-- `SIMILAR_POST_SUMMARY`
-- `BEGINNER_INFO_DRAFT`
+- `AGENT_ANSWER`
 
 `status`
 
+- `REQUESTED`
+- `PROCESSING`
 - `GENERATED`
-- `PENDING_REVIEW`
-- `APPROVED`
-- `PUBLISHED`
-- `REJECTED`
 - `FAILED`
 
 `grounding_status`
@@ -440,9 +397,9 @@ AI 기능 디버깅을 위해 사용자가 실제로 입력한 질문 또는 작
 
 ---
 
-## 1.13 AiOutputSource
+## 1.12 AiOutputSource
 
-AI 답변이 어떤 게시글, 댓글, 외부 URL을 근거로 생성되었는지 저장하는 엔티티.
+AI 답변이 어떤 게시글 또는 댓글을 근거로 생성되었는지 저장하는 엔티티.
 
 RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 
@@ -455,7 +412,6 @@ RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 | `content_chunk_id` | 참조한 청크 ID |
 | `source_post_id` | 근거 게시글 ID |
 | `source_comment_id` | 근거 댓글 ID |
-| `source_url` | 외부 근거 URL |
 | `relevance_score` | 관련도 점수 |
 | `rank_order` | 근거 노출 순서 |
 | `excerpt` | 근거 발췌문 |
@@ -465,10 +421,13 @@ RAG 답변에서 근거 링크를 제공하기 위해 반드시 필요하다.
 
 - `source_post_id`는 `content_chunk_id`를 통해 유추할 수 있지만, 조회 성능과 화면 표시 편의를 위해 중복 저장해도 좋다.
 - `rank_order`는 RAG 근거의 우선순위를 표현하기 위해 필요하다.
+- 개발용 seed 데이터는 `ContentChunk.metadata_json.seed="dev"`와 `embedding_model="dev-deterministic-embedding-v1"`로 구분한다.
+- Phase 6 smoke check는 이 값을 이용해 실제 OpenAI API 호출 없이도 RAG chunk, AI 결과, AI 근거가 연결되어 있는지 확인한다.
+- 저장된 AI 결과 예시는 `AiOutput`에 있고, 화면은 `AiOutputSource`를 통해 참고한 게시글/댓글/chunk 근거를 보여준다.
 
 ---
 
-## 1.14 Report
+## 1.13 Report
 
 신고 및 운영자 관리를 위한 엔티티.
 
@@ -531,7 +490,6 @@ MVP 필수는 아니지만, 운영자 기능에 “부적절한 게시글 관리
 | `Post` 1 : N `PostImage` | 하나의 게시글은 여러 이미지를 가질 수 있다. |
 | `Post` 1 : N `PostFigureInfo` | 후기 게시글은 피규어 정보를 가질 수 있다. |
 | `Post` N : M `Tag` | 게시글과 태그는 다대다 관계다. |
-| `Post` 1 : N `ExternalLinkPreview` | 하나의 게시글은 여러 외부 링크 미리보기를 가질 수 있다. |
 | `Post` 1 : N `ContentChunk` | 하나의 게시글은 여러 RAG 청크로 나뉠 수 있다. |
 | `Comment` 1 : N `ContentChunk` | 하나의 댓글도 RAG 청크로 인덱싱될 수 있다. |
 | `Post` 1 : N `AiOutput` | 특정 게시글을 대상으로 여러 AI 결과가 생성될 수 있다. |
@@ -558,7 +516,6 @@ MVP 필수는 아니지만, 운영자 기능에 “부적절한 게시글 관리
 | `ContentChunk` | 포함 | RAG, 유사도 검색 기반 |
 | `AiOutput` | 포함 | AI 답변/요약/초안 저장 |
 | `AiOutputSource` | 포함 | RAG 근거 링크 제공 |
-| `ExternalLinkPreview` | 선택 | AI/MCP 자동 링크 탐색 구현 시 |
 | `Report` | 선택 | 신고/운영자 관리 구현 시 |
 
 MVP에서 제외하는 엔티티:
@@ -614,7 +571,6 @@ erDiagram
     POST ||--o{ POST_FIGURE_INFO : has
     POST ||--o{ POST_IMAGE : has
     POST ||--o{ COMMENT : has
-    POST ||--o{ EXTERNAL_LINK_PREVIEW : embeds
     POST ||--o{ CONTENT_CHUNK : indexed_as
     POST ||--o{ AI_OUTPUT : target_of
     POST ||--o{ REPORT : reported_as_post
@@ -630,7 +586,7 @@ erDiagram
 
     USER {
       bigint id
-      string email
+      string email nullable
       string login_id
       string nickname
       string role
@@ -714,27 +670,22 @@ erDiagram
       string status
     }
 
-    EXTERNAL_LINK_PREVIEW {
-      bigint id
-      bigint post_id
-      string url
-      string canonical_url
-      string domain
-      string title
-      text summary
-      string thumbnail_url
-      string fetch_status
-    }
-
     CONTENT_CHUNK {
       bigint id
       string source_type
       bigint post_id
       bigint comment_id
+      string board_code
+      int chunk_index
       text chunk_text
       string embedding_model
       vector embedding_vector
+      int token_count
       string index_status
+      json metadata_json
+      datetime indexed_at
+      datetime created_at
+      datetime updated_at
     }
 
     AI_OUTPUT {
@@ -750,9 +701,6 @@ erDiagram
       float confidence_score
       string model_name
       json metadata_json
-      bigint published_post_id
-      bigint reviewer_id
-      datetime reviewed_at
     }
 
     AI_OUTPUT_SOURCE {
@@ -761,7 +709,6 @@ erDiagram
       bigint content_chunk_id
       bigint source_post_id
       bigint source_comment_id
-      string source_url
       float relevance_score
       int rank_order
       text excerpt

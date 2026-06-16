@@ -1,0 +1,35 @@
+import axiosInstance from "./axiosInstance";
+
+
+export async function requestPurchaseSummary(postId, payload = {}) {
+  const response = await axiosInstance.post(
+    `/posts/${postId}/ai/purchase-summary`,
+    {
+      top_k: payload.top_k ?? payload.topK ?? 5,
+      include_similar_price_range:
+        payload.include_similar_price_range ??
+        payload.includeSimilarPriceRange ??
+        true,
+    },
+  );
+  return response.data;
+}
+
+
+export async function requestAgentAnswer(postId, payload = {}) {
+  const response = await axiosInstance.post(
+    `/posts/${postId}/ai/agent-answer`,
+    {
+      message: payload.message,
+      top_k: payload.top_k ?? payload.topK ?? 5,
+      include_mcp: payload.include_mcp ?? payload.includeMcp ?? true,
+    },
+  );
+  return response.data;
+}
+
+
+export async function getAiOutput(aiOutputId) {
+  const response = await axiosInstance.get(`/ai/outputs/${aiOutputId}`);
+  return response.data;
+}

@@ -1,10 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.user_schema import UserResponse, UserSummary
 
 
 class SignupRequest(BaseModel):
-    email: EmailStr
     login_id: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8, max_length=72)
     nickname: str = Field(min_length=2, max_length=50)

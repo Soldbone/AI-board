@@ -28,13 +28,6 @@ from app.schemas.user_schema import UserSummary
 
 
 def signup(db: Session, payload: SignupRequest) -> SignupResponse:
-    if user_repository.get_user_by_email(db, payload.email):
-        raise AppException(
-            "이미 사용 중인 이메일입니다.",
-            code="EMAIL_ALREADY_EXISTS",
-            status_code=409,
-        )
-
     if user_repository.get_user_by_login_id(db, payload.login_id):
         raise AppException(
             "이미 사용 중인 로그인 ID입니다.",
@@ -44,7 +37,6 @@ def signup(db: Session, payload: SignupRequest) -> SignupResponse:
 
     user = user_repository.create_user(
         db,
-        email=str(payload.email),
         login_id=payload.login_id,
         password_hash=hash_password(payload.password),
         nickname=payload.nickname,
@@ -54,11 +46,7 @@ def signup(db: Session, payload: SignupRequest) -> SignupResponse:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise AppException(
-            "회원가입 정보가 이미 사용 중입니다.",
-            code="SIGNUP_CONFLICT",
-            status_code=409,
-        ) from exc
+        raise _signup_integrity_exception(exc) from exc
 
     db.refresh(user)
     return SignupResponse.model_validate(user)
@@ -157,3 +145,50 @@ def _ensure_active_user(user: User) -> None:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _signup_integrity_exception(exc: IntegrityError) -> AppException:
+    constraint_name = _get_constraint_name(exc)
+    column_name = _get_column_name(exc)
+    error_text = str(exc.orig).lower()
+
+    if constraint_name == "users_login_id_key" or "users.login_id" in error_text:
+        return AppException(
+            "이미 사용 중인 로그인 ID입니다.",
+            code="LOGIN_ID_ALREADY_EXISTS",
+            status_code=409,
+        )
+
+    if constraint_name == "users_email_key" or "users.email" in error_text:
+        return AppException(
+            "이미 사용 중인 이메일입니다.",
+            code="EMAIL_ALREADY_EXISTS",
+            status_code=409,
+        )
+
+    if column_name == "email" or "null value in column \"email\"" in error_text:
+        return AppException(
+            (
+                "현재 DB 스키마가 예전 상태라 이메일 없이 회원가입할 수 없습니다. "
+                "서버를 재시작하거나 scripts/allow_nullable_user_email.sql을 적용해주세요."
+            ),
+            code="USER_EMAIL_SCHEMA_OUTDATED",
+            status_code=500,
+            details={"field": "email"},
+        )
+
+    return AppException(
+        "회원가입 정보를 저장하지 못했습니다. 입력값 또는 DB 제약 조건을 확인해주세요.",
+        code="SIGNUP_SAVE_FAILED",
+        status_code=500,
+    )
+
+
+def _get_constraint_name(exc: IntegrityError) -> str | None:
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None)
+
+
+def _get_column_name(exc: IntegrityError) -> str | None:
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "column_name", None)

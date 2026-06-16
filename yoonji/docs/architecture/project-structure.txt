@@ -14,7 +14,6 @@ figure-community/
 │   ├── architecture/
 │   │   ├── system-architecture.md
 │   │   ├── api-design.md
-│   │   ├── rag-agent-flow.md
 │   │   └── mcp-design.md
 │   │
 │   └── database/
@@ -39,7 +38,6 @@ figure-community/
 │       │   ├── tagApi.js
 │       │   ├── imageApi.js
 │       │   ├── searchApi.js
-│       │   ├── externalLinkApi.js
 │       │   └── aiApi.js
 │       │
 │       ├── pages/
@@ -51,8 +49,7 @@ figure-community/
 │       │   ├── PostWritePage.jsx
 │       │   ├── PostEditPage.jsx
 │       │   ├── SearchResultPage.jsx
-│       │   ├── MyPage.jsx
-│       │   └── AiQnaPage.jsx
+│       │   └── MyPage.jsx
 │       │
 │       ├── components/
 │       │   ├── common/
@@ -76,14 +73,10 @@ figure-community/
 │       │   │   ├── CommentList.jsx
 │       │   │   └── CommentForm.jsx
 │       │   │
-│       │   ├── ai/
+│       │   └── ai/
 │       │   │   ├── AiAnswerBox.jsx
 │       │   │   ├── AiSourceList.jsx
-│       │   │   ├── AiDraftCard.jsx
 │       │   │   └── PurchaseSummaryBox.jsx
-│       │   │
-│       │   └── external/
-│       │       └── LinkPreviewCard.jsx
 │       │
 │       ├── hooks/
 │       │   ├── useAuth.js
@@ -130,7 +123,6 @@ figure-community/
 │       │   ├── content_chunk.py
 │       │   ├── ai_output.py
 │       │   ├── ai_output_source.py
-│       │   ├── external_link_preview.py
 │       │   └── report.py
 │       │
 │       ├── schemas/
@@ -143,8 +135,7 @@ figure-community/
 │       │   ├── image_schema.py
 │       │   ├── search_schema.py
 │       │   ├── ai_schema.py
-│       │   ├── report_schema.py
-│       │   └── external_link_schema.py
+│       │   └── report_schema.py
 │       │
 │       ├── api/
 │       │   ├── routes/
@@ -158,8 +149,7 @@ figure-community/
 │       │   │   ├── search.py
 │       │   │   ├── ai.py
 │       │   │   ├── reports.py
-│       │   │   ├── internal.py
-│       │   │   └── external_links.py
+│       │   │   └── internal.py
 │       │   │
 │       │   └── deps.py
 │       │
@@ -173,9 +163,7 @@ figure-community/
 │       │   ├── image_service.py
 │       │   ├── search_service.py
 │       │   ├── ai_service.py
-│       │   ├── report_service.py
-│       │   ├── link_preview_service.py
-│       │   └── external_link_service.py
+│       │   └── report_service.py
 │       │
 │       ├── repositories/
 │       │   ├── user_repository.py
@@ -183,8 +171,7 @@ figure-community/
 │       │   ├── comment_repository.py
 │       │   ├── tag_repository.py
 │       │   ├── content_chunk_repository.py
-│       │   ├── ai_output_repository.py
-│       │   └── external_link_repository.py
+│       │   └── ai_output_repository.py
 │       │
 │       ├── ai/
 │       │   ├── llm/
@@ -200,26 +187,10 @@ figure-community/
 │       │   │   ├── rag_chain.py
 │       │   │   └── indexing_service.py
 │       │   │
-│       │   ├── agent/
-│       │   │   ├── state.py
-│       │   │   ├── graph.py
-│       │   │   ├── nodes.py
-│       │   │   ├── edges.py
-│       │   │   └── tools.py
-│       │   │
 │       │   └── usecases/
-│       │       ├── qna_answer.py
 │       │       ├── similar_posts.py
 │       │       ├── question_reference_answer.py
-│       │       ├── purchase_summary.py
-│       │       ├── beginner_info_draft.py
-│       │       └── auto_link_discovery.py
-│       │
-│       ├── mcp/
-│       │   ├── mcp_client.py
-│       │   └── tools/
-│       │       ├── fetch_link_preview.py
-│       │       └── fetch_shopping_metadata.py
+│       │       └── purchase_summary.py
 │       │
 │       ├── storage/
 │       │   ├── local_storage.py

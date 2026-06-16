@@ -58,3 +58,16 @@ class Post(Base):
         cascade="all, delete-orphan",
     )
     images: Mapped[list["PostImage"]] = relationship("PostImage", back_populates="post")
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(
+        "ContentChunk",
+        back_populates="post",
+        cascade="all, delete-orphan",
+    )
+    ai_outputs: Mapped[list["AiOutput"]] = relationship(
+        "AiOutput",
+        back_populates="target_post",
+    )
+    product_enrichments: Mapped[list["McpProductEnrichment"]] = relationship(
+        "McpProductEnrichment",
+        back_populates="post",
+    )

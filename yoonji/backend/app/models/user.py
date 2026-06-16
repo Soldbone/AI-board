@@ -17,7 +17,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
     login_id: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     nickname: Mapped[str] = mapped_column(String(50), index=True)
@@ -49,3 +54,7 @@ class User(Base):
     posts: Mapped[list["Post"]] = relationship("Post", back_populates="author")
     comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="author")
     images: Mapped[list["PostImage"]] = relationship("PostImage", back_populates="uploader")
+    ai_outputs: Mapped[list["AiOutput"]] = relationship(
+        "AiOutput",
+        back_populates="requester",
+    )

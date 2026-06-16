@@ -1,15 +1,17 @@
 import { useState } from "react";
 
+import Button from "../components/common/Button";
+import Input from "../components/common/Input";
+
 
 const INITIAL_FORM = {
-  email: "",
   login_id: "",
   password: "",
   nickname: "",
 };
 
 
-function SignupPage({ onSignup }) {
+function SignupPage({ onSignup, onSignupSuccess }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -25,15 +27,22 @@ function SignupPage({ onSignup }) {
     setIsSubmitting(true);
     setMessage("");
     setErrorMessage("");
+    let createdUser = null;
 
     try {
-      const user = await onSignup(form);
+      createdUser = await onSignup(form);
       setForm(INITIAL_FORM);
-      setMessage(`${user.nickname} 계정이 생성되었습니다.`);
+      if (!onSignupSuccess) {
+        setMessage(`${createdUser.nickname} 계정이 생성되었습니다.`);
+      }
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
       setIsSubmitting(false);
+    }
+
+    if (createdUser && onSignupSuccess) {
+      onSignupSuccess(createdUser);
     }
   }
 
@@ -41,57 +50,43 @@ function SignupPage({ onSignup }) {
     <section className="auth-panel" aria-labelledby="signup-title">
       <h2 id="signup-title">회원가입</h2>
       <form className="auth-form" onSubmit={handleSubmit}>
-        <label>
-          이메일
-          <input
-            name="email"
-            type="email"
-            value={form.email}
-            onChange={handleChange}
-            required
-          />
-        </label>
+        <Input
+          autoComplete="username"
+          label="로그인 ID"
+          maxLength={50}
+          minLength={3}
+          name="login_id"
+          onChange={handleChange}
+          required
+          value={form.login_id}
+        />
 
-        <label>
-          로그인 ID
-          <input
-            name="login_id"
-            value={form.login_id}
-            onChange={handleChange}
-            minLength={3}
-            maxLength={50}
-            required
-          />
-        </label>
+        <Input
+          autoComplete="new-password"
+          label="비밀번호"
+          maxLength={72}
+          minLength={8}
+          name="password"
+          onChange={handleChange}
+          required
+          type="password"
+          value={form.password}
+        />
 
-        <label>
-          비밀번호
-          <input
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            minLength={8}
-            maxLength={72}
-            required
-          />
-        </label>
+        <Input
+          autoComplete="nickname"
+          label="닉네임"
+          maxLength={50}
+          minLength={2}
+          name="nickname"
+          onChange={handleChange}
+          required
+          value={form.nickname}
+        />
 
-        <label>
-          닉네임
-          <input
-            name="nickname"
-            value={form.nickname}
-            onChange={handleChange}
-            minLength={2}
-            maxLength={50}
-            required
-          />
-        </label>
-
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "가입 중" : "회원가입"}
-        </button>
+        <Button type="submit" isLoading={isSubmitting}>
+          회원가입
+        </Button>
       </form>
 
       {message && <p className="form-message success">{message}</p>}
