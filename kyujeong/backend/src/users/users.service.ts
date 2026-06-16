@@ -32,9 +32,11 @@ export class UsersService {
         createdAt: 'desc',
       },
       select: {
-        id: true,
-        title: true,
-        createdAt: true,
+	        id: true,
+	        title: true,
+	        imageUrl: true,
+	        category: true,
+	        createdAt: true,
         author: {
           select: {
             id: true,
@@ -162,6 +164,7 @@ export class UsersService {
       difficulty: recommendation.difficulty,
 	      content: recommendation.content,
 	      thumbnailUrl: recommendation.thumbnailUrl ?? null,
+	      nutritionMetadata: recommendation.nutritionMetadata ?? null,
 	      status: recommendation.status,
       grounding: recommendation.grounding,
       createdAt: recommendation.createdAt,

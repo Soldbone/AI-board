@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  FoodCandidate,
   FoodNutritionResult,
   FoodSearchResult,
   IngredientNutritionSummary,
@@ -13,6 +14,8 @@ import {
 } from './food-name-normalizer';
 import { PublicDataFoodNutritionClient } from './public-data-food-nutrition.client';
 
+const DEFAULT_DATA_SOURCE =
+  '재료별 영양 데이터';
 const EMPTY_NUTRITION: NutritionFacts = {
   energyKcal: null,
   carbohydrateG: null,
@@ -33,19 +36,29 @@ export class FoodMetadataService {
   async searchFoodItems(query: string, limit = 10): Promise<FoodSearchResult> {
     const queries = buildFoodSearchQueries(query);
     let firstResult: FoodSearchResult | null = null;
+    let bestCandidateResult: FoodSearchResult | null = null;
 
     for (const searchQuery of queries) {
       const result = await this.foodDataClient.search({
         query: searchQuery,
         limit,
       });
+      const normalizedQuery = normalizeFoodName(searchQuery);
+      const sortedResult = {
+        ...result,
+        candidates: this.sortIngredientCandidates(
+          result.candidates,
+          normalizedQuery,
+        ),
+      };
+      const normalizedResult = {
+        ...sortedResult,
+        originalInput: query,
+        normalizedInput: normalizeFoodName(query),
+      };
 
       if (!firstResult) {
-        firstResult = {
-          ...result,
-          originalInput: query,
-          normalizedInput: normalizeFoodName(query),
-        };
+        firstResult = normalizedResult;
       }
 
       if (
@@ -53,29 +66,32 @@ export class FoodMetadataService {
         result.matchStatus === 'api_error' ||
         result.matchStatus === 'rate_limited'
       ) {
-        return {
-          ...result,
-          originalInput: query,
-          normalizedInput: normalizeFoodName(query),
-        };
+        return normalizedResult;
       }
 
-      if (result.candidates.length > 0) {
-        return {
-          ...result,
-          originalInput: query,
-          normalizedInput: normalizeFoodName(query),
-        };
+      if (sortedResult.candidates.length > 0) {
+        if (!bestCandidateResult) {
+          bestCandidateResult = normalizedResult;
+        }
+
+        if (
+          sortedResult.candidates.some(
+            (candidate) => candidate.normalizedName === normalizedQuery,
+          )
+        ) {
+          return normalizedResult;
+        }
       }
     }
 
     return (
+      bestCandidateResult ??
       firstResult ?? {
         originalInput: query,
         normalizedInput: normalizeFoodName(query),
         candidates: [],
         totalCount: 0,
-        source: '공공데이터포털 식품영양성분 API',
+        source: DEFAULT_DATA_SOURCE,
         matchStatus: 'not_found',
         message: 'No search query was provided.',
       }
@@ -135,7 +151,7 @@ export class FoodMetadataService {
       ingredients: summaries,
       totals,
       perIngredientAverage,
-      dataSource: '공공데이터포털 식품영양성분 API',
+      dataSource: DEFAULT_DATA_SOURCE,
       matchStatus:
         matchedSummaries.length === ingredients.length
           ? 'matched'
@@ -166,9 +182,55 @@ export class FoodMetadataService {
       matchedName: result.item?.matchedName ?? null,
       servingSize: result.item?.servingSize ?? null,
       nutrition: result.item?.nutrition ?? EMPTY_NUTRITION,
+      source: result.item?.source ?? result.source,
       matchStatus: result.matchStatus,
       message: result.message,
     };
+  }
+
+  private sortIngredientCandidates(
+    candidates: FoodCandidate[],
+    normalizedQuery: string,
+  ) {
+    return [...candidates].sort(
+      (left, right) =>
+        this.scoreIngredientCandidate(right, normalizedQuery) -
+        this.scoreIngredientCandidate(left, normalizedQuery),
+    );
+  }
+
+  private scoreIngredientCandidate(
+    candidate: FoodCandidate,
+    normalizedQuery: string,
+  ) {
+    const normalizedName = candidate.normalizedName;
+    let score = 0;
+
+    if (normalizedName === normalizedQuery) {
+      score += 1000;
+    } else if (normalizedName.startsWith(normalizedQuery)) {
+      score += 300;
+    } else if (normalizedName.includes(normalizedQuery)) {
+      score += 100;
+    }
+
+    if (!/[ _/,-]/.test(candidate.matchedName)) {
+      score += 80;
+    }
+
+    if (/[ _/,-]/.test(candidate.matchedName)) {
+      score -= 120;
+    }
+
+    if (
+      /볶음|김밥|전|부침|튀김|구이|국|찌개|탕|덮밥|라면|파스타|샐러드|소스/.test(
+        candidate.matchedName,
+      )
+    ) {
+      score -= 180;
+    }
+
+    return score - candidate.matchedName.length;
   }
 
   private sumNutrition(nutritions: NutritionFacts[]): NutritionFacts {

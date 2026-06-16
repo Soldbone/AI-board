@@ -51,6 +51,7 @@ describe('PostsService', () => {
       {
 	        id: 1,
 	        title: 'Test title',
+	        category: 'QUESTION',
 	        content:
 	          '냉장고에 계란과 김치가 남아 있어서 빠르게 먹을 수 있는 메뉴를 찾고 있어요.',
 	        createdAt: new Date(),
@@ -86,6 +87,7 @@ describe('PostsService', () => {
         {
 	          id: posts[0].id,
 	          title: posts[0].title,
+	          category: 'QUESTION',
 	          contentPreview: posts[0].content,
 	          createdAt: posts[0].createdAt,
           author: posts[0].author,
@@ -110,6 +112,8 @@ describe('PostsService', () => {
 	        id: true,
 	        title: true,
 	        content: true,
+	        imageUrl: true,
+	        category: true,
 	        createdAt: true,
         author: {
           select: {
@@ -165,6 +169,8 @@ describe('PostsService', () => {
 	        id: true,
 	        title: true,
 	        content: true,
+	        imageUrl: true,
+	        category: true,
 	        createdAt: true,
         author: {
           select: {
@@ -225,6 +231,8 @@ describe('PostsService', () => {
 	        id: true,
 	        title: true,
 	        content: true,
+	        imageUrl: true,
+	        category: true,
 	        createdAt: true,
         author: {
           select: {
@@ -288,6 +296,8 @@ describe('PostsService', () => {
 	        id: true,
 	        title: true,
 	        content: true,
+	        imageUrl: true,
+	        category: true,
 	        createdAt: true,
         author: {
           select: {
@@ -324,6 +334,27 @@ describe('PostsService', () => {
     });
   });
 
+  it('should filter posts by board category', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+
+    await expect(
+      service.findAll(1, 10, undefined, undefined, 'RECIPE_SHARE'),
+    ).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      totalPages: 0,
+    });
+    expect(prismaService.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          category: 'RECIPE_SHARE',
+        },
+      }),
+    );
+  });
+
   it('should search posts by title and tag name together', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
 
@@ -355,6 +386,8 @@ describe('PostsService', () => {
 	        id: true,
 	        title: true,
 	        content: true,
+	        imageUrl: true,
+	        category: true,
 	        createdAt: true,
         author: {
           select: {
@@ -435,6 +468,8 @@ describe('PostsService', () => {
         id: true,
         title: true,
         content: true,
+        imageUrl: true,
+        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -466,6 +501,8 @@ describe('PostsService', () => {
         id: true,
         title: true,
         content: true,
+        imageUrl: true,
+        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -518,6 +555,7 @@ describe('PostsService', () => {
       data: {
         title: createPostDto.title,
         content: createPostDto.content,
+        category: 'QUESTION',
         authorId: 1,
       },
     });
@@ -547,6 +585,7 @@ describe('PostsService', () => {
       data: {
         title: createPostDto.title,
         content: createPostDto.content,
+        category: 'QUESTION',
         authorId: 1,
         postTags: {
           create: [
@@ -651,6 +690,8 @@ describe('PostsService', () => {
         id: true,
         title: true,
         content: true,
+        imageUrl: true,
+        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -760,6 +801,8 @@ describe('PostsService', () => {
         id: true,
         title: true,
         content: true,
+        imageUrl: true,
+        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -876,3 +919,5 @@ describe('PostsService', () => {
     );
   });
 });
+
+

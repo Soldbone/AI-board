@@ -4,6 +4,7 @@ import {
   AI_RECOMMENDATION_GOAL_INSTRUCTIONS,
   AI_RECOMMENDATION_GOAL_LABELS,
   DEFAULT_AI_RECOMMENDATION_GOAL,
+  normalizeAiRecommendationGoals,
   type AiRecommendationGoal,
 } from './recommendation-goal';
 
@@ -29,6 +30,8 @@ type RecipeContext = {
 
 type SimilarPostContext = {
   title: string;
+  category?: string;
+  sourceType?: string;
   summary: string;
   questionSummary?: string;
   commentEvidence?: string[];
@@ -47,8 +50,11 @@ export class RecipeLlmService {
     similarPosts: SimilarPostContext[],
     grounding: RecommendationGrounding = 'COMMUNITY_RAG',
     nutritionMetadata: IngredientSetAnalysis | null = null,
-    recommendationGoal: AiRecommendationGoal = DEFAULT_AI_RECOMMENDATION_GOAL,
+    recommendationGoals: AiRecommendationGoal | AiRecommendationGoal[] =
+      DEFAULT_AI_RECOMMENDATION_GOAL,
   ): Promise<RecipeRecommendationDraft> {
+    const normalizedGoals = normalizeAiRecommendationGoals(recommendationGoals);
+
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
     if (openAiApiKey) {
@@ -57,7 +63,7 @@ export class RecipeLlmService {
         similarPosts,
         grounding,
         nutritionMetadata,
-        recommendationGoal,
+        normalizedGoals,
         openAiApiKey,
       );
 
@@ -71,7 +77,7 @@ export class RecipeLlmService {
       similarPosts,
       grounding,
       nutritionMetadata,
-      recommendationGoal,
+      normalizedGoals,
     );
   }
 
@@ -80,7 +86,7 @@ export class RecipeLlmService {
     similarPosts: SimilarPostContext[],
     grounding: RecommendationGrounding,
     nutritionMetadata: IngredientSetAnalysis | null,
-    recommendationGoal: AiRecommendationGoal,
+    recommendationGoals: AiRecommendationGoal[],
     openAiApiKey: string,
   ) {
     try {
@@ -108,7 +114,7 @@ export class RecipeLlmService {
                   similarPosts,
                   grounding,
                   nutritionMetadata,
-                  recommendationGoal,
+                  recommendationGoals,
                 ),
               },
             ],
@@ -142,7 +148,7 @@ export class RecipeLlmService {
     similarPosts: SimilarPostContext[],
     grounding: RecommendationGrounding,
     nutritionMetadata: IngredientSetAnalysis | null,
-    recommendationGoal: AiRecommendationGoal,
+    recommendationGoals: AiRecommendationGoal[],
   ) {
     const isGeneralAi = grounding === 'GENERAL_AI';
 
@@ -162,11 +168,11 @@ export class RecipeLlmService {
         content: 'string',
       },
       targetPost,
-      recommendationGoal: {
-        code: recommendationGoal,
-        label: AI_RECOMMENDATION_GOAL_LABELS[recommendationGoal],
-        instruction: AI_RECOMMENDATION_GOAL_INSTRUCTIONS[recommendationGoal],
-      },
+      recommendationGoals: recommendationGoals.map((goal) => ({
+        code: goal,
+        label: AI_RECOMMENDATION_GOAL_LABELS[goal],
+        instruction: AI_RECOMMENDATION_GOAL_INSTRUCTIONS[goal],
+      })),
       nutritionMetadata: nutritionMetadata
         ? this.summarizeNutritionMetadata(nutritionMetadata)
         : null,
@@ -182,17 +188,17 @@ export class RecipeLlmService {
         'Do not force missingIngredients. Return an empty array when the recipe works well with the available ingredients.',
         isGeneralAi
           ? 'Do not say that community posts were referenced.'
-          : 'Use commentEvidence from the similar community posts as the supporting evidence.',
+          : 'Use recipe-share, tip-review, and trend community posts as supporting evidence before question posts.',
         isGeneralAi
           ? 'Ignore similarPosts because they are intentionally omitted.'
           : 'Do not treat the question text itself as recipe evidence; it is only context for the commenter advice.',
         isGeneralAi
           ? 'Explain that the recommendation is based on the current request and general cooking knowledge.'
-          : 'Explain the recommendation using community comment advice naturally.',
+          : 'Explain the recommendation using community recipe content, tip content, reviews, and comment advice naturally.',
         'Use nutritionMetadata only as factual support for nutrition balance, not as the source of the dish choice.',
         'Prefer community RAG evidence over nutrition metadata when explaining why this dish was chosen.',
         'Mention simple nutrition points such as protein, carbohydrates, fat, sugar, or sodium only when the provided metadata supports them.',
-        'Follow recommendationGoal as the requested direction, but keep the recipe practical with the owned ingredients.',
+        'Follow recommendationGoals as combined requested directions, but keep the recipe practical with the owned ingredients.',
         'Do not give medical, diet-treatment, disease, or weight-loss prescriptions.',
         'If sodium metadata is high, suggest mild seasoning in practical Korean.',
         'Do not invent too many missing ingredients.',
@@ -229,7 +235,7 @@ export class RecipeLlmService {
     similarPosts: SimilarPostContext[],
     grounding: RecommendationGrounding,
     nutritionMetadata: IngredientSetAnalysis | null,
-    recommendationGoal: AiRecommendationGoal,
+    recommendationGoals: AiRecommendationGoal[],
   ): RecipeRecommendationDraft {
     const ingredients = this.extractIngredients(targetPost);
     const primaryIngredient =
@@ -239,7 +245,7 @@ export class RecipeLlmService {
       grounding === 'COMMUNITY_RAG' && similarPosts.length > 0;
     const nutritionPoint = this.buildNutritionPoint(nutritionMetadata);
     const goalPoint = this.buildGoalPoint(
-      recommendationGoal,
+      recommendationGoals,
       nutritionMetadata,
     );
 
@@ -264,7 +270,7 @@ export class RecipeLlmService {
         this.shouldMentionMildSeasoning(nutritionMetadata)
           ? '나트륨이 높은 재료가 포함될 수 있으니 간장이나 소금은 마지막에 조금씩 더해 간을 맞추는 쪽이 좋습니다.'
           : '',
-        this.buildGoalCookingTip(recommendationGoal),
+        this.buildGoalCookingTip(recommendationGoals),
       ]
         .filter(Boolean)
         .join(' '),
@@ -313,44 +319,67 @@ export class RecipeLlmService {
   }
 
   private buildGoalPoint(
-    recommendationGoal: AiRecommendationGoal,
+    recommendationGoals: AiRecommendationGoal[],
     metadata: IngredientSetAnalysis | null,
   ) {
-    switch (recommendationGoal) {
-      case 'HIGH_PROTEIN':
-        return metadata
-          ? '고단백 목표에 맞춰 단백질이 잡히는 재료를 중심으로 구성합니다.'
-          : '고단백 목표에 맞춰 단백질 재료를 우선 활용합니다.';
-      case 'LIGHT':
-        return '가볍게 먹는 목표에 맞춰 기름과 밥 또는 면의 양을 줄이는 방향으로 추천합니다.';
-      case 'LOW_SODIUM':
-        return '나트륨을 낮추는 목표에 맞춰 짠 양념은 마지막에 조금만 쓰는 방향으로 추천합니다.';
-      case 'FILLING':
-        return '든든한 한 끼 목표에 맞춰 포만감 있는 조합으로 추천합니다.';
-      case 'POST_WORKOUT':
-        return '운동 후 식사 목표에 맞춰 단백질과 탄수화물 균형을 의식해 추천합니다.';
-      case 'BALANCED':
-      default:
-        return '';
-    }
+    const points = recommendationGoals
+      .map((goal) => {
+        switch (goal) {
+          case 'HIGH_PROTEIN':
+            return metadata
+              ? '고단백 목표에 맞춰 단백질이 잡히는 재료를 중심으로 구성합니다.'
+              : '고단백 목표에 맞춰 단백질 재료를 우선 활용합니다.';
+          case 'LIGHT':
+            return '가볍게 먹는 목표에 맞춰 기름과 밥 또는 면의 양을 줄이는 방향으로 추천합니다.';
+          case 'LOW_SODIUM':
+            return '나트륨을 낮추는 목표에 맞춰 짠 양념은 마지막에 조금만 쓰는 방향으로 추천합니다.';
+          case 'FILLING':
+            return '든든한 한 끼 목표에 맞춰 포만감 있는 조합으로 추천합니다.';
+          case 'QUICK':
+            return '빠르게 만들 수 있도록 손질과 조리 단계가 적은 메뉴로 추천합니다.';
+          case 'BUDGET':
+            return '저렴하게 먹는 목표에 맞춰 가진 재료를 우선 쓰고 추가 구매를 줄이는 방향으로 추천합니다.';
+          case 'LOW_CALORIE':
+            return '칼로리를 낮추는 목표에 맞춰 기름과 탄수화물 양을 줄이는 방향으로 추천합니다.';
+          case 'MORE_VEGETABLES':
+            return '채소를 많이 쓰는 목표에 맞춰 보유한 채소를 넉넉히 활용합니다.';
+          case 'BALANCED':
+          default:
+            return '';
+        }
+      })
+      .filter(Boolean);
+
+    return points.join(' ');
   }
 
-  private buildGoalCookingTip(recommendationGoal: AiRecommendationGoal) {
-    switch (recommendationGoal) {
-      case 'HIGH_PROTEIN':
-        return '계란, 두부, 참치처럼 가진 단백질 재료가 있다면 양을 조금 넉넉히 잡아도 좋습니다.';
-      case 'LIGHT':
-        return '팬에 볶을 때는 기름을 적게 두르고, 밥이나 면은 곁들이는 정도로 줄이면 가볍게 먹기 좋습니다.';
-      case 'LOW_SODIUM':
-        return '김치나 햄처럼 짠 재료가 있다면 양념을 먼저 넣지 말고 마지막에 맛을 보고 조절하세요.';
-      case 'FILLING':
-        return '밥이나 면을 곁들이고 채소를 함께 넣으면 한 끼로 더 든든해집니다.';
-      case 'POST_WORKOUT':
-        return '운동 후 식사처럼 먹고 싶다면 단백질 재료와 밥, 고구마 같은 탄수화물을 함께 잡는 편이 좋습니다.';
-      case 'BALANCED':
-      default:
-        return '';
-    }
+  private buildGoalCookingTip(recommendationGoals: AiRecommendationGoal[]) {
+    const tips = recommendationGoals
+      .map((goal) => {
+        switch (goal) {
+          case 'HIGH_PROTEIN':
+            return '계란, 두부, 참치처럼 가진 단백질 재료가 있다면 양을 조금 넉넉히 잡아도 좋습니다.';
+          case 'LIGHT':
+          case 'LOW_CALORIE':
+            return '팬에 볶을 때는 기름을 적게 두르고, 밥이나 면은 곁들이는 정도로 줄이면 가볍게 먹기 좋습니다.';
+          case 'LOW_SODIUM':
+            return '김치나 햄처럼 짠 재료가 있다면 양념을 먼저 넣지 말고 마지막에 맛을 보고 조절하세요.';
+          case 'FILLING':
+            return '밥이나 면을 곁들이고 채소를 함께 넣으면 한 끼로 더 든든해집니다.';
+          case 'QUICK':
+            return '재료는 크게 썰고 팬 하나로 끝내면 조리 시간을 줄이기 좋습니다.';
+          case 'BUDGET':
+            return '새 재료를 많이 사기보다 남은 재료와 기본 양념으로 맛을 맞추는 쪽이 좋습니다.';
+          case 'MORE_VEGETABLES':
+            return '채소는 숨이 죽으면 양이 줄어드니 처음부터 조금 넉넉히 넣어도 좋습니다.';
+          case 'BALANCED':
+          default:
+            return '';
+        }
+      })
+      .filter(Boolean);
+
+    return [...new Set(tips)].join(' ');
   }
 
   private shouldMentionMildSeasoning(metadata: IngredientSetAnalysis | null) {

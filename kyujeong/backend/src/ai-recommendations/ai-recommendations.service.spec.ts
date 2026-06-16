@@ -213,7 +213,7 @@ describe('AiRecommendationsService', () => {
       [],
       'GENERAL_AI',
       null,
-      'BALANCED',
+      ['BALANCED'],
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -225,6 +225,367 @@ describe('AiRecommendationsService', () => {
     );
     expect(recommendation.grounding).toBe('GENERAL_AI');
     expect(recommendation.referencedPosts).toEqual([]);
+  });
+
+  it('should not invent a board chat answer when no grounded evidence exists', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+
+    const response = await service.createBoardChat({
+      message: '오늘 점심 메뉴 뭐야?',
+    });
+
+    expect(recipeLlmService.createRecommendation).not.toHaveBeenCalled();
+    expect(response).toEqual({
+      answer_text:
+        '현재 가진 데이터로는 확인할 수 없습니다. 게시판에서 관련 정보를 찾지 못했습니다.',
+      references: [],
+      extracted_ingredients: [],
+      grounding: 'GENERAL_AI',
+    });
+  });
+
+  it('should keep question phrasing out of extracted board chat ingredients', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+
+    const response = await service.createBoardChat({
+      message:
+        '집에 버터 있을까요? 너무 늦게 들어와서 나가기 전에 먹어도 괜찮은 메뉴 추천해주세요.',
+    });
+
+    expect(response.extracted_ingredients).toEqual(['버터']);
+    expect(response.extracted_ingredients).not.toEqual(
+      expect.arrayContaining([
+        '있을까요',
+        '늦게',
+        '먹어도',
+        '너무',
+        '들어와서',
+        '나가기',
+      ]),
+    );
+    expect(recipeLlmService.createRecommendation).not.toHaveBeenCalled();
+  });
+
+  it('should not create post recommendations for non-question board posts', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 20,
+      title: '남은 족발 촉촉하게 데우는 팁',
+      content: '프라이팬에 물을 조금 넣고 약불로 데우면 촉촉합니다.',
+      category: 'COOKING_TIP_REVIEW',
+      viewCount: 0,
+      createdAt: new Date('2026-06-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+      postTags: [{ tag: { name: '족발' } }],
+      comments: [],
+      _count: {
+        comments: 0,
+      },
+    } as never);
+
+    await expect(service.create(20, 1)).rejects.toThrow(
+      'AI recommendations are only available for question posts',
+    );
+    expect(embeddingService.embed).not.toHaveBeenCalled();
+    expect(recipeLlmService.createRecommendation).not.toHaveBeenCalled();
+  });
+
+  it('should return no latest recommendation for non-question board posts', async () => {
+    jest.spyOn(prismaService.post, 'findUnique').mockResolvedValue({
+      id: 21,
+      title: '마파두부 간단 레시피 공유',
+      content: '두부와 대파로 만드는 레시피입니다.',
+      category: 'RECIPE_SHARE',
+      postTags: [{ tag: { name: '두부' } }],
+    } as never);
+
+    await expect(service.findLatest(21)).resolves.toBeNull();
+    expect(prismaService.aiRecipeRecommendation.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('should prefer tip and recipe board posts over question-only posts for board chat', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
+      {
+        id: 10,
+        title: '족발 남았는데 뭐 먹을까요?',
+        content: '족발이 남았는데 어떻게 먹으면 좋을까요?',
+        category: 'QUESTION',
+        viewCount: 5,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        postTags: [{ tag: { name: '족발' } }],
+        comments: [],
+        _count: {
+          comments: 0,
+        },
+      },
+      {
+        id: 11,
+        title: '남은 족발 촉촉하게 데우는 팁',
+        content:
+          '남은 족발은 프라이팬에 물 2큰술을 넣고 뚜껑을 덮어 약불로 데우면 촉촉합니다.',
+        category: 'COOKING_TIP_REVIEW',
+        viewCount: 30,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        postTags: [{ tag: { name: '족발' } }, { tag: { name: '요리팁' } }],
+        comments: [],
+        _count: {
+          comments: 0,
+        },
+      },
+    ] as never);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      {
+        postId: 10,
+        similarity: 0.95,
+      },
+      {
+        postId: 11,
+        similarity: 0.82,
+      },
+    ] as never);
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '촉촉한 족발 덮밥',
+      reason: '남은 족발 데우는 팁 게시글을 참고했습니다.',
+      availableIngredients: ['족발'],
+      usedIngredients: ['족발'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content: '1. 족발을 팬에 넣고 물을 조금 더해 데웁니다. 2. 밥 위에 올려 먹습니다.',
+    });
+
+    const response = await service.createBoardChat({
+      message: '남은 족발 어떻게 먹어?',
+    });
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [
+        expect.objectContaining({
+          title: '남은 족발 촉촉하게 데우는 팁',
+          category: '요리 팁/후기',
+          sourceType: '사용자 팁/후기',
+        }),
+      ],
+      'COMMUNITY_RAG',
+      null,
+      'BALANCED',
+    );
+    expect(response.grounding).toBe('COMMUNITY_RAG');
+    expect(response.references).toEqual([
+      expect.objectContaining({
+        post_id: 11,
+        category: '요리 팁/후기',
+        source_type: '사용자 팁/후기',
+      }),
+    ]);
+    expect(response.answer_text).toContain(
+      '게시판의 레시피/팁/후기 데이터를 우선 참고했습니다.',
+    );
+  });
+
+  it('should ignore weak single-ingredient board chat references for multi-ingredient requests', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
+      {
+        id: 20,
+        title: '햄이랑 계란으로 간단한 도시락 반찬 추천해주세요',
+        content: '햄과 계란만 있어서 아이 반찬을 찾고 있어요.',
+        category: 'QUESTION',
+        viewCount: 80,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        author: { nickname: '민지' },
+        postTags: [{ tag: { name: '햄' } }, { tag: { name: '계란' } }],
+        comments: [
+          {
+            content:
+              '햄은 계란물에 묻혀 부치면 도시락 반찬으로 먹기 좋아요.',
+          },
+        ],
+        _count: {
+          comments: 1,
+        },
+      },
+      {
+        id: 21,
+        title: '또띠아 햄치즈 채소롤 만들기',
+        content:
+          '또띠아에 햄, 치즈, 당근, 오이, 양상추를 올리고 단단히 말면 됩니다.',
+        category: 'RECIPE_SHARE',
+        viewCount: 12,
+        createdAt: new Date('2026-06-14T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-14T00:00:00.000Z'),
+        author: { nickname: '나리후추' },
+        postTags: [
+          { tag: { name: '또띠아' } },
+          { tag: { name: '햄' } },
+          { tag: { name: '치즈' } },
+          { tag: { name: '양상추' } },
+        ],
+        comments: [],
+        _count: {
+          comments: 0,
+        },
+      },
+    ] as never);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      {
+        postId: 20,
+        similarity: 0.96,
+      },
+      {
+        postId: 21,
+        similarity: 0.72,
+      },
+    ] as never);
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '또띠아 햄치즈 채소롤',
+      reason: '또띠아와 햄, 치즈, 채소가 함께 나온 레시피를 참고했습니다.',
+      availableIngredients: ['또띠아', '햄', '치즈', '당근', '오이', '양상추'],
+      usedIngredients: ['또띠아', '햄', '치즈', '당근', '오이', '양상추'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content:
+        '1. 또띠아 위에 햄, 치즈, 채소를 올립니다. 2. 단단히 말아 반으로 자릅니다.',
+    });
+
+    const response = await service.createBoardChat({
+      message: '메인재료: 또띠아 부재료: 햄, 치즈, 당근, 오이, 양상추',
+    });
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [
+        expect.objectContaining({
+          title: '또띠아 햄치즈 채소롤 만들기',
+          matchedIngredients: expect.arrayContaining([
+            '또띠아',
+            '햄',
+            '치즈',
+            '당근',
+            '오이',
+            '양상추',
+          ]),
+        }),
+      ],
+      'COMMUNITY_RAG',
+      null,
+      'BALANCED',
+    );
+    expect(response.references).toEqual([
+      expect.objectContaining({
+        post_id: 21,
+        title: '또띠아 햄치즈 채소롤 만들기',
+      }),
+    ]);
+    expect(response.references).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          post_id: 20,
+        }),
+      ]),
+    );
+  });
+
+  it('should keep a single-ingredient reference when it matches the requested main ingredient', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
+      {
+        id: 30,
+        title: '햄이 남았을 때 빠른 반찬',
+        content: '햄을 얇게 썰어 팬에 굽고 케첩을 곁들이면 됩니다.',
+        category: 'COOKING_TIP_REVIEW',
+        viewCount: 100,
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-13T00:00:00.000Z'),
+        author: { nickname: '민지' },
+        postTags: [{ tag: { name: '햄' } }],
+        comments: [],
+        _count: {
+          comments: 0,
+        },
+      },
+      {
+        id: 31,
+        title: '또띠아 잘 말리는 기본 팁',
+        content:
+          '또띠아는 팬에 살짝 데운 뒤 재료를 올리면 찢어지지 않고 잘 말립니다.',
+        category: 'COOKING_TIP_REVIEW',
+        viewCount: 8,
+        createdAt: new Date('2026-06-14T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-14T00:00:00.000Z'),
+        author: { nickname: '나리후추' },
+        postTags: [{ tag: { name: '또띠아' } }],
+        comments: [],
+        _count: {
+          comments: 0,
+        },
+      },
+    ] as never);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      {
+        postId: 30,
+        similarity: 0.98,
+      },
+      {
+        postId: 31,
+        similarity: 0.7,
+      },
+    ] as never);
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '또띠아 햄치즈롤',
+      reason: '또띠아를 말기 쉽게 데우는 팁을 참고했습니다.',
+      availableIngredients: ['또띠아', '햄', '치즈', '당근', '오이', '양상추'],
+      usedIngredients: ['또띠아', '햄', '치즈', '당근', '오이', '양상추'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content: '또띠아를 데운 뒤 재료를 올려 단단히 말아주세요.',
+    });
+
+    const response = await service.createBoardChat({
+      message: '메인재료: 또띠아 부재료: 햄, 치즈, 당근, 오이, 양상추',
+    });
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [
+        expect.objectContaining({
+          title: '또띠아 잘 말리는 기본 팁',
+          matchedIngredients: ['또띠아'],
+        }),
+      ],
+      'COMMUNITY_RAG',
+      null,
+      'BALANCED',
+    );
+    expect(response.references).toEqual([
+      expect.objectContaining({
+        post_id: 31,
+        title: '또띠아 잘 말리는 기본 팁',
+      }),
+    ]);
   });
 
   it('should remove missing ingredients that are not mentioned in the recommendation', async () => {
@@ -404,7 +765,7 @@ describe('AiRecommendationsService', () => {
       [],
       'GENERAL_AI',
       null,
-      'BALANCED',
+      ['BALANCED'],
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -486,7 +847,7 @@ describe('AiRecommendationsService', () => {
       [],
       'GENERAL_AI',
       null,
-      'BALANCED',
+      ['BALANCED'],
     );
     expect(recommendation.grounding).toBe('GENERAL_AI');
   });
@@ -595,7 +956,7 @@ describe('AiRecommendationsService', () => {
       ],
       'COMMUNITY_RAG',
       null,
-      'BALANCED',
+      ['BALANCED'],
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -716,7 +1077,7 @@ describe('AiRecommendationsService', () => {
       ],
       'COMMUNITY_RAG',
       null,
-      'BALANCED',
+      ['BALANCED'],
     );
     expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -909,7 +1270,20 @@ describe('AiRecommendationsService', () => {
           }),
         ],
       }),
-      'BALANCED',
+      ['BALANCED'],
+    );
+    expect(prismaService.aiRecipeRecommendation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          nutritionMetadata: expect.objectContaining({
+            ingredients: [
+              expect.objectContaining({
+                matchedName: '계란',
+              }),
+            ],
+          }),
+        }),
+      }),
     );
   });
 
@@ -960,7 +1334,58 @@ describe('AiRecommendationsService', () => {
       [],
       'GENERAL_AI',
       null,
-      'HIGH_PROTEIN',
+      ['HIGH_PROTEIN'],
+    );
+  });
+
+  it('should pass multiple selected nutrition goals to recipe generation', async () => {
+    jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([]);
+    jest.spyOn(embeddingService, 'embed').mockResolvedValue({
+      model: 'local-hash-v1',
+      embedding: [1, 0, 0],
+    });
+    jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
+      menuName: '빠른 두부 채소볶음',
+      reason: '여러 추천 목표를 반영했습니다.',
+      availableIngredients: ['두부', '양파'],
+      missingIngredients: [],
+      estimatedCookingTime: 10,
+      difficulty: '쉬움',
+      content: '두부와 양파를 빠르게 볶아주세요.',
+    });
+    jest
+      .spyOn(prismaService.aiRecipeRecommendation, 'create')
+      .mockResolvedValue({
+        id: 6,
+        postId: null,
+        requestedById: 1,
+        menuName: '빠른 두부 채소볶음',
+        reason: '여러 추천 목표를 반영했습니다.',
+        availableIngredients: ['두부', '양파'],
+        missingIngredients: [],
+        estimatedCookingTime: 10,
+        difficulty: '쉬움',
+        content: '두부와 양파를 빠르게 볶아주세요.',
+        status: 'ACTIVE',
+        grounding: 'GENERAL_AI',
+        createdAt: new Date('2026-06-13T00:00:00.000Z'),
+        references: [],
+      } as never);
+
+    await service.createDirect(
+      {
+        ingredients: ['두부', '양파'],
+        nutritionGoals: ['BALANCED', 'HIGH_PROTEIN', 'QUICK'],
+      },
+      1,
+    );
+
+    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
+      expect.any(Object),
+      [],
+      'GENERAL_AI',
+      null,
+      ['HIGH_PROTEIN', 'QUICK'],
     );
   });
 });

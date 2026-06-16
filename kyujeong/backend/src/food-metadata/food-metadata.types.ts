@@ -52,6 +52,7 @@ export type IngredientNutritionSummary = {
   matchedName: string | null;
   servingSize: string | null;
   nutrition: NutritionFacts;
+  source: string;
   matchStatus: MatchStatus;
   message: string | null;
 };

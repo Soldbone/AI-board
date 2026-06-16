@@ -11,6 +11,7 @@ import {
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { AiRecommendationsService } from './ai-recommendations.service';
+import { CreateBoardChatDto } from './dto/create-board-chat.dto';
 import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
 import { CreateRecommendationDto } from './dto/create-recommendation.dto';
 
@@ -30,6 +31,17 @@ export class AiRecommendationsController {
   @Get(['agent/status', 'api/agent/status'])
   getStatus() {
     return this.aiRecommendationsService.getStatus();
+  }
+
+  @Post(['agent/board-chat', 'api/agent/board-chat'])
+  createBoardChat(@Body() createBoardChatDto: CreateBoardChatDto) {
+    return this.aiRecommendationsService.createBoardChat(createBoardChatDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(['agent/rag-documents/rebuild', 'api/agent/rag-documents/rebuild'])
+  rebuildRagDocuments() {
+    return this.aiRecommendationsService.rebuildRagDocuments();
   }
 
   @Get([

@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -23,4 +24,8 @@ export class UpdatePostDto {
   @IsNotEmpty({ each: true })
   @MaxLength(20, { each: true })
   tagNames?: string[];
+
+  @IsOptional()
+  @IsIn(['QUESTION', 'RECIPE_SHARE', 'COOKING_TIP_REVIEW', 'TREND'])
+  category?: string;
 }

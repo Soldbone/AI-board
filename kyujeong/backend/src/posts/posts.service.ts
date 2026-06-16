@@ -3,23 +3,45 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AiRecommendationsService } from '../ai-recommendations/ai-recommendations.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 
+const POST_CATEGORIES = [
+  'QUESTION',
+  'RECIPE_SHARE',
+  'COOKING_TIP_REVIEW',
+  'TREND',
+] as const;
+
+type PostCategory = (typeof POST_CATEGORIES)[number];
+
 @Injectable()
 export class PostsService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    @Optional()
+    private readonly aiRecommendationsService?: AiRecommendationsService,
+  ) {}
 
-  async findAll(page: number, size: number, search?: string, tag?: string) {
+  async findAll(
+    page: number,
+    size: number,
+    search?: string,
+    tag?: string,
+    category?: string,
+  ) {
     const currentPage = Math.max(page, 1);
     const pageSize = Math.max(size, 1);
     const keyword = search?.trim();
     const tagName = tag?.trim();
+    const postCategory = this.normalizePostCategory(category);
     const where: Prisma.PostWhereInput | undefined =
-      keyword || tagName
+      keyword || tagName || postCategory
         ? {
             ...(keyword
               ? {
@@ -40,6 +62,11 @@ export class PostsService {
                   },
                 }
               : {}),
+            ...(postCategory
+              ? {
+                  category: postCategory,
+                }
+              : {}),
           }
         : undefined;
 
@@ -50,10 +77,12 @@ export class PostsService {
         take: pageSize,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
 	        select: {
-	          id: true,
-	          title: true,
-	          content: true,
-	          createdAt: true,
+		          id: true,
+		          title: true,
+		          content: true,
+		          imageUrl: true,
+		          category: true,
+		          createdAt: true,
           author: {
             select: {
               id: true,
@@ -103,9 +132,11 @@ export class PostsService {
     const post = await this.prismaService.post.findUnique({
       where: { id },
       select: {
-        id: true,
-        title: true,
-        content: true,
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -139,9 +170,11 @@ export class PostsService {
         },
       },
       select: {
-        id: true,
-        title: true,
-        content: true,
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -169,10 +202,11 @@ export class PostsService {
   async create(createPostDto: CreatePostDto, authorId: number) {
     const tagNames = this.normalizeTagNames(createPostDto.tagNames);
 
-    return this.prismaService.post.create({
+    const post = await this.prismaService.post.create({
       data: {
         title: createPostDto.title,
         content: createPostDto.content,
+        category: this.normalizePostCategory(createPostDto.category) ?? 'QUESTION',
         authorId,
         ...(tagNames.length > 0
           ? {
@@ -194,6 +228,10 @@ export class PostsService {
           : {}),
       },
     });
+
+    await this.aiRecommendationsService?.syncRagDocumentForPost(post.id);
+
+    return post;
   }
 
   async update(id: number, updatePostDto: UpdatePostDto, userId: number) {
@@ -201,6 +239,7 @@ export class PostsService {
     const tagNames = shouldUpdateTags
       ? this.normalizeTagNames(updatePostDto.tagNames)
       : [];
+    const postCategory = this.normalizePostCategory(updatePostDto.category);
 
     const post = await this.prismaService.post.findUnique({
       where: { id },
@@ -223,6 +262,7 @@ export class PostsService {
       data: {
         title: updatePostDto.title,
         content: updatePostDto.content,
+        ...(postCategory ? { category: postCategory } : {}),
         ...(shouldUpdateTags
           ? {
               postTags: {
@@ -248,9 +288,11 @@ export class PostsService {
           : {}),
       },
       select: {
-        id: true,
-        title: true,
-        content: true,
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
         viewCount: true,
         createdAt: true,
         updatedAt: true,
@@ -273,6 +315,7 @@ export class PostsService {
     });
 
     await this.markAiRecommendationStale(id);
+    await this.aiRecommendationsService?.syncRagDocumentForPost(id);
 
     return this.mapPostTagsToTags(updatedPost);
   }
@@ -317,6 +360,20 @@ export class PostsService {
     return normalizedTagNames;
   }
 
+  private normalizePostCategory(category?: string): PostCategory | null {
+    const normalizedCategory = category?.trim();
+
+    if (!normalizedCategory) {
+      return null;
+    }
+
+    if (!POST_CATEGORIES.includes(normalizedCategory as PostCategory)) {
+      throw new BadRequestException('Invalid post category');
+    }
+
+    return normalizedCategory as PostCategory;
+  }
+
   private async markAiRecommendationStale(postId: number) {
     await this.prismaService.$transaction([
       this.prismaService.postRagDocument.updateMany({
@@ -332,6 +389,7 @@ export class PostsService {
 
 	  private mapPostListItem<
 	    T extends {
+	      category?: PostCategory;
 	      content: string;
 	      postTags: {
 	        tag: {
@@ -350,6 +408,7 @@ export class PostsService {
 	  >(post: T) {
 	    const { content, postTags, _count, aiRecommendations, ...postWithoutPostTags } =
 	      post;
+	    const isQuestionPost = post.category === 'QUESTION';
 
 	    return {
 	      ...postWithoutPostTags,
@@ -358,9 +417,13 @@ export class PostsService {
 	      commentsCount: _count?.comments ?? 0,
 	      ...(aiRecommendations
 	        ? {
-	            hasAiRecommendation: aiRecommendations.length > 0,
-	            aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
-	            aiThumbnailUrl: aiRecommendations[0]?.thumbnailUrl ?? null,
+	            hasAiRecommendation: isQuestionPost && aiRecommendations.length > 0,
+	            aiRecommendationStatus: isQuestionPost
+	              ? (aiRecommendations[0]?.status ?? null)
+	              : null,
+	            aiThumbnailUrl: isQuestionPost
+	              ? (aiRecommendations[0]?.thumbnailUrl ?? null)
+	              : null,
 	          }
 	        : {}),
 	    };

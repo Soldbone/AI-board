@@ -27,6 +27,8 @@ model Post {
   id        Int      @id @default(autoincrement())
   title     String   @db.VarChar(200)
   content   String   @db.Text
+  imageUrl  String?  @db.Text
+  category  PostCategory @default(QUESTION)
   authorId  Int
   viewCount Int      @default(0)
   createdAt DateTime @default(now())
@@ -70,17 +72,41 @@ model PostTag {
 }
 
 model PostRagDocument {
-  id             Int      @id @default(autoincrement())
-  postId         Int      @unique
-  documentText   String   @db.Text
-  embedding      Unsupported("vector(1536)")
-  embeddingModel String   @default("local-hash-v1")
-  embeddedAt     DateTime @default(now())
-  isStale        Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                Int      @id @default(autoincrement())
+  postId            Int      @unique
+  title             String   @default("") @db.VarChar(200)
+  author            String   @default("") @db.VarChar(80)
+  postUrl           String   @default("") @db.Text
+  contentSummary    String   @default("") @db.Text
+  ingredients       String[] @default([])
+  ingredientAliases String[] @default([])
+  dishNames         String[] @default([])
+  cookingMethods    String[] @default([])
+  situationTags     String[] @default([])
+  difficulty        String   @default("미정") @db.VarChar(40)
+  cookingTime       String   @default("미정") @db.VarChar(40)
+  popularityScore   Float    @default(0)
+  searchableText    String   @default("") @db.Text
+  documentText      String   @db.Text
+  embedding         Unsupported("vector(1536)")
+  embeddingModel    String   @default("local-hash-v1")
+  embeddedAt        DateTime @default(now())
+  isStale           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model BoardRagChatLog {
+  id                   Int      @id @default(autoincrement())
+  userMessage          String   @db.Text
+  extractedIngredients String[] @default([])
+  retrievedPostIds     Int[]    @default([])
+  selectedPostIds      Int[]    @default([])
+  scores               Json
+  answerText           String   @db.Text
+  createdAt            DateTime @default(now())
 }
 
 model AiRecipeRecommendation {
@@ -95,6 +121,7 @@ model AiRecipeRecommendation {
   difficulty           String                 @db.VarChar(40)
   content              String                 @db.Text
   thumbnailUrl         String?                @db.Text
+  nutritionMetadata    Json?
   status               AiRecommendationStatus @default(ACTIVE)
   grounding            AiRecommendationGrounding @default(COMMUNITY_RAG)
   createdAt            DateTime               @default(now())
@@ -127,4 +154,11 @@ enum AiRecommendationStatus {
 enum AiRecommendationGrounding {
   COMMUNITY_RAG
   GENERAL_AI
+}
+
+enum PostCategory {
+  QUESTION
+  RECIPE_SHARE
+  COOKING_TIP_REVIEW
+  TREND
 }
