@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAG 함수 흐름 학습자료</title>
+    <style>
+      :root {
+        --bg: #f7f4ef;
+        --paper: #fffdf8;
+        --ink: #202722;
+        --muted: #68736c;
+        --line: #ded6ca;
+        --green: #2f7d57;
+        --green-soft: #e5f1e9;
+        --orange: #d96f31;
+        --orange-soft: #fff0e5;
+        --blue: #426a8f;
+        --blue-soft: #e7eef5;
+        --red: #b85345;
+        --shadow: 0 18px 50px rgba(52, 43, 31, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.86), rgba(247, 244, 239, 0.94)),
+          radial-gradient(circle at 20% 0%, rgba(47, 125, 87, 0.12), transparent 32%),
+          radial-gradient(circle at 84% 10%, rgba(217, 111, 49, 0.12), transparent 28%),
+          var(--bg);
+        font-family:
+          Pretendard,
+          "Noto Sans KR",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.72;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 32px;
+        width: min(1280px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 32px 0 72px;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 24px;
+        align-self: start;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 253, 248, 0.88);
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar strong {
+        display: block;
+        margin-bottom: 12px;
+        font-size: 0.92rem;
+      }
+
+      .sidebar a {
+        display: block;
+        padding: 8px 10px;
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        text-decoration: none;
+      }
+
+      .sidebar a:hover {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .hero {
+        min-height: 430px;
+        display: grid;
+        align-items: end;
+        padding: 52px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(115deg, rgba(26, 34, 29, 0.88), rgba(32, 39, 34, 0.62)),
+          url("frontend/src/assets/fridge-hero-bg.png");
+        background-size: cover;
+        background-position: center;
+        color: white;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: #d6eadb;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.24;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        max-width: 800px;
+        margin: 0;
+        font-size: clamp(2.4rem, 5vw, 4.8rem);
+      }
+
+      .hero p {
+        max-width: 780px;
+        margin: 20px 0 0;
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 1.08rem;
+      }
+
+      .section {
+        margin-top: 28px;
+        padding: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 253, 248, 0.94);
+        box-shadow: 0 14px 36px rgba(52, 43, 31, 0.08);
+      }
+
+      .section h2 {
+        margin: 0 0 14px;
+        font-size: clamp(1.45rem, 3vw, 2.1rem);
+      }
+
+      .section h3 {
+        margin: 28px 0 10px;
+        font-size: 1.1rem;
+      }
+
+      .section p {
+        margin: 0 0 14px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .tile,
+      .callout,
+      .question,
+      .mini-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .tile {
+        padding: 18px;
+      }
+
+      .tile strong {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--green);
+      }
+
+      .callout {
+        margin: 20px 0;
+        padding: 18px 20px;
+        background: var(--green-soft);
+        border-color: #bfdbc8;
+      }
+
+      .callout.orange {
+        background: var(--orange-soft);
+        border-color: #f0c9ae;
+      }
+
+      .callout.blue {
+        background: var(--blue-soft);
+        border-color: #bfd0df;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: white;
+        color: var(--muted);
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .num {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--green);
+        color: white;
+        font-weight: 900;
+      }
+
+      .step h3 {
+        margin: 0 0 4px;
+      }
+
+      .step p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: white;
+      }
+
+      th,
+      td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #3a443d;
+        background: #f1ece4;
+        font-size: 0.92rem;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      code {
+        padding: 2px 6px;
+        border: 1px solid #e1d9cd;
+        border-radius: 5px;
+        background: #f8f3eb;
+        color: #7c3f1f;
+        font-family: "Cascadia Code", Consolas, monospace;
+        font-size: 0.88em;
+      }
+
+      .module-map {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .mini-card {
+        min-height: 160px;
+        padding: 18px;
+      }
+
+      .mini-card .label {
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .mini-card strong {
+        display: block;
+        margin: 6px 0 8px;
+      }
+
+      .function-card {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 16px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .function-card + .function-card {
+        margin-top: 12px;
+      }
+
+      .function-name {
+        color: var(--green);
+        font-family: "Cascadia Code", Consolas, monospace;
+        font-weight: 900;
+        overflow-wrap: anywhere;
+      }
+
+      .function-card p {
+        margin: 0;
+      }
+
+      .pill-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .pill {
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 0.82rem;
+        font-weight: 800;
+      }
+
+      .quiz-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      button {
+        min-height: 42px;
+        padding: 9px 14px;
+        border: 0;
+        border-radius: 7px;
+        background: var(--green);
+        color: white;
+        cursor: pointer;
+        font-weight: 900;
+      }
+
+      button.secondary {
+        border: 1px solid var(--line);
+        background: white;
+        color: var(--ink);
+      }
+
+      .question {
+        padding: 18px;
+        margin-top: 12px;
+      }
+
+      .question p {
+        margin-bottom: 10px;
+        font-weight: 900;
+      }
+
+      .option {
+        display: block;
+        padding: 8px 0;
+        color: var(--muted);
+      }
+
+      .feedback {
+        display: none;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 7px;
+        background: var(--blue-soft);
+        color: #244865;
+        font-weight: 700;
+      }
+
+      .score {
+        display: none;
+        margin-top: 14px;
+        padding: 16px;
+        border-radius: 8px;
+        background: var(--orange-soft);
+        color: #793912;
+        font-weight: 900;
+      }
+
+      .memory {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .memory label {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .footer {
+        padding: 28px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+        text-align: center;
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: relative;
+          top: auto;
+        }
+
+        .module-map,
+        .grid.two,
+        .grid.three {
+          grid-template-columns: 1fr;
+        }
+
+        .function-card {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .layout {
+          width: min(100% - 22px, 1280px);
+          padding-top: 16px;
+        }
+
+        .hero,
+        .section {
+          padding: 24px;
+        }
+
+        .hero {
+          min-height: 380px;
+        }
+
+        th,
+        td {
+          display: block;
+          width: 100%;
+        }
+
+        th {
+          display: none;
+        }
+
+        td {
+          border-bottom: 0;
+          padding: 8px 12px;
+        }
+
+        tr {
+          display: block;
+          border-bottom: 1px solid var(--line);
+          padding: 10px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar" aria-label="학습 목차">
+        <strong>학습 목차</strong>
+        <a href="#overview">프로젝트 속 RAG</a>
+        <a href="#terms">먼저 잡을 개념</a>
+        <a href="#architecture">모듈 지도</a>
+        <a href="#flow-post">게시글 추천 흐름</a>
+        <a href="#flow-direct">직접 입력 추천 흐름</a>
+        <a href="#functions">함수 역할 카드</a>
+        <a href="#database">DB와 근거 저장</a>
+        <a href="#quality">품질 기준</a>
+        <a href="#quiz">복습 퀴즈</a>
+        <a href="#thinking">생각해볼 질문</a>
+      </aside>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="eyebrow">AI 냉장고 게시판 프로젝트 학습자료</p>
+            <h1>RAG를 함수 흐름으로 이해하기</h1>
+            <p>
+              이 자료는 코드를 한 줄씩 외우기보다, 추천 요청이 들어왔을 때 어떤 함수가 어떤 책임을
+              맡고 다음 함수로 무엇을 넘기는지 이해하기 위한 학습용 HTML입니다.
+            </p>
+            <div class="tag-row">
+              <span class="tag">NestJS</span>
+              <span class="tag">PostgreSQL</span>
+              <span class="tag">pgvector</span>
+              <span class="tag">Embedding</span>
+              <span class="tag">COMMUNITY_RAG</span>
+              <span class="tag">GENERAL_AI</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="overview">
+          <h2>프로젝트 속 RAG</h2>
+          <p>
+            이 프로젝트의 RAG는 “게시판에 쌓인 냉장고 재료 고민과 댓글 조언을 AI 추천의 근거로
+            쓰는 구조”입니다. 사용자가 새 추천을 요청하면, 서비스는 먼저 비슷한 게시글과 댓글을 찾고
+            그 근거를 LLM에게 전달합니다.
+          </p>
+          <div class="callout">
+            <strong>한 문장으로 설명하면</strong><br />
+            RAG는 AI가 바로 대답하게 하지 않고, 먼저 우리 서비스 안의 게시글과 댓글을 검색해서
+            “이 추천이 왜 나왔는지” 설명할 근거를 붙이는 방식입니다.
+          </div>
+          <div class="grid three">
+            <div class="tile">
+              <strong>검색 대상</strong>
+              게시글 제목, 본문, 태그, 댓글 일부를 묶은 추천용 문서입니다.
+            </div>
+            <div class="tile">
+              <strong>검색 방법</strong>
+              문서를 임베딩 벡터로 바꾸고 pgvector로 유사한 게시글을 찾습니다.
+            </div>
+            <div class="tile">
+              <strong>추천 근거</strong>
+              질문글 본문이 아니라 댓글의 조리 팁과 답변을 핵심 근거로 사용합니다.
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="terms">
+          <h2>먼저 잡을 개념</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>개념</th>
+                <th>이 프로젝트에서의 의미</th>
+                <th>헷갈리기 쉬운 점</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Embedding</code></td>
+                <td>문장이나 게시글을 숫자 배열로 바꾼 표현입니다.</td>
+                <td>AI 답변이 아니라, 검색을 위한 좌표에 가깝습니다.</td>
+              </tr>
+              <tr>
+                <td><code>pgvector</code></td>
+                <td>PostgreSQL 안에서 벡터 유사도 검색을 하게 해주는 확장입니다.</td>
+                <td>새 DB가 아니라, 기존 PostgreSQL에 벡터 검색 능력을 붙이는 선택입니다.</td>
+              </tr>
+              <tr>
+                <td><code>Similarity</code></td>
+                <td>요청 문서와 기존 게시글 문서가 의미적으로 얼마나 가까운지 보는 점수입니다.</td>
+                <td>점수가 높아도 댓글 근거가 없거나 재료가 안 겹치면 제외됩니다.</td>
+              </tr>
+              <tr>
+                <td><code>COMMUNITY_RAG</code></td>
+                <td>비슷한 커뮤니티 게시글을 1개 이상 근거로 사용한 추천입니다.</td>
+                <td>검색 결과가 있다는 것만으로 충분하지 않고, 품질 필터를 통과해야 합니다.</td>
+              </tr>
+              <tr>
+                <td><code>GENERAL_AI</code></td>
+                <td>커뮤니티 근거 없이 현재 요청과 일반 요리 지식으로 만든 추천입니다.</td>
+                <td>실패가 아니라, 근거가 부족할 때 정직하게 분기하는 정상 경로입니다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section" id="architecture">
+          <h2>모듈 지도</h2>
+          <p>
+            RAG 추천은 한 파일에 전부 들어 있지 않습니다. 컨트롤러는 입구, 서비스는 흐름 조립,
+            임베딩 서비스는 검색용 벡터 생성, LLM 서비스는 최종 추천 문장 생성, Prisma 모델은
+            근거 저장을 담당합니다.
+          </p>
+          <div class="module-map">
+            <div class="mini-card">
+              <div class="label">입구</div>
+              <strong><code>AiRecommendationsController</code></strong>
+              사용자의 추천 생성, 추천 조회, 상태 조회 요청을 받아 서비스로 넘깁니다.
+            </div>
+            <div class="mini-card">
+              <div class="label">오케스트레이션</div>
+              <strong><code>AiRecommendationsService</code></strong>
+              게시글 조회, RAG 문서 생성, 유사 게시글 검색, 추천 저장까지 전체 흐름을 묶습니다.
+            </div>
+            <div class="mini-card">
+              <div class="label">검색 좌표</div>
+              <strong><code>EmbeddingService</code></strong>
+              텍스트를 벡터로 만들고, 필요하면 로컬 해시 기반 임베딩으로 대체합니다.
+            </div>
+            <div class="mini-card">
+              <div class="label">추천 생성</div>
+              <strong><code>RecipeLlmService</code></strong>
+              RAG 근거와 현재 요청을 바탕으로 메뉴명, 이유, 조리 내용을 생성합니다.
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="flow-post">
+          <h2>게시글 기준 추천 흐름</h2>
+          <p>
+            사용자가 특정 게시글에서 AI 추천을 누를 때의 흐름입니다. 공부할 때는 “현재 게시글을
+            검색 질문으로 만들고, 과거 게시글을 후보 문서로 만든다”고 생각하면 쉽습니다.
+          </p>
+          <div class="flow">
+            <div class="step">
+              <div class="num">1</div>
+              <div>
+                <h3>요청 진입</h3>
+                <p><code>create(postId, requesterId, dto)</code>가 실행되고, 추천 목표와 추가 요청을 정리합니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">2</div>
+              <div>
+                <h3>현재 게시글 확보</h3>
+                <p><code>findRagPost()</code>가 제목, 본문, 태그, 댓글, 조회 수를 가져옵니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">3</div>
+              <div>
+                <h3>검색용 문서 만들기</h3>
+                <p><code>buildRagDocument()</code>가 게시글 정보를 하나의 긴 텍스트로 묶습니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">4</div>
+              <div>
+                <h3>임베딩 생성과 저장</h3>
+                <p><code>EmbeddingService.embed()</code>가 벡터를 만들고 <code>upsertRagDocument()</code>가 DB에 저장합니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">5</div>
+              <div>
+                <h3>후보 게시글 준비</h3>
+                <p>현재 게시글을 제외한 최근 게시글을 후보로 가져와 각각 RAG 문서를 최신화합니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">6</div>
+              <div>
+                <h3>유사 게시글 검색</h3>
+                <p><code>findSimilarPostsWithPgvector()</code>가 벡터 거리 기준으로 가까운 게시글을 찾습니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">7</div>
+              <div>
+                <h3>근거 품질 필터링</h3>
+                <p><code>isStrongSimilarPost()</code>가 유사도, 댓글 근거, 재료 겹침 기준을 확인합니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">8</div>
+              <div>
+                <h3>추천 생성</h3>
+                <p><code>RecipeLlmService.createRecommendation()</code>이 커뮤니티 근거 또는 일반 지식 기반으로 추천 초안을 만듭니다.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="num">9</div>
+              <div>
+                <h3>추천과 참고글 저장</h3>
+                <p>추천 결과와 참고 게시글의 유사도, 순위를 함께 저장해 나중에 설명 가능하게 만듭니다.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="flow-direct">
+          <h2>직접 입력 추천 흐름</h2>
+          <p>
+            직접 입력 추천은 게시글이 없어도 사용자가 가진 재료와 조건으로 추천을 만드는 경로입니다.
+            그래도 기존 커뮤니티 게시글을 검색해 근거로 붙이려는 RAG 흐름은 동일하게 사용됩니다.
+          </p>
+          <div class="grid two">
+            <div class="tile">
+              <strong>게시글 추천과 같은 점</strong>
+              임베딩을 만들고, 기존 게시글과 비교하고, 품질 필터를 통과한 게시글만 커뮤니티 근거로 사용합니다.
+            </div>
+            <div class="tile">
+              <strong>게시글 추천과 다른 점</strong>
+              새 <code>PostRagDocument</code>를 저장할 게시글이 없기 때문에, 요청 문서는 검색 질문으로만 쓰입니다.
+            </div>
+          </div>
+          <div class="callout orange">
+            직접 입력 경로의 핵심은 <code>buildDirectRagDocument()</code>입니다. 사용자가 입력한 재료와 조건을
+            검색 가능한 문장으로 바꿔 기존 게시글과 비교할 수 있게 만듭니다.
+          </div>
+        </section>
+
+        <section class="section" id="functions">
+          <h2>함수 역할 카드</h2>
+          <p>
+            아래 함수들은 외울 대상이라기보다 “어느 책임이 어디에 있는가”를 잡기 위한 지도입니다.
+            함수 이름을 보면 요청 흐름을 다시 말할 수 있는 정도가 목표입니다.
+          </p>
+
+          <h3>입구와 공개 기능</h3>
+          <div class="function-card">
+            <div class="function-name">getStatus()</div>
+            <div>
+              <p>OpenAI 키 여부, 임베딩 모델, pgvector 사용 가능 여부, 유사도 기준값을 화면에 알려줍니다.</p>
+              <div class="pill-list">
+                <span class="pill">상태 점검</span>
+                <span class="pill">환경 설정 확인</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">findLatest(postId)</div>
+            <div>
+              <p>특정 게시글에 이미 만들어진 최신 AI 추천이 있는지 조회합니다.</p>
+              <div class="pill-list">
+                <span class="pill">조회</span>
+                <span class="pill">공개 가능</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">create(postId, requesterId, dto)</div>
+            <div>
+              <p>게시글 기반 추천의 메인 흐름입니다. RAG 검색, LLM 추천, 이미지 생성, DB 저장을 순서대로 연결합니다.</p>
+              <div class="pill-list">
+                <span class="pill">게시글 기반</span>
+                <span class="pill">로그인 필요</span>
+                <span class="pill">RAG 핵심</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">createDirect(dto, requesterId)</div>
+            <div>
+              <p>게시글 없이 재료 목록과 조건만으로 추천을 생성합니다. 기존 커뮤니티 게시글 검색은 그대로 활용합니다.</p>
+              <div class="pill-list">
+                <span class="pill">직접 입력</span>
+                <span class="pill">검색 질문 생성</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>RAG 문서와 임베딩</h3>
+          <div class="function-card">
+            <div class="function-name">buildRagDocument(post)</div>
+            <div>
+              <p>게시글 ID, 제목, 본문, 태그, 댓글 요약, 댓글 수, 조회 수를 하나의 검색용 텍스트로 묶습니다.</p>
+              <div class="pill-list">
+                <span class="pill">문서화</span>
+                <span class="pill">검색 재료</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">buildDirectRagDocument()</div>
+            <div>
+              <p>직접 입력된 보유 재료와 조건을 RAG 검색 질문처럼 정리합니다.</p>
+              <div class="pill-list">
+                <span class="pill">직접 입력 전용</span>
+                <span class="pill">게시글 없음</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">EmbeddingService.embed(text)</div>
+            <div>
+              <p>OpenAI 키가 있으면 OpenAI 임베딩을 쓰고, 없거나 실패하면 로컬 해시 임베딩으로 대체합니다.</p>
+              <div class="pill-list">
+                <span class="pill">벡터 생성</span>
+                <span class="pill">비용 분기</span>
+                <span class="pill">fallback</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">upsertRagDocument()</div>
+            <div>
+              <p>게시글의 RAG 문서와 임베딩을 <code>PostRagDocument</code>에 새로 넣거나 갱신합니다.</p>
+              <div class="pill-list">
+                <span class="pill">저장</span>
+                <span class="pill">재검색 준비</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>검색과 근거 판정</h3>
+          <div class="function-card">
+            <div class="function-name">findSimilarPosts()</div>
+            <div>
+              <p>후보 게시글의 RAG 문서를 갱신하고 pgvector 검색을 시도합니다. 문제가 생기면 메모리 검색으로 대체합니다.</p>
+              <div class="pill-list">
+                <span class="pill">검색 조립</span>
+                <span class="pill">pgvector 우선</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">findSimilarPostsWithPgvector()</div>
+            <div>
+              <p>DB에 저장된 벡터와 요청 벡터의 거리를 비교해 가까운 게시글 후보를 가져옵니다.</p>
+              <div class="pill-list">
+                <span class="pill">주 검색 경로</span>
+                <span class="pill">벡터 거리</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">findSimilarPostsInMemory()</div>
+            <div>
+              <p>pgvector 검색이 실패했을 때 서비스 내부에서 코사인 유사도를 계산하는 안전장치입니다.</p>
+              <div class="pill-list">
+                <span class="pill">안전장치</span>
+                <span class="pill">품질 개선 주 경로 아님</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">buildSimilarPost()</div>
+            <div>
+              <p>검색된 게시글을 추천에 넘기기 좋은 근거 객체로 정리합니다. 댓글 근거, 태그, 재료 겹침, 부족 재료를 묶습니다.</p>
+              <div class="pill-list">
+                <span class="pill">근거 포맷</span>
+                <span class="pill">댓글 중심</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">isStrongSimilarPost()</div>
+            <div>
+              <p>유사도 기준, 댓글 근거 존재 여부, 최소 재료 겹침을 검사해 실제 RAG 근거로 쓸지 결정합니다.</p>
+              <div class="pill-list">
+                <span class="pill">품질 필터</span>
+                <span class="pill">근거 신뢰도</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">getRecommendationGrounding()</div>
+            <div>
+              <p>품질 필터를 통과한 게시글이 있으면 <code>COMMUNITY_RAG</code>, 없으면 <code>GENERAL_AI</code>로 분기합니다.</p>
+              <div class="pill-list">
+                <span class="pill">분기</span>
+                <span class="pill">정직한 근거 표시</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>재료와 추천 생성</h3>
+          <div class="function-card">
+            <div class="function-name">extractIngredientsFromRagPost()</div>
+            <div>
+              <p>게시글 제목, 본문, 태그에서 보유 재료로 보이는 단어를 뽑습니다.</p>
+              <div class="pill-list">
+                <span class="pill">재료 추출</span>
+                <span class="pill">검색 필터 준비</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">normalizeIngredientTerms()</div>
+            <div>
+              <p>직접 입력 재료를 정리하고 별칭을 통일합니다. 예를 들어 달걀과 계란처럼 같은 의미를 맞춥니다.</p>
+              <div class="pill-list">
+                <span class="pill">정규화</span>
+                <span class="pill">별칭 처리</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">RecipeLlmService.createRecommendation()</div>
+            <div>
+              <p>OpenAI 키가 있으면 모델 호출로 추천을 만들고, 없으면 로컬 fallback 추천을 만듭니다.</p>
+              <div class="pill-list">
+                <span class="pill">최종 추천</span>
+                <span class="pill">LLM 또는 fallback</span>
+              </div>
+            </div>
+          </div>
+          <div class="function-card">
+            <div class="function-name">completeRecommendationDraft()</div>
+            <div>
+              <p>커뮤니티 근거에서 드러난 부족 재료를 추천 결과에 보강합니다.</p>
+              <div class="pill-list">
+                <span class="pill">결과 보정</span>
+                <span class="pill">근거 반영</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="database">
+          <h2>DB와 근거 저장</h2>
+          <p>
+            RAG가 설명 가능하려면 추천 결과만 저장하면 부족합니다. “어떤 게시글을 참고했는가”도 같이
+            저장해야 나중에 화면에서 근거를 보여줄 수 있습니다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>모델</th>
+                <th>역할</th>
+                <th>RAG 관점에서 중요한 필드</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>PostRagDocument</code></td>
+                <td>게시글 하나를 검색 가능한 문서와 벡터로 저장합니다.</td>
+                <td><code>documentText</code>, <code>embedding</code>, <code>embeddingModel</code>, <code>isStale</code></td>
+              </tr>
+              <tr>
+                <td><code>AiRecipeRecommendation</code></td>
+                <td>AI가 만든 추천 결과를 저장합니다.</td>
+                <td><code>grounding</code>, <code>menuName</code>, <code>reason</code>, <code>missingIngredients</code></td>
+              </tr>
+              <tr>
+                <td><code>AiRecommendationReference</code></td>
+                <td>추천 결과와 참고 게시글 사이의 연결을 저장합니다.</td>
+                <td><code>postId</code>, <code>similarity</code>, <code>rank</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="callout blue">
+            <strong>중요한 구분</strong><br />
+            <code>PostRagDocument</code>는 검색을 빠르게 하기 위한 저장소이고,
+            <code>AiRecommendationReference</code>는 추천 결과의 근거를 추적하기 위한 저장소입니다.
+          </div>
+        </section>
+
+        <section class="section" id="quality">
+          <h2>품질 기준</h2>
+          <p>
+            RAG에서 가장 중요한 것은 “비슷해 보이는 글을 무조건 근거로 쓰지 않는 것”입니다.
+            이 프로젝트는 세 가지 기준으로 참고 게시글을 걸러냅니다.
+          </p>
+          <div class="grid three">
+            <div class="tile">
+              <strong>유사도 기준</strong>
+              기본값은 <code>0.55</code>입니다. 문맥이 너무 멀면 제외합니다.
+            </div>
+            <div class="tile">
+              <strong>댓글 근거</strong>
+              댓글 조언이 없는 글은 질문만 있는 상태라 추천 근거로 약합니다.
+            </div>
+            <div class="tile">
+              <strong>재료 겹침</strong>
+              기본값은 최소 <code>1</code>개입니다. 엉뚱한 재료의 글을 막는 필터입니다.
+            </div>
+          </div>
+          <div class="callout orange">
+            재료 겹침은 점수를 올리는 가산점이 아닙니다. “근거로 사용할 자격이 있는가”를 판단하는
+            문턱으로 보는 편이 더 정확합니다.
+          </div>
+        </section>
+
+        <section class="section" id="quiz">
+          <h2>복습 퀴즈</h2>
+          <p class="muted">정답 확인 버튼을 누르면 바로 피드백이 나옵니다.</p>
+
+          <form id="quizForm">
+            <div class="question" data-answer="b">
+              <p>1. 이 프로젝트에서 RAG의 가장 핵심적인 목적은?</p>
+              <label class="option"><input type="radio" name="q1" value="a" /> 이미지를 자동 생성하는 것</label>
+              <label class="option"><input type="radio" name="q1" value="b" /> 추천 전에 비슷한 게시글과 댓글 근거를 찾는 것</label>
+              <label class="option"><input type="radio" name="q1" value="c" /> 로그인 기능을 대체하는 것</label>
+              <div class="feedback" data-good="맞습니다. RAG는 검색된 근거를 생성 과정에 붙이는 구조입니다." data-bad="RAG는 추천의 근거 검색과 연결됩니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <p>2. <code>GENERAL_AI</code>가 의미하는 것은?</p>
+              <label class="option"><input type="radio" name="q2" value="a" /> pgvector가 항상 고장났다는 뜻</label>
+              <label class="option"><input type="radio" name="q2" value="b" /> 댓글이 많은 게시글만 사용했다는 뜻</label>
+              <label class="option"><input type="radio" name="q2" value="c" /> 사용할 만한 커뮤니티 근거 없이 일반 지식 기반으로 추천했다는 뜻</label>
+              <div class="feedback" data-good="좋습니다. 실패가 아니라 근거 부족을 정직하게 표시하는 정상 경로입니다." data-bad="GENERAL_AI는 커뮤니티 근거가 없을 때의 정상 분기입니다."></div>
+            </div>
+
+            <div class="question" data-answer="a">
+              <p>3. <code>buildRagDocument()</code>의 역할에 가장 가까운 것은?</p>
+              <label class="option"><input type="radio" name="q3" value="a" /> 게시글 정보를 검색 가능한 텍스트 문서로 묶는다</label>
+              <label class="option"><input type="radio" name="q3" value="b" /> 사용자의 비밀번호를 검증한다</label>
+              <label class="option"><input type="radio" name="q3" value="c" /> 추천 이미지만 생성한다</label>
+              <div class="feedback" data-good="정확합니다. RAG 검색 전에 문서를 만드는 단계입니다." data-bad="이 함수는 검색용 문서를 만드는 책임을 가집니다."></div>
+            </div>
+
+            <div class="question" data-answer="b">
+              <p>4. 참고 게시글로 인정되기 위해 필요한 조건으로 알맞은 것은?</p>
+              <label class="option"><input type="radio" name="q4" value="a" /> 조회 수가 무조건 가장 높아야 한다</label>
+              <label class="option"><input type="radio" name="q4" value="b" /> 유사도 기준, 댓글 근거, 재료 겹침 기준을 통과해야 한다</label>
+              <label class="option"><input type="radio" name="q4" value="c" /> 제목이 완전히 같아야 한다</label>
+              <div class="feedback" data-good="맞습니다. RAG 품질은 검색보다 필터링에서 많이 결정됩니다." data-bad="참고 게시글은 여러 품질 기준을 통과해야 합니다."></div>
+            </div>
+
+            <div class="question" data-answer="c">
+              <p>5. <code>AiRecommendationReference</code>를 저장하는 이유는?</p>
+              <label class="option"><input type="radio" name="q5" value="a" /> 회원가입 속도를 높이기 위해</label>
+              <label class="option"><input type="radio" name="q5" value="b" /> 이미지를 캐싱하기 위해</label>
+              <label class="option"><input type="radio" name="q5" value="c" /> 어떤 게시글을 근거로 추천했는지 추적하기 위해</label>
+              <div class="feedback" data-good="좋아요. 추천의 설명 가능성을 위한 연결 테이블입니다." data-bad="이 모델은 추천 결과와 참고 게시글의 관계를 남깁니다."></div>
+            </div>
+
+            <div class="quiz-controls">
+              <button type="button" id="gradeBtn">정답 확인</button>
+              <button type="button" class="secondary" id="resetBtn">다시 풀기</button>
+            </div>
+            <div class="score" id="scoreBox"></div>
+          </form>
+        </section>
+
+        <section class="section" id="thinking">
+          <h2>생각해볼 질문</h2>
+          <p>
+            아래 질문에 답할 수 있으면 단순 구현 설명을 넘어서, 왜 이 구조가 필요한지도 말할 수 있습니다.
+          </p>
+          <div class="memory">
+            <label><input type="checkbox" /> 댓글이 없는 비슷한 게시글을 RAG 근거로 쓰면 어떤 문제가 생길까?</label>
+            <label><input type="checkbox" /> 유사도 기준을 너무 낮추면 추천 품질과 설명 가능성은 어떻게 변할까?</label>
+            <label><input type="checkbox" /> pgvector가 없을 때 fallback 검색을 유지하는 이유는 무엇일까?</label>
+            <label><input type="checkbox" /> 직접 입력 추천은 게시글 추천과 달리 어떤 데이터를 저장하지 않는가?</label>
+            <label><input type="checkbox" /> 화면에서 <code>COMMUNITY_RAG</code>와 <code>GENERAL_AI</code>를 어떻게 다르게 안내해야 할까?</label>
+          </div>
+          <div class="callout">
+            발표할 때는 “RAG를 구현했습니다”보다 “댓글 답변이 있는 유사 게시글만 근거로 인정하고,
+            근거가 없을 때는 GENERAL_AI로 분리해 사용자에게 과장하지 않게 했습니다”라고 말하는 편이 훨씬 설득력 있습니다.
+          </div>
+        </section>
+
+        <div class="footer">
+          프로젝트 기준 파일: backend/src/ai-recommendations, backend/prisma/schema.prisma, backend/docs/ai-rag-roadmap.md
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const gradeBtn = document.getElementById("gradeBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const scoreBox = document.getElementById("scoreBox");
+      const questions = Array.from(document.querySelectorAll(".question[data-answer]"));
+
+      gradeBtn.addEventListener("click", () => {
+        let score = 0;
+
+        questions.forEach((question) => {
+          const answer = question.dataset.answer;
+          const checked = question.querySelector("input[type='radio']:checked");
+          const feedback = question.querySelector(".feedback");
+          const isCorrect = checked && checked.value === answer;
+
+          if (isCorrect) {
+            score += 1;
+          }
+
+          feedback.textContent = isCorrect ? feedback.dataset.good : feedback.dataset.bad;
+          feedback.style.display = "block";
+          feedback.style.background = isCorrect ? "var(--green-soft)" : "var(--orange-soft)";
+          feedback.style.color = isCorrect ? "var(--green)" : "var(--red)";
+        });
+
+        scoreBox.textContent = `점수: ${score} / ${questions.length}`;
+        scoreBox.style.display = "block";
+      });
+
+      resetBtn.addEventListener("click", () => {
+        document.getElementById("quizForm").reset();
+        questions.forEach((question) => {
+          const feedback = question.querySelector(".feedback");
+          feedback.textContent = "";
+          feedback.style.display = "none";
+        });
+        scoreBox.textContent = "";
+        scoreBox.style.display = "none";
+      });
+    </script>
+  </body>
+</html>
