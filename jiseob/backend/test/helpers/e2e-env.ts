@@ -1,0 +1,15 @@
+process.env.NODE_ENV = 'test';
+process.env.API_PREFIX = '/api/v1';
+process.env.WEB_ORIGIN = 'http://localhost:5173';
+process.env.JWT_ACCESS_SECRET = 'arena-e2e-access-secret';
+process.env.JWT_ACCESS_EXPIRES_IN = '15m';
+process.env.REFRESH_TOKEN_EXPIRES_IN = '7d';
+process.env.CSRF_SECRET = 'arena-e2e-csrf-secret';
+process.env.DATABASE_HOST = process.env.DATABASE_HOST ?? 'localhost';
+process.env.DATABASE_PORT = process.env.DATABASE_PORT ?? '5432';
+process.env.DATABASE_USERNAME = process.env.DATABASE_USERNAME ?? 'arena';
+process.env.DATABASE_PASSWORD = process.env.DATABASE_PASSWORD ?? 'arena_dev_password';
+process.env.DATABASE_NAME = process.env.E2E_DATABASE_NAME ?? 'arena_e2e';
+process.env.DATABASE_SSL = process.env.DATABASE_SSL ?? 'false';
+process.env.EMBEDDING_DIMENSION = '1536';
+process.env.SUMMARY_MAX_INPUT_CHARS = '700';

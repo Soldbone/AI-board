@@ -16,7 +16,7 @@ Posts: 게시글
 Comments: 댓글/대댓글
 Videos: 유튜브 영상 및 처리 상태
 Tags: 태그
-Mcp: YouTube 외부 도구 인터페이스
+Mcp: Agent가 호출하는 외부 도구 인터페이스
 Ai: 댓글 분석, RAG, 요약
 Admin: 관리자 기능
 Common: 공통 유틸, guard, decorator, enum
@@ -91,7 +91,8 @@ src/
 │   ├── posts.service.ts
 │   ├── entities/
 │   │   ├── post.entity.ts
-│   │   └── post-tag.entity.ts
+│   │   ├── post-tag.entity.ts
+│   │   └── post-like.entity.ts
 │   └── dto/
 │       ├── create-post.dto.ts
 │       ├── update-post.dto.ts
@@ -130,9 +131,15 @@ src/
 │
 ├── mcp/
 │   ├── mcp.module.ts
-│   ├── youtube-tool.service.ts
+│   ├── mcp-server.service.ts
+│   ├── tools/
+│   │   ├── youtube-metadata.tool.ts
+│   │   ├── video-processing.tool.ts
+│   │   ├── post-context.tool.ts
+│   │   └── transcript-search.tool.ts
 │   └── dto/
-│       └── youtube-metadata.dto.ts
+│       ├── mcp-tool-request.dto.ts
+│       └── mcp-tool-response.dto.ts
 │
 ├── ai/
 │   ├── ai.module.ts
@@ -208,6 +215,12 @@ YOUTUBE_API_KEY
 OPENAI_API_KEY
 EMBEDDING_MODEL
 EMBEDDING_DIMENSION
+COMMENT_ANALYSIS_MODEL
+COMMENT_ANALYSIS_TIMEOUT_MS
+YOUTUBE_TRANSCRIPT_COMMAND
+TRANSCRIPT_LANGUAGES
+TRANSCRIPT_CHUNK_SIZE
+TRANSCRIPT_CHUNK_OVERLAP
 ```
 
 ### 주의사항
@@ -293,6 +306,11 @@ DELETE /api/v1/users/me
 - 게시글 삭제
 - 게시글과 Tag 연결
 - 게시글과 Video 연결
+- 게시글 내부 카운터 관리
+  - commentCount
+  - viewCount
+  - likeCount
+- 게시글 좋아요 / 좋아요 취소
 
 ### 의존성
 
@@ -308,6 +326,9 @@ POST   /api/v1/posts
 GET    /api/v1/posts/:postId
 PATCH  /api/v1/posts/:postId
 DELETE /api/v1/posts/:postId
+POST   /api/v1/posts/:postId/views
+POST   /api/v1/posts/:postId/like
+DELETE /api/v1/posts/:postId/like
 ```
 
 ### 게시글 작성 흐름
@@ -326,7 +347,9 @@ DELETE /api/v1/posts/:postId
 
 ### 주의사항
 
-PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처리는 VideosModule 또는 McpModule로 분리한다.
+PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처리는 VideosModule이 담당하고, McpModule은 Agent가 같은 기능을 선택적으로 호출할 수 있는 얇은 tool wrapper만 제공한다.
+
+게시글 카운터는 원본 데이터와 함께 다룬다. 좋아요는 `post_likes`를 원본으로 두고, `posts.like_count`는 같은 transaction 안에서 증감한다. 댓글 수는 CommentsModule에서 댓글 생성/삭제 transaction 안에 `posts.comment_count`를 증감한다.
 
 ---
 
@@ -340,23 +363,27 @@ PostsService 안에서 YouTube API를 직접 호출하지 않는다. 영상 처�
 - 자막 수집 상태 관리
 - 임베딩 상태 관리
 - TranscriptChunk 저장
+- 영상 처리 provider adapter 조립
+- 영상 처리 retry API 제공
 
 ### 의존성
 
-- McpModule
-- AiModule 또는 LlmService 일부
+- AiModule
 
 ### Controller
 
 ```http
 GET  /api/v1/videos/:videoId
-POST /api/v1/videos/:videoId/metadata/retry
-POST /api/v1/videos/:videoId/transcript/retry
+POST /api/v1/videos/:videoId/processing/retry
 ```
 
 ### 주의사항
 
 MVP에서는 Redis queue를 쓰지 않으므로, video 처리 작업은 DB 상태값을 먼저 PENDING으로 만들고 서버 내부 비동기 함수로 처리한다. 실패하면 FAILED 상태로 남긴다.
+
+Phase 6 MVP에서는 메타데이터 provider로 YouTube Data API v3를 사용하고, transcript provider로 `youtube-transcript-api` CLI adapter를 사용한다. backend Docker 이미지에는 Python과 `youtube-transcript-api` CLI를 설치해 런타임 환경 차이를 줄인다.
+
+provider 오류는 그대로 사용자에게 전달하지 않는다. 서버 로그에는 raw error를 남길 수 있지만, DB와 API 응답에는 정제된 errorCode/errorMessage만 저장하고 노출한다.
 
 ---
 
@@ -364,24 +391,52 @@ MVP에서는 Redis queue를 쓰지 않으므로, video 처리 작업은 DB 상�
 
 ### 책임
 
-- 외부 도구 인터페이스 제공
-- YouTube API 호출
-- YouTube URL parsing 보조
-- 영상 메타데이터 구조화
-- 자막 수집 도구 제공 가능
+- AI Agent가 사용할 tool 인터페이스 제공
+- MCP Server 역할 수행
+- JSON-RPC 기반 tool 요청/응답 처리
+- 기존 domain service와 provider adapter를 Agent가 호출 가능한 도구로 노출
+- 최소 1개 이상의 실제 외부 서비스 연동 tool 제공
+
+### Controller
+
+```http
+POST /api/v1/mcp
+```
+
+Phase 9에서는 HTTP JSON-RPC 2.0 endpoint 하나로 `tools/list`, `tools/call`을 처리한다.
 
 ### 주요 Service
 
 ```text
-YoutubeToolService
-- parseVideoId(youtubeUrl)
-- fetchMetadata(youtubeVideoId)
-- fetchTranscript(youtubeVideoId)
+McpServerService
+- listTools()
+- callTool(name, arguments, context)
+
+YoutubeMetadataTool
+- fetchYoutubeMetadata(youtubeVideoId)
+
+VideoProcessingTool
+- getVideoProcessingStatus(videoId)
+- retryVideoProcessing(videoId)
+
+PostContextTool
+- getPostContext(postId)
+
+TranscriptSearchTool
+- searchTranscriptChunks(postId, query, limit)
 ```
 
 ### 주의사항
 
-McpModule은 외부 API 세부 구현을 감싸는 계층이다. PostsService나 VideosService가 YouTube API client의 세부사항을 직접 알지 않도록 한다.
+McpModule은 Phase 6 provider adapter를 대체하지 않는다. 게시글 작성, 영상 처리, 자막 저장 같은 기본 제품 흐름은 기존 NestJS service가 직접 담당하고, McpModule은 Agent가 선택적으로 호출할 수 있는 tool boundary를 제공한다.
+
+외부 API key는 tool argument로 받지 않는다. YouTube API key, OpenAI API key 등은 서버 환경변수에서만 읽고, Agent prompt나 tool response에 포함하지 않는다.
+
+MCP tool은 현재 사용자 context를 받아 권한을 확인한다. 읽기 tool은 공개 게시글과 접근 가능한 리소스에 제한하고, retry 같은 write 성격의 tool은 게시글 작성자 또는 관리자 권한으로 제한한다. `video.retryProcessing`은 metadata/transcript/embedding 중 하나라도 `FAILED`일 때만 허용한다.
+
+MCP endpoint는 `Authorization: Bearer` access token을 요구한다. 현재 access token은 cookie가 아니라 Authorization header에서만 읽으므로 Phase 9 MCP endpoint에는 CSRF guard를 적용하지 않는다. 일반 사용자 화면의 state-changing REST API는 기존처럼 `JwtAuthGuard + CsrfGuard`를 유지한다.
+
+비공식 transcript provider는 계속 adapter 뒤에 둔다. `youtube-transcript-api`가 차단되거나 깨지면 `yt-dlp`, hosted transcript API, STT provider로 교체할 수 있어야 한다. MCP tool은 raw provider error를 그대로 반환하지 않고, 기존 errorCode/errorMessage 정책을 따른다.
 
 ---
 
@@ -395,6 +450,7 @@ McpModule은 외부 API 세부 구현을 감싸는 계층이다. PostsService나
 - 댓글 수정
 - 댓글 삭제
 - 댓글 soft delete
+- 게시글 commentCount 증감 요청
 
 ### 의존성
 
@@ -417,9 +473,10 @@ DELETE /api/v1/comments/:commentId
 ```text
 1. postId 확인
 2. 댓글 생성
-3. CommentAnalysis PENDING 생성 요청
-4. AI 분석 비동기 시도
-5. 201 Created 응답
+3. 게시글 commentCount 증가
+4. CommentAnalysis PENDING 생성 요청
+5. AI 분석 비동기 시도
+6. 201 Created 응답
 ```
 
 ### 대댓글 작성 흐름
@@ -429,8 +486,9 @@ DELETE /api/v1/comments/:commentId
 2. parent comment가 최상위 댓글인지 확인
 3. parent comment가 삭제되지 않았는지 확인
 4. parent의 postId를 따라 대댓글 생성
-5. AI 분석 비동기 시도
-6. 201 Created 응답
+5. 게시글 commentCount 증가
+6. AI 분석 비동기 시도
+7. 201 Created 응답
 ```
 
 ### 주의사항
@@ -548,9 +606,9 @@ export class AppModule {}
 ```text
 AuthModule → UsersModule
 PostsModule → VideosModule, TagsModule
-VideosModule → McpModule
 CommentsModule → AiModule
-AiModule → VideosModule 또는 TranscriptChunk Repository
+VideosModule → AiModule
+McpModule → VideosModule, PostsModule, AiModule
 AdminModule → CommentsModule, AiModule
 ```
 

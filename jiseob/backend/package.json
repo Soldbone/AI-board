@@ -9,11 +9,15 @@
     "build": "nest build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
-    "migration:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:run",
-    "migration:generate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:generate",
-    "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:revert"
+    "test:e2e": "jest --config ./test/jest-e2e.config.cjs --runInBand",
+    "seed:demo": "ts-node --files -P tsconfig.json -r tsconfig-paths/register src/database/seeds/seed-demo-data.ts",
+    "migration:run": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:run",
+    "migration:generate": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:generate",
+    "migration:revert": "ts-node -P tsconfig.json -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/typeorm.config.ts migration:revert"
   },
   "dependencies": {
+    "@langchain/core": "^1.1.49",
+    "@langchain/openai": "^1.4.7",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
@@ -24,18 +28,21 @@
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.13.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.24",
-    "ulid": "^3.0.0"
+    "ulid": "^3.0.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^24.0.0",
