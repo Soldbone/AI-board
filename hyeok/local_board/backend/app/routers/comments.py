@@ -11,15 +11,24 @@ from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
 from app.services.embedding_service import embed_post_by_id
 
 router = APIRouter(tags=["comments"])
+DELETED_COMMENT_CONTENT = "삭제된 댓글입니다."
 
 
 def build_comment_response(comment: Comment, author: User) -> dict:
-    if comment.is_anonymous:
+    is_deleted = comment.deleted_at is not None
+
+    if is_deleted:
+        author_id = None
+        author_nickname = ""
+        content = DELETED_COMMENT_CONTENT
+    elif comment.is_anonymous:
         author_id = None
         author_nickname = "익명"
+        content = comment.content
     else:
         author_id = comment.author_id
         author_nickname = author.nickname
+        content = comment.content
 
     return {
         "id": comment.id,
@@ -27,8 +36,9 @@ def build_comment_response(comment: Comment, author: User) -> dict:
         "author_id": author_id,
         "author_nickname": author_nickname,
         "parent_id": comment.parent_id,
-        "content": comment.content,
+        "content": content,
         "is_anonymous": comment.is_anonymous,
+        "is_deleted": is_deleted,
         "created_at": comment.created_at,
         "updated_at": comment.updated_at,
     }
@@ -114,7 +124,7 @@ def read_comments(post_id: int, db: Session = Depends(get_db)):
     comment_rows = (
         db.query(Comment, User)
         .join(User, Comment.author_id == User.id)
-        .filter(Comment.post_id == post_id, Comment.deleted_at.is_(None))
+        .filter(Comment.post_id == post_id)
         .order_by(Comment.created_at.asc())
         .all()
     )
@@ -225,6 +235,8 @@ def delete_comment(
             detail="댓글을 삭제할 권한이 없습니다.",
         )
 
+    comment.content = DELETED_COMMENT_CONTENT
+    comment.is_anonymous = True
     comment.deleted_at = datetime.utcnow()
 
     db.commit()

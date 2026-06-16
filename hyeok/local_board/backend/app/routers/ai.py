@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.ai import (
+    PlaceSearchRequest,
+    PlaceSearchResponse,
     SimilarPostRequest,
     SimilarPostResponse,
     TagSuggestionRequest,
     TagSuggestionResponse,
 )
+from app.services.mcp_client_service import McpClientError, search_places_with_mcp
 from app.services.embedding_service import find_similar_posts_by_vector
 from app.services.rag_service import find_similar_posts, suggest_tags
 
@@ -29,15 +32,24 @@ def get_similar_posts(
             limit=request_data.limit,
         )
     except Exception:
+        db.rollback()
         items = []
+
+    if request_data.exclude_post_id is not None:
+        items = [
+            item for item in items
+            if item["id"] != request_data.exclude_post_id
+        ]
 
     if not items:
         items = find_similar_posts(
             db=db,
             title=request_data.title,
             content=request_data.content,
+            store_name=request_data.store_name,
             tag_names=request_data.tag_names,
             limit=request_data.limit,
+            exclude_post_id=request_data.exclude_post_id,
         )
 
     return {"items": items}
@@ -52,8 +64,10 @@ def get_keyword_similar_posts(
         db=db,
         title=request_data.title,
         content=request_data.content,
+        store_name=request_data.store_name,
         tag_names=request_data.tag_names,
         limit=request_data.limit,
+        exclude_post_id=request_data.exclude_post_id,
     )
 
     return {"items": items}
@@ -72,3 +86,15 @@ def get_tag_suggestions(
     )
 
     return {"items": items}
+
+
+@router.post("/place-search", response_model=PlaceSearchResponse)
+async def search_places(request_data: PlaceSearchRequest):
+    try:
+        return await search_places_with_mcp(
+            region=request_data.region,
+            keyword=request_data.keyword,
+            display=request_data.display,
+        )
+    except McpClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

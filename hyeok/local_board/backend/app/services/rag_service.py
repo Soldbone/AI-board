@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.comment import Comment
@@ -51,6 +52,10 @@ def normalize_keyword(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def compact_keyword(value: str) -> str:
+    return re.sub(r"\s+", "", normalize_keyword(value))
+
+
 def add_keyword(keywords: list[str], candidate: str, stopwords: set[str]) -> None:
     cleaned_keyword = normalize_keyword(candidate)
 
@@ -73,6 +78,9 @@ def add_keyword(keywords: list[str], candidate: str, stopwords: set[str]) -> Non
 @lru_cache(maxsize=1)
 def load_stopwords() -> set[str]:
     stopwords: set[str] = set()
+
+    if not STOPWORDS_FILE.exists():
+        return stopwords
 
     with STOPWORDS_FILE.open(encoding="utf-8") as file:
         for line in file:
@@ -126,16 +134,36 @@ def extract_regex_keywords(text: str, stopwords: set[str]) -> list[str]:
     return keywords
 
 
+def extract_tag_keywords(tag_names: list[str] | None, stopwords: set[str]) -> list[str]:
+    keywords: list[str] = []
+
+    for tag_name in tag_names or []:
+        cleaned_tag = normalize_keyword(tag_name)
+
+        if not re.search(r"[>/,|]+", cleaned_tag):
+            add_keyword(keywords, cleaned_tag, stopwords)
+
+        for tag_part in re.split(r"[\s>/,|]+", cleaned_tag):
+            add_keyword(keywords, tag_part, stopwords)
+
+        for keyword in extract_kiwi_keywords(cleaned_tag, stopwords):
+            add_keyword(keywords, keyword, stopwords)
+
+    return keywords
+
+
 def extract_keywords(
     title: str,
     content: str,
     tag_names: list[str] | None = None,
     limit: int = 20,
+    store_name: str | None = None,
 ) -> list[str]:
     stopwords = load_stopwords()
     title_text = remove_stopword_phrases(title, stopwords)
     content_text = remove_stopword_phrases(content, stopwords)
-    raw_text = f"{title_text} {content_text}"
+    store_text = remove_stopword_phrases(store_name or "", stopwords)
+    raw_text = f"{title_text} {content_text} {store_text}"
     keywords: list[str] = []
 
     for keyword in extract_kiwi_keywords(raw_text, stopwords):
@@ -144,8 +172,11 @@ def extract_keywords(
     for keyword in extract_regex_keywords(title_text, stopwords):
         add_keyword(keywords, keyword, stopwords)
 
-    for tag_name in tag_names or []:
-        add_keyword(keywords, tag_name, stopwords)
+    if store_name:
+        add_keyword(keywords, store_name, stopwords)
+
+    for keyword in extract_tag_keywords(tag_names, stopwords):
+        add_keyword(keywords, keyword, stopwords)
 
     return keywords[:limit]
 
@@ -265,21 +296,66 @@ def build_searchable_text(post: Post, tag_names: list[str], comment_text: str) -
     ).lower()
 
 
+def contains_store_name(
+    store_name: str | None,
+    post: Post,
+    tag_names: list[str],
+    comment_text: str,
+) -> bool:
+    if not store_name:
+        return True
+
+    normalized_store_name = normalize_keyword(store_name)
+    compact_store_name = compact_keyword(store_name)
+
+    if len(compact_store_name) < 2:
+        return True
+
+    searchable_text = build_searchable_text(post, tag_names, comment_text)
+    compact_searchable_text = compact_keyword(searchable_text)
+
+    return (
+        normalized_store_name in searchable_text
+        or compact_store_name in compact_searchable_text
+    )
+
+
 def find_similar_posts(
     db: Session,
     title: str,
     content: str,
     tag_names: list[str],
+    store_name: str | None = None,
     limit: int = DEFAULT_SIMILAR_POST_LIMIT,
+    exclude_post_id: int | None = None,
 ):
-    keywords = extract_keywords(title, content, tag_names)
+    keywords = extract_keywords(
+        title=title,
+        content=content,
+        tag_names=tag_names,
+        store_name=store_name,
+    )
 
     if not keywords:
         return []
 
+    query = db.query(Post).filter(Post.deleted_at.is_(None))
+
+    if exclude_post_id is not None:
+        query = query.filter(Post.id != exclude_post_id)
+
+    if store_name:
+        store_name_pattern = f"%{store_name.strip()}%"
+        query = query.filter(
+            or_(
+                Post.store_name.ilike(store_name_pattern),
+                Post.title.ilike(store_name_pattern),
+                Post.content.ilike(store_name_pattern),
+            )
+        )
+
     posts = (
-        db.query(Post)
-        .filter(Post.deleted_at.is_(None))
+        query
         .order_by(Post.created_at.desc())
         .limit(SEARCH_CANDIDATE_LIMIT)
         .all()
@@ -291,6 +367,10 @@ def find_similar_posts(
         post_tag_names = get_post_tag_names(db, post.id)
         comment_text = get_post_comment_text(db, post.id)
         comment_count = get_post_comment_count(db, post.id)
+
+        if not contains_store_name(store_name, post, post_tag_names, comment_text):
+            continue
+
         searchable_text = build_searchable_text(post, post_tag_names, comment_text)
 
         matched_keywords = [

@@ -1,4 +1,7 @@
-import { apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+
+export type PostType = 'question' | 'review'
+export type PostTypeFilter = 'all' | PostType
 
 export type PostListItem = {
   id: number
@@ -7,6 +10,7 @@ export type PostListItem = {
   region: string | null
   store_name: string | null
   category: string | null
+  post_type: PostType
   view_count: number
   comment_count: number
   created_at: string
@@ -29,9 +33,10 @@ export type PostListResponse = {
 export type PostFormPayload = {
   title: string
   content: string
-  region: string | null
+  region: string
   store_name: string | null
   category: string | null
+  post_type: PostType
   tag_names?: string[]
 }
 
@@ -42,6 +47,7 @@ type PostListParams = {
   size?: number
   keyword?: string
   tag?: string
+  post_type?: PostType
   sort?: PostSort
 }
 
@@ -57,6 +63,10 @@ export function getPosts(params: PostListParams = {}) {
 
   if (params.tag) {
     query.set('tag', params.tag)
+  }
+
+  if (params.post_type) {
+    query.set('post_type', params.post_type)
   }
 
   if (params.sort) {
@@ -76,4 +86,8 @@ export function createPost(data: PostFormPayload, token: string) {
 
 export function updatePost(postId: number, data: PostFormPayload, token: string) {
   return apiPatch<PostRead>(`/posts/${postId}`, data, token)
+}
+
+export function deletePost(postId: number, token: string) {
+  return apiDelete<void>(`/posts/${postId}`, token)
 }

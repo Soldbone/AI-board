@@ -1,4 +1,4 @@
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -14,6 +14,8 @@ from app.services.embedding_service import embed_post_by_id
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
+ALLOWED_POST_TYPES = {"question", "review"}
+
 
 def normalize_tag_names(tag_names: list[str]) -> list[str]:
     normalized_names = []
@@ -25,6 +27,40 @@ def normalize_tag_names(tag_names: list[str]) -> list[str]:
             normalized_names.append(cleaned_name)
 
     return normalized_names
+
+
+def delete_post_embedding_if_exists(db: Session, post_id: int) -> None:
+    table_name = db.execute(text("SELECT to_regclass('public.post_embeddings')")).scalar()
+
+    if table_name:
+        db.execute(
+            text("DELETE FROM post_embeddings WHERE post_id = :post_id"),
+            {"post_id": post_id},
+        )
+
+
+def delete_post_comments(db: Session, post_id: int) -> None:
+    reply_comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id, Comment.parent_id.isnot(None))
+        .all()
+    )
+
+    for comment in reply_comments:
+        db.delete(comment)
+
+    db.flush()
+
+    parent_comments = (
+        db.query(Comment)
+        .filter(Comment.post_id == post_id)
+        .all()
+    )
+
+    for comment in parent_comments:
+        db.delete(comment)
+
+    db.flush()
 
 
 def get_post_tag_names(db: Session, post_id: int) -> list[str]:
@@ -53,6 +89,7 @@ def create_post(
         region=post_data.region,
         store_name=post_data.store_name,
         category=post_data.category,
+        post_type=post_data.post_type,
     )
 
     db.add(new_post)
@@ -88,6 +125,7 @@ def create_post(
         "region": new_post.region,
         "store_name": new_post.store_name,
         "category": new_post.category,
+        "post_type": new_post.post_type,
         "view_count": new_post.view_count,
         "comment_count": 0,
         "tag_names": normalized_tag_names,
@@ -99,6 +137,7 @@ def create_post(
 def read_posts(
     keyword: str | None = None,
     tag: str | None = None,
+    post_type: str | None = None,
     sort: str = "latest",
     page: int = 1,
     size: int = 10,
@@ -113,6 +152,17 @@ def read_posts(
         )
 
     query = db.query(Post).filter(Post.deleted_at.is_(None))
+
+    if post_type and post_type.strip():
+        normalized_post_type = post_type.strip()
+
+        if normalized_post_type not in ALLOWED_POST_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="post_type은 question 또는 review 중 하나여야 합니다.",
+            )
+
+        query = query.filter(Post.post_type == normalized_post_type)
 
     if keyword and keyword.strip():
         search_keyword = f"%{keyword.strip()}%"
@@ -196,6 +246,7 @@ def read_posts(
             "region": post.region,
             "store_name": post.store_name,
             "category": post.category,
+            "post_type": post.post_type,
             "view_count": post.view_count,
             "comment_count": comment_count,
             "created_at": post.created_at,
@@ -245,6 +296,7 @@ def read_post(post_id: int, db: Session = Depends(get_db)):
         "region": post.region,
         "store_name": post.store_name,
         "category": post.category,
+        "post_type": post.post_type,
         "view_count": post.view_count,
         "comment_count": comment_count,
         "tag_names": tag_names,
@@ -294,6 +346,9 @@ def update_post(
     if post_data.category is not None:
         post.category = post_data.category
 
+    if post_data.post_type is not None:
+        post.post_type = post_data.post_type
+
     db.commit()
     db.refresh(post)
     background_tasks.add_task(embed_post_by_id, post.id)
@@ -312,6 +367,7 @@ def update_post(
         "region": post.region,
         "store_name": post.store_name,
         "category": post.category,
+        "post_type": post.post_type,
         "view_count": post.view_count,
         "comment_count": comment_count,
         "tag_names": get_post_tag_names(db, post.id),
@@ -344,7 +400,10 @@ def delete_post(
             detail="게시글을 삭제할 권한이 없습니다.",
         )
 
-    post.deleted_at = datetime.utcnow()
+    delete_post_embedding_if_exists(db, post.id)
+    db.execute(post_tags.delete().where(post_tags.c.post_id == post.id))
+    delete_post_comments(db, post.id)
+    db.delete(post)
 
     db.commit()
 

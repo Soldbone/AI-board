@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import type { PostListItem, PostSort } from '../api/postApi'
+import type { PostListItem, PostSort, PostTypeFilter } from '../api/postApi'
 import type { TagSuggestion } from '../api/tagApi'
 
 type PostListPageProps = {
@@ -11,11 +11,13 @@ type PostListPageProps = {
   keywordInput: string
   activeKeyword: string
   activeTag: string
+  activePostType: PostTypeFilter
   sort: PostSort
   onKeywordInputChange: (value: string) => void
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void
   onClearFilters: () => void
   onSelectSuggestion: (suggestion: TagSuggestion) => void
+  onPostTypeChange: (postType: PostTypeFilter) => void
   onSortChange: (sort: PostSort) => void
   onOpenDetail: (postId: number) => void
   onLoadPage: (page: number) => void
@@ -28,6 +30,16 @@ const sortOptions: { value: PostSort; label: string }[] = [
   { value: 'comments', label: '댓글 많은 순' },
 ]
 
+const postTypeOptions: { value: PostTypeFilter; label: string }[] = [
+  { value: 'all', label: '전체' },
+  { value: 'question', label: '질문' },
+  { value: 'review', label: '실제후기' },
+]
+
+function getPostTypeLabel(postType: PostListItem['post_type']) {
+  return postType === 'review' ? '실제후기' : '질문'
+}
+
 export function PostListPage({
   posts,
   tags,
@@ -37,17 +49,19 @@ export function PostListPage({
   keywordInput,
   activeKeyword,
   activeTag,
+  activePostType,
   sort,
   onKeywordInputChange,
   onSearchSubmit,
   onClearFilters,
   onSelectSuggestion,
+  onPostTypeChange,
   onSortChange,
   onOpenDetail,
   onLoadPage,
   formatDate,
 }: PostListPageProps) {
-  const hasFilter = Boolean(activeKeyword || activeTag)
+  const hasFilter = Boolean(activeKeyword || activeTag || activePostType !== 'all')
 
   return (
     <section className="space-y-5">
@@ -87,6 +101,23 @@ export function PostListPage({
         </form>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          {postTypeOptions.map((option) => (
+            <button
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                activePostType === option.value
+                  ? 'bg-slate-950 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+              key={option.value}
+              onClick={() => onPostTypeChange(option.value)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {sortOptions.map((option) => (
             <button
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
@@ -142,6 +173,15 @@ export function PostListPage({
             key={post.id}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={`rounded-full px-2.5 py-1 font-semibold ${
+                  post.post_type === 'review'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-sky-100 text-sky-800'
+                }`}
+              >
+                {getPostTypeLabel(post.post_type)}
+              </span>
               {post.region && (
                 <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
                   {post.region}

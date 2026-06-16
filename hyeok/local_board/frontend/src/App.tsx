@@ -1,9 +1,15 @@
 ﻿/* eslint-disable react-hooks/set-state-in-effect */
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import {
+  getAgentPlaceRecommendation,
+  type AgentPlaceRecommendationResponse,
+} from './api/agentApi'
+import { getSimilarPosts, type SimilarPostItem } from './api/aiApi'
 import { getMe, login, signup, type UserResponse } from './api/authApi'
-import { createComment, getComments, type CommentRead } from './api/commentApi'
+import { createComment, deleteComment, getComments, type CommentRead } from './api/commentApi'
 import {
   createPost,
+  deletePost,
   getPost,
   getPosts,
   updatePost,
@@ -11,6 +17,7 @@ import {
   type PostListItem,
   type PostRead,
   type PostSort,
+  type PostTypeFilter,
 } from './api/postApi'
 import {
   getTagSuggestions,
@@ -26,8 +33,11 @@ import { SignupPage } from './pages/SignupPage'
 import { getAccessToken, removeAccessToken, saveAccessToken } from './utils/tokenStorage'
 
 type ViewMode = 'list' | 'login' | 'signup' | 'detail' | 'create' | 'edit' | 'profile'
-type BrowserHistoryState = { boardView: 'list' } | { boardView: 'detail'; postId: number }
-type NavigationOptions = { updateHistory?: boolean }
+type HistoryMode = 'push' | 'replace' | 'none'
+type LocalBoardHistoryState = {
+  localBoardView?: ViewMode
+  postId?: number
+}
 
 type AuthFormState = { email: string; password: string; nickname: string }
 type ProfileFormState = { nickname: string; bio: string }
@@ -37,6 +47,7 @@ type PostFormState = {
   region: string
   store_name: string
   category: string
+  post_type: 'question' | 'review'
   tag_names: string
 }
 
@@ -48,35 +59,42 @@ const emptyPostForm: PostFormState = {
   region: '',
   store_name: '',
   category: '',
+  post_type: 'question',
   tag_names: '',
 }
 
-function getListUrl() {
-  return `${window.location.pathname}${window.location.search}`
+const viewModes: ViewMode[] = ['list', 'login', 'signup', 'detail', 'create', 'edit', 'profile']
+
+function isViewMode(value: unknown): value is ViewMode {
+  return typeof value === 'string' && viewModes.includes(value as ViewMode)
 }
 
-function getPostUrl(postId: number) {
-  return `${getListUrl()}#post-${postId}`
+function readLocalBoardHistoryState(state: unknown): LocalBoardHistoryState {
+  if (!state || typeof state !== 'object') {
+    return { localBoardView: 'list' }
+  }
+
+  const historyState = state as LocalBoardHistoryState
+  return {
+    localBoardView: isViewMode(historyState.localBoardView)
+      ? historyState.localBoardView
+      : 'list',
+    postId: typeof historyState.postId === 'number' ? historyState.postId : undefined,
+  }
 }
 
-function isListHistoryState(state: unknown): state is { boardView: 'list' } {
-  return (
-    typeof state === 'object'
-    && state !== null
-    && 'boardView' in state
-    && state.boardView === 'list'
-  )
-}
+function updateBrowserHistory(view: ViewMode, mode: HistoryMode, postId?: number) {
+  if (mode === 'none' || typeof window === 'undefined') {
+    return
+  }
 
-function isDetailHistoryState(state: unknown): state is { boardView: 'detail'; postId: number } {
-  return (
-    typeof state === 'object'
-    && state !== null
-    && 'boardView' in state
-    && state.boardView === 'detail'
-    && 'postId' in state
-    && typeof state.postId === 'number'
-  )
+  const state: LocalBoardHistoryState = { localBoardView: view, postId }
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', window.location.href)
+    return
+  }
+
+  window.history.pushState(state, '', window.location.href)
 }
 
 function getErrorMessage(error: unknown) {
@@ -96,9 +114,10 @@ function buildPostPayload(form: PostFormState): PostFormPayload {
   return {
     title: form.title.trim(),
     content: form.content.trim(),
-    region: toNullable(form.region),
+    region: form.region.trim(),
     store_name: toNullable(form.store_name),
     category: toNullable(form.category),
+    post_type: form.post_type,
     tag_names: parseTagNames(form.tag_names),
   }
 }
@@ -107,8 +126,13 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString('ko-KR')
 }
 
+function buildDetailSimilarTagNames(post: PostRead) {
+  return [...post.tag_names, post.region, post.store_name, post.category].filter(
+    (value): value is string => Boolean(value),
+  )
+}
+
 function App() {
-  const isHistoryReady = useRef(false)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [authForm, setAuthForm] = useState<AuthFormState>(emptyAuthForm)
   const [accessToken, setAccessToken] = useState<string | null>(() => getAccessToken())
@@ -119,6 +143,10 @@ function App() {
   const [selectedPost, setSelectedPost] = useState<PostRead | null>(null)
   const [comments, setComments] = useState<CommentRead[]>([])
   const [tags, setTags] = useState<TagSuggestion[]>([])
+  const [agentRecommendation, setAgentRecommendation] =
+    useState<AgentPlaceRecommendationResponse | null>(null)
+  const [detailSimilarPosts, setDetailSimilarPosts] = useState<SimilarPostItem[]>([])
+  const [detailSimilarPostMessage, setDetailSimilarPostMessage] = useState('')
 
   const [postForm, setPostForm] = useState<PostFormState>(emptyPostForm)
   const [commentContent, setCommentContent] = useState('')
@@ -128,12 +156,15 @@ function App() {
   const [keywordInput, setKeywordInput] = useState('')
   const [activeKeyword, setActiveKeyword] = useState('')
   const [activeTag, setActiveTag] = useState('')
+  const [activePostType, setActivePostType] = useState<PostTypeFilter>('all')
   const [activeSort, setActiveSort] = useState<PostSort>('latest')
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [message, setMessage] = useState('게시글 목록을 불러오는 중입니다.')
   const [isLoading, setIsLoading] = useState(true)
+  const [isAgentLoading, setIsAgentLoading] = useState(false)
+  const [isDetailSimilarPostLoading, setIsDetailSimilarPostLoading] = useState(false)
 
   const hasAccessToken = Boolean(accessToken)
 
@@ -159,9 +190,18 @@ function App() {
   }, [])
 
   const loadPosts = useCallback(
-    async (nextPage = 1, filters: { keyword?: string; tag?: string; sort?: PostSort } = {}) => {
+    async (
+      nextPage = 1,
+      filters: {
+        keyword?: string
+        tag?: string
+        postType?: PostTypeFilter
+        sort?: PostSort
+      } = {},
+    ) => {
       const keyword = filters.keyword ?? activeKeyword
       const tag = filters.tag ?? activeTag
+      const postType = filters.postType ?? activePostType
       const sort = filters.sort ?? activeSort
 
       setIsLoading(true)
@@ -173,6 +213,7 @@ function App() {
           size: 10,
           keyword: keyword || undefined,
           tag: tag || undefined,
+          post_type: postType === 'all' ? undefined : postType,
           sort,
         })
         setPosts(data.items)
@@ -186,11 +227,37 @@ function App() {
         setIsLoading(false)
       }
     },
-    [activeKeyword, activeTag, activeSort],
+    [activeKeyword, activeTag, activePostType, activeSort],
   )
 
+  async function loadDetailSimilarPosts(post: PostRead) {
+    setIsDetailSimilarPostLoading(true)
+    setDetailSimilarPostMessage('비슷한 게시글을 찾는 중입니다.')
+
+    try {
+      const data = await getSimilarPosts({
+        title: post.title,
+        content: post.content,
+        store_name: post.store_name,
+        tag_names: buildDetailSimilarTagNames(post),
+        limit: 5,
+        exclude_post_id: post.id,
+      })
+
+      setDetailSimilarPosts(data.items)
+      setDetailSimilarPostMessage(data.items.length ? '' : '비슷한 게시글이 없습니다.')
+    } catch (error) {
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage(
+        error instanceof Error ? error.message : '비슷한 게시글을 찾지 못했습니다.',
+      )
+    } finally {
+      setIsDetailSimilarPostLoading(false)
+    }
+  }
+
   useEffect(() => {
-    void loadPosts(1, { keyword: '', tag: '', sort: 'latest' })
+    void loadPosts(1, { keyword: '', tag: '', postType: 'all', sort: 'latest' })
     void loadTags()
   }, [loadPosts, loadTags])
 
@@ -228,7 +295,7 @@ function App() {
       saveAccessToken(tokenData.access_token)
       setAccessToken(tokenData.access_token)
       setAuthForm(emptyAuthForm)
-      setViewMode('list')
+      goList('replace')
       setMessage('로그인했습니다.')
     } catch (error) {
       setMessage(getErrorMessage(error))
@@ -257,7 +324,7 @@ function App() {
       saveAccessToken(tokenData.access_token)
       setAccessToken(tokenData.access_token)
       setAuthForm(emptyAuthForm)
-      setViewMode('list')
+      goList('replace')
       setMessage('회원가입 후 로그인했습니다.')
     } catch (error) {
       setMessage(getErrorMessage(error))
@@ -271,7 +338,7 @@ function App() {
     setAccessToken(null)
     setCurrentUser(null)
     setProfileForm(emptyProfileForm)
-    setViewMode('list')
+    goList('replace')
     setMessage('로그아웃했습니다.')
   }
 
@@ -303,18 +370,14 @@ function App() {
     }
   }
 
-  const openDetail = useCallback(async (postId: number, options: NavigationOptions = {}) => {
-    if (options.updateHistory !== false) {
-      window.history.pushState(
-        { boardView: 'detail', postId } satisfies BrowserHistoryState,
-        '',
-        getPostUrl(postId),
-      )
-    }
-
+  async function openDetail(postId: number, historyMode: HistoryMode = 'push') {
+    updateBrowserHistory('detail', historyMode, postId)
     setViewMode('detail')
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
@@ -326,15 +389,17 @@ function App() {
       setSelectedPost(postData)
       setComments(commentData)
       setMessage('')
+      void loadDetailSimilarPosts(postData)
     } catch (error) {
       setMessage(getErrorMessage(error))
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }
 
   function openCreateForm() {
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('글쓰기는 로그인이 필요합니다.')
       return
@@ -343,9 +408,13 @@ function App() {
     setPostForm(emptyPostForm)
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setReplyTargetId(null)
     setCommentContent('')
     setIsAnonymous(false)
+    updateBrowserHistory('create', 'push')
     setViewMode('create')
     setMessage('')
   }
@@ -353,6 +422,7 @@ function App() {
   function openEditForm() {
     if (!selectedPost) return
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('게시글 수정은 로그인이 필요합니다.')
       return
@@ -364,8 +434,10 @@ function App() {
       region: selectedPost.region ?? '',
       store_name: selectedPost.store_name ?? '',
       category: selectedPost.category ?? '',
+      post_type: selectedPost.post_type,
       tag_names: '',
     })
+    updateBrowserHistory('edit', 'push', selectedPost.id)
     setViewMode('edit')
     setMessage('')
   }
@@ -373,6 +445,7 @@ function App() {
   async function handleCreatePost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('글쓰기는 로그인이 필요합니다.')
       return
@@ -384,15 +457,30 @@ function App() {
       return
     }
 
+    if (!payload.region) {
+      setMessage('지역을 입력해주세요.')
+      return
+    }
+
     setIsLoading(true)
     setMessage('게시글을 등록하는 중입니다.')
 
     try {
       const createdPost = await createPost(payload, accessToken)
-      await loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadPosts(1, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
       await loadTags()
       setSelectedPost(createdPost)
       setComments([])
+      setAgentRecommendation(null)
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage('')
+      void loadDetailSimilarPosts(createdPost)
+      updateBrowserHistory('detail', 'replace', createdPost.id)
       setViewMode('detail')
       setMessage('게시글을 등록했습니다.')
     } catch (error) {
@@ -405,6 +493,7 @@ function App() {
   async function handleUpdatePost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('게시글 수정은 로그인이 필요합니다.')
       return
@@ -416,13 +505,28 @@ function App() {
       return
     }
 
+    if (!payload.region) {
+      setMessage('지역을 입력해주세요.')
+      return
+    }
+
     setIsLoading(true)
     setMessage('게시글을 수정하는 중입니다.')
 
     try {
       const updatedPost = await updatePost(selectedPost.id, payload, accessToken)
-      await loadPosts(page, { keyword: activeKeyword, tag: activeTag, sort: activeSort })
+      await loadPosts(page, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
       setSelectedPost(updatedPost)
+      setAgentRecommendation(null)
+      setDetailSimilarPosts([])
+      setDetailSimilarPostMessage('')
+      void loadDetailSimilarPosts(updatedPost)
+      updateBrowserHistory('detail', 'replace', updatedPost.id)
       setViewMode('detail')
       setMessage('게시글을 수정했습니다.')
     } catch (error) {
@@ -435,6 +539,7 @@ function App() {
   async function handleCreateComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
       setViewMode('login')
       setMessage('댓글 작성은 로그인이 필요합니다.')
       return
@@ -467,11 +572,108 @@ function App() {
     }
   }
 
+  async function handleDeletePost() {
+    if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
+      setViewMode('login')
+      setMessage('게시글 삭제는 로그인이 필요합니다.')
+      return
+    }
+
+    if (!window.confirm('게시글을 삭제할까요?')) {
+      return
+    }
+
+    setIsLoading(true)
+    setMessage('게시글을 삭제하는 중입니다.')
+
+    try {
+      await deletePost(selectedPost.id, accessToken)
+      await loadPosts(1, {
+        keyword: activeKeyword,
+        tag: activeTag,
+        postType: activePostType,
+        sort: activeSort,
+      })
+      await loadTags()
+      goList('replace')
+      setMessage('게시글을 삭제했습니다.')
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      window.alert(errorMessage)
+      setMessage(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleDeleteComment(commentId: number) {
+    if (!accessToken || !selectedPost) {
+      updateBrowserHistory('login', 'push')
+      setViewMode('login')
+      setMessage('댓글 삭제는 로그인이 필요합니다.')
+      return
+    }
+
+    if (!window.confirm('댓글을 삭제할까요?')) {
+      return
+    }
+
+    setIsLoading(true)
+    setMessage('댓글을 삭제하는 중입니다.')
+
+    try {
+      await deleteComment(commentId, accessToken)
+      const nextComments = await getComments(selectedPost.id)
+      setComments(nextComments)
+      setMessage('댓글을 삭제했습니다.')
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      window.alert(errorMessage)
+      setMessage(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleAgentRecommendation() {
+    if (!selectedPost) return
+
+    if (!selectedPost.region) {
+      setMessage('AI 장소 추천은 게시글의 지역 정보가 필요합니다.')
+      return
+    }
+
+    setIsAgentLoading(true)
+    setMessage('AI가 장소를 추천하는 중입니다.')
+
+    try {
+      const recommendation = await getAgentPlaceRecommendation({
+        region: selectedPost.region,
+        title: selectedPost.title,
+        content: selectedPost.content,
+        keyword: selectedPost.store_name ?? selectedPost.category ?? null,
+        display: 3,
+      })
+      setAgentRecommendation(recommendation)
+      setMessage('AI 장소 추천을 불러왔습니다.')
+    } catch (error) {
+      setMessage(getErrorMessage(error))
+    } finally {
+      setIsAgentLoading(false)
+    }
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const nextKeyword = keywordInput.trim()
     setActiveKeyword(nextKeyword)
-    void loadPosts(1, { keyword: nextKeyword, tag: activeTag, sort: activeSort })
+    void loadPosts(1, {
+      keyword: nextKeyword,
+      tag: activeTag,
+      postType: activePostType,
+      sort: activeSort,
+    })
   }
 
   function selectSuggestion(suggestion: TagSuggestion) {
@@ -480,31 +682,52 @@ function App() {
     setActiveTag(nextTag)
     setActiveKeyword('')
     setKeywordInput('')
-    void loadPosts(1, { keyword: '', tag: nextTag, sort: activeSort })
+    void loadPosts(1, {
+      keyword: '',
+      tag: nextTag,
+      postType: activePostType,
+      sort: activeSort,
+    })
   }
 
   function changeSort(nextSort: PostSort) {
     setActiveSort(nextSort)
-    void loadPosts(1, { keyword: activeKeyword, tag: activeTag, sort: nextSort })
+    void loadPosts(1, {
+      keyword: activeKeyword,
+      tag: activeTag,
+      postType: activePostType,
+      sort: nextSort,
+    })
+  }
+
+  function changePostType(nextPostType: PostTypeFilter) {
+    setActivePostType(nextPostType)
+    void loadPosts(1, {
+      keyword: activeKeyword,
+      tag: activeTag,
+      postType: nextPostType,
+      sort: activeSort,
+    })
   }
 
   function clearFilters() {
     setKeywordInput('')
     setActiveKeyword('')
     setActiveTag('')
-    void loadPosts(1, { keyword: '', tag: '', sort: activeSort })
+    setActivePostType('all')
+    void loadPosts(1, { keyword: '', tag: '', postType: 'all', sort: activeSort })
   }
 
-  const goList = useCallback((options: NavigationOptions = {}) => {
-    if (options.updateHistory !== false && !isListHistoryState(window.history.state)) {
-      window.history.pushState({ boardView: 'list' } satisfies BrowserHistoryState, '', getListUrl())
-    }
-
+  function goList(historyMode: HistoryMode = 'replace') {
+    updateBrowserHistory('list', historyMode)
     setViewMode('list')
     setSelectedPost(null)
     setComments([])
+    setAgentRecommendation(null)
+    setDetailSimilarPosts([])
+    setDetailSimilarPostMessage('')
     setMessage('')
-  }, [])
+  }
 
   const searchPostsByTag = useCallback((tagName: string) => {
     const nextTag = tagName.trim()
@@ -515,35 +738,32 @@ function App() {
     setActiveKeyword('')
     setKeywordInput('')
     goList()
-    void loadPosts(1, { keyword: '', tag: nextTag, sort: activeSort })
-  }, [activeSort, goList, loadPosts])
+    void loadPosts(1, { keyword: '', tag: nextTag, postType: activePostType, sort: activeSort })
+  }, [activePostType, activeSort, loadPosts])
 
   useEffect(() => {
-    if (!isHistoryReady.current) {
-      const state = window.history.state
-
-      if (!isListHistoryState(state) && !isDetailHistoryState(state)) {
-        window.history.replaceState({ boardView: 'list' } satisfies BrowserHistoryState, '', getListUrl())
-      }
-
-      isHistoryReady.current = true
-    }
+    updateBrowserHistory('list', 'replace')
 
     function handlePopState(event: PopStateEvent) {
-      if (isDetailHistoryState(event.state)) {
-        void openDetail(event.state.postId, { updateHistory: false })
+      const historyState = readLocalBoardHistoryState(event.state)
+
+      if (historyState.localBoardView === 'detail' && historyState.postId) {
+        void openDetail(historyState.postId, 'none')
         return
       }
 
-      goList({ updateHistory: false })
+      if (historyState.localBoardView === 'list' || !historyState.localBoardView) {
+        goList('none')
+        return
+      }
+
+      setViewMode(historyState.localBoardView)
+      setMessage('')
     }
 
     window.addEventListener('popstate', handlePopState)
-
-    return () => {
-      window.removeEventListener('popstate', handlePopState)
-    }
-  }, [goList, openDetail])
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   function renderHeaderActions() {
     if (currentUser) {
@@ -552,7 +772,7 @@ function App() {
           <span className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
             {currentUser.nickname}님
           </span>
-          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('profile'); setMessage('') }} type="button">
+          <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('profile', 'push'); setViewMode('profile'); setMessage('') }} type="button">
             마이페이지
           </button>
           <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={handleLogout} type="button">
@@ -564,10 +784,10 @@ function App() {
 
     return (
       <>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('login'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('login', 'push'); setViewMode('login'); setMessage('') }} type="button">
           로그인
         </button>
-        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setViewMode('signup'); setMessage('') }} type="button">
+        <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { updateBrowserHistory('signup', 'push'); setViewMode('signup'); setMessage('') }} type="button">
           회원가입
         </button>
       </>
@@ -580,7 +800,7 @@ function App() {
         <header className="fixed top-0 left-0 z-50 w-full border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur-md">
           <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <button className="text-left" onClick={() => goList()} type="button">
+              <button className="text-left" onClick={() => goList('replace')} type="button">
                 <span className="inline-flex rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                   Local Board
                 </span>
@@ -592,7 +812,7 @@ function App() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {renderHeaderActions()}
-                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { goList(); void loadPosts(page, { sort: activeSort }) }} type="button">
+                <button className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { goList('replace'); void loadPosts(page, { postType: activePostType, sort: activeSort }) }} type="button">
                   목록
                 </button>
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!hasAccessToken} onClick={openCreateForm} type="button">
@@ -609,15 +829,17 @@ function App() {
           <PostListPage
             activeTag={activeTag}
             activeKeyword={activeKeyword}
+            activePostType={activePostType}
             formatDate={formatDate}
             isLoading={isLoading}
             keywordInput={keywordInput}
             onClearFilters={clearFilters}
             onKeywordInputChange={setKeywordInput}
-            onLoadPage={(nextPage) => void loadPosts(nextPage, { sort: activeSort })}
+            onLoadPage={(nextPage) => void loadPosts(nextPage, { postType: activePostType, sort: activeSort })}
             onOpenDetail={(postId) => void openDetail(postId)}
             onSearchSubmit={handleSearchSubmit}
             onSelectSuggestion={selectSuggestion}
+            onPostTypeChange={changePostType}
             onSortChange={changeSort}
             page={page}
             posts={posts}
@@ -632,7 +854,7 @@ function App() {
             form={{ email: authForm.email, password: authForm.password }}
             isLoading={isLoading}
             onChange={updateAuthForm}
-            onGoSignup={() => { setViewMode('signup'); setMessage('') }}
+            onGoSignup={() => { updateBrowserHistory('signup', 'replace'); setViewMode('signup'); setMessage('') }}
             onSubmit={handleLoginSubmit}
           />
         )}
@@ -642,7 +864,7 @@ function App() {
             form={authForm}
             isLoading={isLoading}
             onChange={updateAuthForm}
-            onGoLogin={() => { setViewMode('login'); setMessage('') }}
+            onGoLogin={() => { updateBrowserHistory('login', 'replace'); setViewMode('login'); setMessage('') }}
             onSubmit={handleSignupSubmit}
           />
         )}
@@ -651,16 +873,26 @@ function App() {
           <PostDetailPage
             commentContent={commentContent}
             comments={comments}
+            agentRecommendation={agentRecommendation}
+            similarPosts={detailSimilarPosts}
+            similarPostMessage={detailSimilarPostMessage}
             formatDate={formatDate}
             hasAccessToken={hasAccessToken}
             isAnonymous={isAnonymous}
+            isAgentLoading={isAgentLoading}
+            isSimilarPostLoading={isDetailSimilarPostLoading}
             isLoading={isLoading}
+            currentUserId={currentUser?.id ?? null}
             onAnonymousChange={setIsAnonymous}
             onBack={goList}
             onCancelReply={() => setReplyTargetId(null)}
             onCommentContentChange={setCommentContent}
             onCreateComment={handleCreateComment}
+            onDeleteComment={handleDeleteComment}
+            onDeletePost={handleDeletePost}
             onEdit={openEditForm}
+            onRequestAgentRecommendation={handleAgentRecommendation}
+            onOpenSimilarPost={(postId) => void openDetail(postId)}
             onReplyTargetChange={(commentId) => { setReplyTargetId(commentId); setMessage('') }}
             onTagSearch={searchPostsByTag}
             post={selectedPost}
@@ -673,7 +905,15 @@ function App() {
             form={postForm}
             isLoading={isLoading}
             mode={viewMode}
-            onCancel={() => { setViewMode(selectedPost ? 'detail' : 'list'); setMessage('') }}
+            onCancel={() => {
+              if (selectedPost) {
+                updateBrowserHistory('detail', 'replace', selectedPost.id)
+                setViewMode('detail')
+              } else {
+                goList('replace')
+              }
+              setMessage('')
+            }}
             onChange={updatePostForm}
             onOpenSimilarPost={(postId) => void openDetail(postId)}
             onSubmit={viewMode === 'create' ? handleCreatePost : handleUpdatePost}

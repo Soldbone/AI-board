@@ -12,7 +12,7 @@ from app.database import (
     get_db,
 )
 from app.models import comment, post, post_embedding, user, tag
-from app.routers import ai, auth, comments, posts, users, tags
+from app.routers import agent, ai, auth, comments, posts, users, tags
 
 app = FastAPI(title="Local Board API")
 
@@ -30,12 +30,41 @@ app.add_middleware(
 enable_pgvector_extension()
 Base.metadata.create_all(bind=engine)
 
+def ensure_post_type_column():
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE posts "
+                "ADD COLUMN IF NOT EXISTS post_type VARCHAR(20) "
+                "NOT NULL DEFAULT 'question'"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE posts "
+                "SET post_type = 'review' "
+                "WHERE title LIKE '[실제 후기]%'"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE posts "
+                "SET post_type = 'question' "
+                "WHERE post_type IS NULL OR post_type NOT IN ('question', 'review')"
+            )
+        )
+
+
+ensure_post_type_column()
+
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(posts.router)
 app.include_router(comments.router)
 app.include_router(tags.router)
 app.include_router(ai.router)
+app.include_router(agent.router)
+app.include_router(agent.router)
 
 @app.get("/health")
 def health_check():

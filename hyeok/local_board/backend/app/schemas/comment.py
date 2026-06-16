@@ -21,5 +21,6 @@ class CommentRead(BaseModel):
     parent_id: int | None
     content: str
     is_anonymous: bool
+    is_deleted: bool = False
     created_at: datetime
     updated_at: datetime

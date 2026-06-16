@@ -15,6 +15,7 @@ class Post(Base):
     region = Column(String(100), nullable=True)
     store_name = Column(String(100), nullable=True)
     category = Column(String(50), nullable=True)
+    post_type = Column(String(20), default="question", nullable=False)
     view_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(

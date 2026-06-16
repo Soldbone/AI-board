@@ -12,6 +12,7 @@ type PostFormState = {
   region: string
   store_name: string
   category: string
+  post_type: 'question' | 'review'
   tag_names: string
 }
 
@@ -36,6 +37,11 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString('ko-KR')
 }
 
+const postTypeOptions: { value: PostFormState['post_type']; label: string }[] = [
+  { value: 'question', label: '질문' },
+  { value: 'review', label: '실제후기' },
+]
+
 export function PostFormPage({
   mode,
   form,
@@ -54,7 +60,7 @@ export function PostFormPage({
   const [isAiTagLoading, setIsAiTagLoading] = useState(false)
 
   const canSearchSimilarPosts = Boolean(
-    form.title.trim() || form.content.trim() || form.tag_names.trim(),
+    form.title.trim() || form.content.trim() || form.store_name.trim() || form.tag_names.trim(),
   )
   const canSuggestTags = Boolean(form.title.trim() || form.content.trim())
 
@@ -72,6 +78,7 @@ export function PostFormPage({
       const data = await getSimilarPosts({
         title: form.title,
         content: form.content,
+        store_name: form.store_name || null,
         tag_names: parseTagNames(form.tag_names),
         limit: 5,
       })
@@ -149,6 +156,26 @@ export function PostFormPage({
 
       <form className="grid gap-6 p-6 lg:grid-cols-[1fr_360px]" onSubmit={onSubmit}>
         <div className="space-y-5">
+          <div>
+            <span className="text-sm font-semibold text-slate-700">글 종류</span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {postTypeOptions.map((option) => (
+                <button
+                  className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
+                    form.post_type === option.value
+                      ? 'bg-slate-950 text-white shadow-sm'
+                      : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                  key={option.value}
+                  onClick={() => onChange('post_type', option.value)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">제목</span>
             <input
@@ -172,11 +199,12 @@ export function PostFormPage({
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
-              <span className="text-sm font-semibold text-slate-700">동네</span>
+              <span className="text-sm font-semibold text-slate-700">지역 *</span>
               <input
                 className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 onChange={(event) => onChange('region', event.target.value)}
-                placeholder="예: 역삼동"
+                placeholder="예: 둔전역, 처인구"
+                required
                 type="text"
                 value={form.region}
               />
