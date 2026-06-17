@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import type { DraftSignals, PostDraftAgentInput } from '../post-draft-agent.types';
+import type {
+  DraftSignals,
+  PostDraftAgentInput,
+} from '../post-draft-agent.types';
 
 export type ExtractIngredientsResult = {
   ingredients: string[];
   signals: DraftSignals;
   missingInfoQuestions: string[];
+};
+
+type OpenAiIngredientExtractionResponse = {
+  ingredients?: unknown;
 };
 
 const KNOWN_INGREDIENTS = [
@@ -36,6 +43,7 @@ const KNOWN_INGREDIENTS = [
   '파스타',
   '우유',
   '치즈',
+  '버터',
   '감자',
   '고구마',
   '당근',
@@ -71,11 +79,19 @@ const INGREDIENT_ALIASES = new Map<string, string>([
 
 @Injectable()
 export class ExtractIngredientsTool {
-  run(input: PostDraftAgentInput): ExtractIngredientsResult {
+  async run(input: PostDraftAgentInput): Promise<ExtractIngredientsResult> {
     const text = `${input.title ?? ''} ${input.content ?? ''} ${
       input.additionalRequest ?? ''
     }`;
-    const ingredients = this.extractIngredients(text);
+    const ruleBasedIngredients = this.extractIngredients(text);
+    const llmIngredients = await this.extractIngredientsWithLlmWhenNeeded(
+      text,
+      ruleBasedIngredients,
+    );
+    const ingredients = this.mergeIngredients(
+      ruleBasedIngredients,
+      llmIngredients,
+    );
     const signals = this.extractSignals(text);
     const missingInfoQuestions = this.buildMissingInfoQuestions(
       text,
@@ -92,19 +108,144 @@ export class ExtractIngredientsTool {
 
   private extractIngredients(text: string) {
     const normalizedText = text.replace(/\s+/g, ' ');
-    const matchedIngredients = KNOWN_INGREDIENTS.filter((ingredient) =>
-      normalizedText.includes(ingredient),
+    const normalizedTokens = normalizedText
+      .replace(/[^\p{L}\p{N},\s]/gu, ' ')
+      .split(/[,\s]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const matchedIngredients = KNOWN_INGREDIENTS.filter(
+      (ingredient) =>
+        normalizedTokens.includes(ingredient) ||
+        (ingredient.length > 1 && normalizedText.includes(ingredient)),
     ).map((ingredient) => INGREDIENT_ALIASES.get(ingredient) ?? ingredient);
     const commaTokens = normalizedText
       .replace(/[^\p{L}\p{N},\s]/gu, ' ')
       .split(/[,\n]/)
-      .flatMap((token) => token.split(/\s+(?:있고|있어요|있습니다|랑|하고|와|과)\s*/))
+      .flatMap((token) =>
+        token.split(/\s+(?:있고|있어요|있습니다|랑|하고|와|과)\s*/),
+      )
       .map((token) => token.trim())
       .filter(Boolean)
       .filter((token) => token.length >= 2 && token.length <= 12)
-      .filter((token) => !this.isStopWord(token));
+      .filter((token) => this.isLikelyIngredientToken(token));
 
-    return [...new Set([...matchedIngredients, ...commaTokens])].slice(0, 8);
+    return this.mergeIngredients(matchedIngredients, commaTokens);
+  }
+
+  private async extractIngredientsWithLlmWhenNeeded(
+    text: string,
+    ruleBasedIngredients: string[],
+  ) {
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+
+    if (
+      !openAiApiKey ||
+      !this.shouldUseLlmFallback(text, ruleBasedIngredients)
+    ) {
+      return [];
+    }
+
+    try {
+      const response = await fetch(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openAiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini',
+            temperature: 0,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Extract only food ingredients the Korean user says they already have. Return only valid JSON.',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  outputSchema: { ingredients: ['string'] },
+                  text,
+                  rules: [
+                    'Use short Korean base ingredient names.',
+                    'Exclude cooking actions, recipe names, meal times, preferences, quantities, and requests.',
+                    'Do not include words like 만들고, 먹고, 추천, 요리, 메뉴, 냉장고.',
+                    'If no owned ingredients are clearly stated, return an empty array.',
+                    'Return at most 8 ingredients.',
+                  ],
+                }),
+              },
+            ],
+            response_format: { type: 'json_object' },
+          }),
+          signal: AbortSignal.timeout(12000),
+        },
+      );
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        return [];
+      }
+
+      const parsed = JSON.parse(content) as OpenAiIngredientExtractionResponse;
+
+      return this.readIngredientArray(parsed.ingredients);
+    } catch {
+      return [];
+    }
+  }
+
+  private shouldUseLlmFallback(text: string, ingredients: string[]) {
+    const meaningfulTextLength = text.replace(/\s/g, '').length;
+    const hasListSignal =
+      /[,，]/.test(text) ||
+      /(냉장고에|집에|재료|있어요|있습니다|있고|남았|가지고|갖고)/.test(text);
+    const hasSuspiciousIngredient = ingredients.some((ingredient) =>
+      this.looksLikeActionOrRequest(ingredient),
+    );
+
+    return (
+      meaningfulTextLength >= 12 &&
+      (ingredients.length < 2 || hasSuspiciousIngredient) &&
+      hasListSignal
+    );
+  }
+
+  private readIngredientArray(value: unknown) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .filter(
+        (ingredient): ingredient is string => typeof ingredient === 'string',
+      )
+      .map((ingredient) => ingredient.trim())
+      .filter((ingredient) => this.isLikelyIngredientToken(ingredient));
+  }
+
+  private mergeIngredients(...ingredientGroups: string[][]) {
+    return [
+      ...new Set(
+        ingredientGroups
+          .flat()
+          .map((ingredient) => ingredient.trim())
+          .filter((ingredient) => this.isLikelyIngredientToken(ingredient))
+          .map(
+            (ingredient) => INGREDIENT_ALIASES.get(ingredient) ?? ingredient,
+          ),
+      ),
+    ].slice(0, 8);
   }
 
   private extractSignals(text: string): DraftSignals {
@@ -149,8 +290,14 @@ export class ExtractIngredientsTool {
       questions.push('몇 분 안에 만들고 싶은지도 알려주면 더 정확해져요.');
     }
 
-    if (!signals.mealContext && !signals.tastePreference && meaningfulTextLength < 50) {
-      questions.push('저녁, 도시락, 매운맛처럼 상황이나 취향을 하나만 더 적어주세요.');
+    if (
+      !signals.mealContext &&
+      !signals.tastePreference &&
+      meaningfulTextLength < 50
+    ) {
+      questions.push(
+        '저녁, 도시락, 매운맛처럼 상황이나 취향을 하나만 더 적어주세요.',
+      );
     }
 
     return questions;
@@ -169,7 +316,40 @@ export class ExtractIngredientsTool {
       '간단',
       '빠르게',
       '먹고',
+      '먹으면',
+      '만들고',
+      '만들어',
+      '만들면',
+      '만들기',
+      '해먹고',
+      '해먹으면',
+      '조리',
+      '늦게',
+      '들어와서',
+      '들어오기',
+      '들어오면',
+      '나가기',
+      '나가서',
+      '나가면',
+      '외출',
+      '퇴근',
+      '출근',
       '싶어요',
     ].some((stopWord) => token.includes(stopWord));
+  }
+
+  private isLikelyIngredientToken(token: string) {
+    return (
+      token.length >= 2 &&
+      token.length <= 12 &&
+      !this.isStopWord(token) &&
+      !this.looksLikeActionOrRequest(token)
+    );
+  }
+
+  private looksLikeActionOrRequest(token: string) {
+    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|들어오|들어와|나가|외출|퇴근|출근|싶|주세요|해줘)(고|어|아서|와서|으면|는데|다|기|게|요)?$/.test(
+      token,
+    );
   }
 }

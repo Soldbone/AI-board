@@ -4069,7 +4069,7 @@ function App() {
                                     >
                                       {post.title}
                                     </button>
-                                    <span>{Math.round(post.similarity * 100)}%</span>
+                                    <span>참고 게시글</span>
                                   </li>
                                 ))}
                             </ul>
@@ -4504,7 +4504,7 @@ function App() {
                             >
                               {post.title}
                             </button>
-                            <span>{Math.round(post.similarity * 100)}%</span>
+                            <span>참고 게시글</span>
                           </li>
                         ))}
                       </ul>
@@ -5348,7 +5348,7 @@ function App() {
                                   >
                                     {post.title}
                                   </button>
-                                  <span>{Math.round(post.similarity * 100)}%</span>
+                                  <span>참고 답변</span>
                                 </li>
                               ))}
                           </ul>
@@ -6109,7 +6109,7 @@ function App() {
                                 >
                                   {post.title}
                                 </button>
-                                <span>{Math.round(post.similarity * 100)}%</span>
+                                <span>참고 답변</span>
                               </li>
                             ))}
                         </ul>

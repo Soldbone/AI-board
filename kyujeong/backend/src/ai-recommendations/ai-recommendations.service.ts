@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FoodMetadataService } from '../food-metadata/food-metadata.service';
 import type { IngredientSetAnalysis } from '../food-metadata/food-metadata.types';
@@ -287,6 +291,14 @@ const NON_INGREDIENT_TERMS = new Set([
   '방법',
   '만들기',
   '만들',
+  '만들고',
+  '만들어',
+  '만들면',
+  '해먹고',
+  '해먹으면',
+  '먹으면',
+  '조리',
+  '조리법',
   '볶음',
   '볶음밥',
   '주먹밥',
@@ -328,6 +340,15 @@ const NON_INGREDIENT_TERMS = new Set([
   '괜찮을까요',
   '퇴근',
   '출근',
+  '늦게',
+  '들어와서',
+  '들어와',
+  '들어오기',
+  '들어오면',
+  '나가기',
+  '나가서',
+  '나가면',
+  '외출',
   '오늘',
   '내일',
   '어제',
@@ -524,7 +545,8 @@ export class AiRecommendationsService {
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
           thumbnailUrl,
-          nutritionMetadata: this.toRecommendationNutritionJson(nutritionMetadata),
+          nutritionMetadata:
+            this.toRecommendationNutritionJson(nutritionMetadata),
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -650,7 +672,8 @@ export class AiRecommendationsService {
           difficulty: recommendationDraft.difficulty,
           content: recommendationDraft.content,
           thumbnailUrl,
-          nutritionMetadata: this.toRecommendationNutritionJson(nutritionMetadata),
+          nutritionMetadata:
+            this.toRecommendationNutritionJson(nutritionMetadata),
           grounding,
           references: {
             create: similarPosts.map((similarPost, index) => ({
@@ -990,8 +1013,9 @@ export class AiRecommendationsService {
       await Promise.all(
         candidatePosts.map(async (post) => {
           const ragMetadata = this.buildRagDocumentMetadata(post);
-          const embeddingResult =
-            await this.embeddingService.embed(ragMetadata.searchableText);
+          const embeddingResult = await this.embeddingService.embed(
+            ragMetadata.searchableText,
+          );
 
           await this.upsertRagDocument(
             post.id,
@@ -1049,9 +1073,9 @@ export class AiRecommendationsService {
       this.isIngredientUsedInRecipeText(ingredient, recipeText),
     );
     const missingIngredients = usedIngredients.filter((ingredient) =>
-      this
-        .getIngredientComparisonTokens(ingredient)
-        .every((token) => !targetIngredientSet.has(token)),
+      this.getIngredientComparisonTokens(ingredient).every(
+        (token) => !targetIngredientSet.has(token),
+      ),
     );
 
     return {
@@ -1069,7 +1093,7 @@ export class AiRecommendationsService {
             ingredient
               .toLowerCase()
               .replace(/[^\p{L}\p{N},/·\s]/gu, ' ')
-          .split(/\s*(?:,|\/|·|또는|혹은|및)\s*/gu),
+              .split(/\s*(?:,|\/|·|또는|혹은|및)\s*/gu),
           )
           .map((ingredient) => this.normalizeIngredientToken(ingredient))
           .filter((ingredient) => this.isRecipeIngredientEntryToken(ingredient))
@@ -1100,7 +1124,9 @@ export class AiRecommendationsService {
   }
 
   private isIngredientUsedInRecipeText(ingredient: string, recipeText: string) {
-    const recipeIngredientMentions = new Set(this.extractIngredientTerms(recipeText));
+    const recipeIngredientMentions = new Set(
+      this.extractIngredientTerms(recipeText),
+    );
 
     return this.getIngredientComparisonTokens(ingredient).some((token) => {
       if (token.length < 2) {
@@ -1261,8 +1287,9 @@ export class AiRecommendationsService {
     const scoredPosts = await Promise.all(
       candidatePosts.map(async (post) => {
         const ragMetadata = this.buildRagDocumentMetadata(post);
-        const embeddingResult =
-          await this.embeddingService.embed(ragMetadata.searchableText);
+        const embeddingResult = await this.embeddingService.embed(
+          ragMetadata.searchableText,
+        );
         const similarity = this.embeddingService.cosineSimilarity(
           targetEmbedding,
           embeddingResult.embedding,
@@ -1303,12 +1330,13 @@ export class AiRecommendationsService {
         ...this.getIngredientSemanticAliases([ingredient]),
       ]),
     );
-    const matchedIngredients = ingredients.filter((ingredient) =>
-      targetIngredientSet.has(ingredient) ||
-      expandedTargetIngredients.has(ingredient) ||
-      this.getIngredientSemanticAliases([ingredient]).some((alias) =>
-        expandedTargetIngredients.has(alias),
-      ),
+    const matchedIngredients = ingredients.filter(
+      (ingredient) =>
+        targetIngredientSet.has(ingredient) ||
+        expandedTargetIngredients.has(ingredient) ||
+        this.getIngredientSemanticAliases([ingredient]).some((alias) =>
+          expandedTargetIngredients.has(alias),
+        ),
     );
     const similarity = this.calculateHybridSimilarity(
       post,
@@ -1368,14 +1396,14 @@ export class AiRecommendationsService {
       return post.semanticSimilarity >= this.getRagMinSimilarity();
     }
 
-    if (post.matchedIngredients.length >= this.getRagMinIngredientOverlap()) {
+    const minimumIngredientOverlap =
+      this.getRequiredIngredientOverlap(targetIngredients);
+
+    if (post.matchedIngredients.length >= minimumIngredientOverlap) {
       return true;
     }
 
-    return (
-      post.semanticSimilarity >= this.getRagMinSimilarity() &&
-      this.isKnowledgeSourceCategory(post.category)
-    );
+    return false;
   }
 
   private getRagMinSimilarity() {
@@ -1400,6 +1428,17 @@ export class AiRecommendationsService {
     }
 
     return DEFAULT_RAG_MIN_INGREDIENT_OVERLAP;
+  }
+
+  private getRequiredIngredientOverlap(targetIngredients: string[]) {
+    if (targetIngredients.length === 0) {
+      return 0;
+    }
+
+    const baselineOverlap = this.getRagMinIngredientOverlap();
+    const dynamicOverlap = targetIngredients.length >= 3 ? 2 : 1;
+
+    return Math.max(baselineOverlap, dynamicOverlap);
   }
 
   private async getPgvectorStatus() {
@@ -1458,8 +1497,9 @@ export class AiRecommendationsService {
     const ragMetadata = this.buildRagDocumentMetadata(post);
 
     try {
-      const embeddingResult =
-        await this.embeddingService.embed(ragMetadata.searchableText);
+      const embeddingResult = await this.embeddingService.embed(
+        ragMetadata.searchableText,
+      );
 
       return await this.upsertRagDocument(
         post.id,
@@ -1549,19 +1589,24 @@ export class AiRecommendationsService {
     ).length
       ? 0.5
       : 0;
-    const popularityScore = Math.min(this.calculatePopularityScore(post) / 100, 1);
+    const popularityScore = Math.min(
+      this.calculatePopularityScore(post) / 100,
+      1,
+    );
     const recencyScore = this.calculateRecencyScore(post.createdAt);
-    const categoryScore = this.getCategoryKnowledgeWeight(this.getPostCategory(post));
+    const categoryScore = this.getCategoryKnowledgeWeight(
+      this.getPostCategory(post),
+    );
 
     return Math.min(
       1,
-      semanticSimilarity * 0.35 +
-        Math.min(directMatchScore, 1) * 0.3 +
-        Math.min(aliasMatchScore, 1) * 0.15 +
+      semanticSimilarity * 0.25 +
+        Math.min(directMatchScore, 1) * 0.4 +
+        Math.min(aliasMatchScore, 1) * 0.18 +
         categoryScore * 0.1 +
-        situationScore * 0.08 +
-        recencyScore * 0.04 +
-        popularityScore * 0.03,
+        situationScore * 0.04 +
+        recencyScore * 0.02 +
+        popularityScore * 0.01,
     );
   }
 
@@ -1625,7 +1670,9 @@ export class AiRecommendationsService {
     ] as const;
 
     return methodPatterns
-      .filter(([, patterns]) => patterns.some((pattern) => text.includes(pattern)))
+      .filter(([, patterns]) =>
+        patterns.some((pattern) => text.includes(pattern)),
+      )
       .map(([method]) => method);
   }
 
@@ -1682,7 +1729,7 @@ export class AiRecommendationsService {
 
     const primaryIngredientSet = new Set(primaryIngredients);
     const minimumMatchedIngredients =
-      extractedIngredients.length >= 4 ? 2 : 1;
+      this.getRequiredIngredientOverlap(extractedIngredients);
 
     return similarPosts
       .filter((post) => {
@@ -1695,7 +1742,9 @@ export class AiRecommendationsService {
           post.matchedIngredients.length >= minimumMatchedIngredients
         );
       })
-      .filter((post) => post.similarity >= 0.35 || post.semanticSimilarity >= 0.55)
+      .filter(
+        (post) => post.similarity >= 0.35 || post.semanticSimilarity >= 0.55,
+      )
       .sort((firstPost, secondPost) => {
         const primaryIngredientGap =
           Number(
@@ -1714,7 +1763,8 @@ export class AiRecommendationsService {
         }
 
         const matchedIngredientGap =
-          secondPost.matchedIngredients.length - firstPost.matchedIngredients.length;
+          secondPost.matchedIngredients.length -
+          firstPost.matchedIngredients.length;
 
         if (matchedIngredientGap !== 0) {
           return matchedIngredientGap;
@@ -1740,7 +1790,9 @@ export class AiRecommendationsService {
       ),
     ].map((match) => match[1]);
 
-    return this.extractIngredientTermsFromStructuredTexts(primaryIngredientTexts);
+    return this.extractIngredientTermsFromStructuredTexts(
+      primaryIngredientTexts,
+    );
   }
 
   private extractLabeledIngredientTerms(text: string) {
@@ -1750,7 +1802,9 @@ export class AiRecommendationsService {
       ),
     ].map((match) => match[1]);
 
-    return this.extractIngredientTermsFromStructuredTexts(labeledIngredientTexts);
+    return this.extractIngredientTermsFromStructuredTexts(
+      labeledIngredientTexts,
+    );
   }
 
   private extractCookingMinutes(content: string) {
@@ -2016,9 +2070,7 @@ export class AiRecommendationsService {
       ...new Set(
         texts
           .flatMap((text) =>
-            text
-              .replace(/[^\p{L}\p{N},\s]/gu, ' ')
-              .split(/[,\s]+/),
+            text.replace(/[^\p{L}\p{N},\s]/gu, ' ').split(/[,\s]+/),
           )
           .map((token) => this.normalizeIngredientToken(token))
           .filter((token) => this.isPotentialInferredIngredientToken(token))
@@ -2035,9 +2087,7 @@ export class AiRecommendationsService {
             this.hasIngredientListSignal(candidateText),
           )
           .flatMap((candidateText) =>
-            candidateText
-              .replace(/[^\p{L}\p{N},\s]/gu, ' ')
-              .split(/[,\s]+/),
+            candidateText.replace(/[^\p{L}\p{N},\s]/gu, ' ').split(/[,\s]+/),
           )
           .map((token) => this.normalizeIngredientToken(token))
           .filter((token) => this.isPotentialInferredIngredientToken(token)),
@@ -2165,6 +2215,7 @@ export class AiRecommendationsService {
       token.length <= 12 &&
       !/\d/.test(token) &&
       !/(메뉴|추천|뭐|무엇|어떤|오늘|점심|아침|저녁|식단|급식)/.test(token) &&
+      !this.looksLikeCookingActionToken(token) &&
       !this.looksLikeKoreanPredicateOrAdverb(token) &&
       !NON_INGREDIENT_TERMS.has(token)
     );
@@ -2173,6 +2224,7 @@ export class AiRecommendationsService {
   private isPotentialInferredIngredientToken(token: string) {
     return (
       this.isPotentialDirectIngredientToken(token) &&
+      !this.looksLikeCookingActionToken(token) &&
       !/(하다|하면|해요|해주세요|됩니다|되나요|싶어요|주세요|나요|어요|습니다|는데|다면)$/.test(
         token,
       )
@@ -2193,6 +2245,16 @@ export class AiRecommendationsService {
     }
 
     return this.endsWithRieulFinalSyllable(token);
+  }
+
+  private looksLikeCookingActionToken(token: string) {
+    if (this.isKnownIngredientToken(token)) {
+      return false;
+    }
+
+    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|들어오|들어와|나가|외출|퇴근|출근|싶)(고|어|아서|와서|으면|는데|다|기|게|요)?$/.test(
+      token,
+    );
   }
 
   private endsWithRieulFinalSyllable(token: string) {
@@ -2240,9 +2302,11 @@ export class AiRecommendationsService {
     return post.postTags.map((postTag) => postTag.tag.name);
   }
 
-  private getPostCategory(post: Pick<RagPost, 'title' | 'content' | 'postTags'> & {
-    category?: string | null;
-  }): PostCategoryCode {
+  private getPostCategory(
+    post: Pick<RagPost, 'title' | 'content' | 'postTags'> & {
+      category?: string | null;
+    },
+  ): PostCategoryCode {
     if (post.category && post.category in POST_CATEGORY_LABELS) {
       return post.category as PostCategoryCode;
     }
