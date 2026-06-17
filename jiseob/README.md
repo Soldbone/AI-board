@@ -1,162 +1,104 @@
 # Arena
 
-Arena는 유튜브 영상을 중심으로 토론하는 AI 보조 게시판 MVP입니다.
+## 1. 프로젝트 개요
 
-현재 기능 구현은 backend Phase 13까지 완료되어 있습니다. 인증/게시글/댓글/영상 처리/AI 댓글 분석/RAG/MCP/Agent/요약/Admin API와 backend E2E 테스트 하네스가 준비되어 있고, Phase 14에서는 실행, API, ERD, 데모, 한계 문서를 정리했습니다. 프론트엔드는 아직 placeholder 화면입니다.
+Arena는 유튜브 영상을 중심으로 토론하는 AI 보조 게시판입니다.
 
-## 기술 스택
+사용자는 유튜브 링크를 포함한 게시글을 작성하고, 다른 사용자는 댓글과 대댓글로 토론합니다. 시스템은 YouTube 메타데이터와 자막을 수집하고, 댓글이 사실 주장으로 분류되면 자막 기반 RAG 검색으로 관련 근거 후보를 제공합니다. 게시글 상세에서는 Agent에게 영상과 토론 맥락에 대한 질문을 할 수 있고, 충분히 긴 댓글 스레드는 AI 요약을 생성할 수 있습니다.
 
-- 런타임: Node.js 24.16.0
-- 패키지 매니저: pnpm 10.12.1
-- 백엔드: NestJS, TypeScript, TypeORM
-- 프론트엔드: React, Vite, TypeScript
-- UI: shadcn/ui, `frontend` 내부 컴포넌트로 관리
-- 데이터베이스: PostgreSQL 17 + pgvector
+이 프로젝트의 AI는 사용자를 대신해 결론을 내리거나 참/거짓을 판정하는 역할이 아닙니다. 영상 자막, 댓글 흐름, 처리 상태, 한계를 분리해서 보여주며 토론 맥락 이해를 돕는 보조 레이어로 설계했습니다.
 
-## 문서 바로가기
+기술 스택은 React/Vite, NestJS, TypeScript, TypeORM, PostgreSQL + pgvector, JWT, CSRF 보호, LangChain `ChatOpenAI.withStructuredOutput()` 기반 adapter입니다. 패키지 관리는 pnpm workspace로 구성합니다.
 
-- [Backend API](docs/api/backend_api.md)
-- [ERD / 데이터 모델](docs/database/erd.md)
-- [Local Runbook](docs/operations/local_runbook.md)
-- [Demo Scenarios](docs/demo/demo_scenarios.md)
-- [MVP 한계와 개선 방향](docs/implementation/mvp_limitations_and_next_steps.md)
-- [Phase 14 구현 결과](docs/implementation/phase14_documentation_cleanup_implementation.md)
+## 2. 주요 구현 기능
 
-## 폴더 구조
+- 회원가입, 로그인, access token, refresh token cookie, CSRF 보호
+- 내 정보 조회와 회원 탈퇴
+- 게시글 CRUD, soft delete, 검색, 태그 필터, 정렬, 페이지네이션
+- YouTube URL 기반 게시글 작성과 Video row 재사용
+- YouTube metadata, transcript, embedding 처리 상태 관리
+- 서버 내부 비동기 영상 처리와 실패 retry
+- 댓글과 대댓글 작성, 수정, 삭제
+- 최대 2단계 댓글 구조와 삭제 댓글 placeholder 표시
+- 게시글 댓글 수, 좋아요 수, 조회수 파생 카운터 관리
+- 댓글 작성/수정 후 AI 댓글 유형 분석
+- `FACT_CLAIM` 댓글에 대한 pgvector 기반 RAG 근거 후보 검색
+- 댓글별 RAG 근거 후보 조회 API
+- MCP JSON-RPC endpoint와 Agent tool boundary
+- MCP tool을 사용하는 Agent run 생성/조회
+- LangChain structured output 기반 Agent LLM adapter
+- 루트 댓글 스레드 AI 요약 생성/조회
+- 관리자용 주의 필요 댓글 조회, 삭제, 실패한 AI 분석 retry
+- React 사용자 화면: 게시글 목록/상세/작성/수정, 인증, 댓글, 근거 후보, Agent 질문, 관리자 검토
+- backend unit test와 HTTP E2E 테스트 하네스
+
+## 3. 전체 아키텍처 구조
 
 ```text
 jiseob/
-  frontend/           React/Vite 프론트엔드 placeholder
-  backend/            NestJS 백엔드
-  docker/             PostgreSQL 초기화 스크립트
-  docs/               구현, API, 실행, 데모 문서
-  README.md
-  docker-compose.yml
+  frontend/
+    src/App.tsx                         React/Vite 사용자 화면
+    src/api/                             REST API client와 응답 타입
+    src/components/ui/                   shadcn/ui 기반 공통 UI
+    src/styles/                          전역 스타일
+  backend/
+    src/auth/                            인증, JWT, refresh session
+    src/users/                           사용자 조회와 탈퇴
+    src/posts/                           게시글, 태그, 좋아요, 조회수
+    src/comments/                        댓글, 대댓글, 근거 후보 조회
+    src/videos/                          YouTube metadata/transcript/embedding 처리
+    src/ai/comment-analysis/             댓글 유형 분석과 moderation 상태
+    src/ai/rag/                          RAG 근거 후보 저장/조회
+    src/ai/summary/                      댓글 스레드 요약
+    src/mcp/                             JSON-RPC MCP server와 tools
+    src/agent/                           Agent run, step, LLM decision loop
+    src/admin/                           관리자 댓글 검토
+    src/database/                        TypeORM config, migration, seed
+  docker/
+    postgres/init/                       pgvector extension 초기화
+  docs/                                  API, ERD, runbook, 데모, 구현 문서
 ```
 
-shadcn/ui 컴포넌트는 `frontend/src/components/ui`에 둡니다. 별도 UI 패키지로 분리하지 않고 프론트엔드가 직접 소유합니다.
+런타임 흐름은 다음과 같습니다.
 
-## 현재 구현 상태
+```text
+React frontend
+  -> NestJS REST API
+  -> TypeORM
+  -> PostgreSQL + pgvector
 
-- Phase 1~5: 백엔드 초기 설정, 공통 기반, 인증/CSRF, 게시글/태그/영상 기본 API, 댓글/대댓글 API
-- Phase 6: YouTube metadata, transcript CLI, OpenAI embedding 기반 영상 처리와 retry 정책
-- Phase 7: 댓글 작성/수정 후 AI 댓글 유형 분석과 moderation 상태 흐름
-- Phase 8: FACT_CLAIM 댓글에 대한 pgvector 기반 RAG 근거 후보 검색 API
-- Phase 9: Agent가 호출할 MCP JSON-RPC tool server
-- Phase 9.5: MCP `tools/list`, `tools/call` 응답 shape를 `content`, `structuredContent`, `isError` 구조로 정렬
-- Phase 10: MCP tool boundary를 사용하는 AI Agent 추론 루프
-- Phase 10.1: LangChain `ChatOpenAI.withStructuredOutput()` 기반 Agent LLM adapter
-- Phase 11: 댓글 스레드 AI 요약 생성/조회 API
-- Phase 12: 관리자용 주의 필요 댓글 조회/삭제와 AI 댓글 분석 재시도 API
-- Phase 13: backend HTTP E2E 테스트 하네스와 provider mock 기반 정책 테스트
-- Phase 14: README/API/ERD/runbook/demo/한계 문서 정리
+게시글 작성
+  -> Post/Video 저장
+  -> PENDING 상태로 즉시 응답
+  -> 서버 내부 비동기 metadata/transcript/embedding 처리
 
-Frontend는 아직 실제 사용자 화면이 아니라 placeholder입니다. 현재 데모와 검증은 backend API 중심으로 진행합니다.
+댓글 작성
+  -> Comment 저장
+  -> AI 댓글 유형 분석
+  -> FACT_CLAIM이면 RAG 근거 후보 검색
+  -> 댓글 목록에는 AI 상태 요약만 표시
+  -> 근거 상세는 별도 API로 조회
 
-## 로컬 개발환경 요구사항
-
-```powershell
-nvm install 24.16.0
-nvm use 24.16.0
-node -v
-
-npm install --global corepack@latest
-corepack enable pnpm
-corepack prepare pnpm@10.12.1 --activate
-pnpm.cmd -v
+Agent 질문
+  -> AgentRun 생성
+  -> LLM decision
+  -> MCP tools/call
+  -> tool result와 한계를 모아 답변 저장
 ```
 
-PowerShell에서 `pnpm.ps1` 실행이 막히면 `pnpm.cmd`를 사용합니다.
+주요 데이터 모델은 `User`, `AuthSession`, `Post`, `PostLike`, `Tag`, `Video`, `TranscriptChunk`, `Comment`, `CommentAnalysis`, `RagEvidence`, `AgentRun`, `AgentStep`, `AiSummary`입니다. 주요 리소스 ID는 ULID를 사용하고, 게시글/댓글/사용자는 soft delete 정책을 따릅니다.
 
-PostgreSQL 실행을 위해 Docker Desktop이 필요합니다. 로컬 데이터베이스는 `pgvector/pgvector:pg17` 이미지를 사용합니다.
-
-## .env 설정
-
-루트의 `.env.example`을 복사해서 `.env`를 만듭니다.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-로컬 기본값으로 health check와 mock 기반 테스트를 실행할 수 있습니다. 실제 YouTube/OpenAI 연동 smoke test가 필요한 경우에만 `YOUTUBE_API_KEY`, `OPENAI_API_KEY`를 설정합니다.
-
-`JWT_ACCESS_SECRET`과 `CSRF_SECRET`은 로컬에서도 임의의 긴 문자열로 바꿔두는 편이 좋습니다. 실제 secret과 API key는 commit하지 않습니다.
-
-자세한 환경 변수와 실행 절차는 [Local Runbook](docs/operations/local_runbook.md)을 참고합니다.
-
-## 초기 설정
+로컬 실행:
 
 ```powershell
 cd C:\Users\1472e\Desktop\jungle\AI-board\jiseob
 pnpm.cmd install
 pnpm.cmd db:up
 pnpm.cmd --filter @arena/backend migration:run
-```
-
-## 개발 서버 실행
-
-백엔드:
-
-```powershell
-pnpm.cmd dev:backend
-```
-
-Health check:
-
-```text
-http://localhost:3000/api/v1/health
-http://localhost:3000/api/v1/health/db
-```
-
-프론트엔드 placeholder:
-
-```powershell
-pnpm.cmd dev:frontend
-```
-
-프론트엔드 기본 주소:
-
-```text
-http://localhost:5173
-```
-
-전체 서버를 한 번에 실행:
-
-```powershell
 pnpm.cmd dev
 ```
 
-## 데이터베이스 / migration
-
-PostgreSQL 실행:
-
-```powershell
-pnpm.cmd db:up
-```
-
-Migration 실행:
-
-```powershell
-pnpm.cmd --filter @arena/backend migration:run
-```
-
-PostgreSQL 중지:
-
-```powershell
-pnpm.cmd db:down
-```
-
-Docker 초기화 스크립트는 pgvector extension을 활성화합니다.
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-E2E는 기본적으로 `arena_e2e` DB를 사용하며, helper가 migration을 실행하고 application table을 truncate합니다. 자세한 안전장치는 [Local Runbook](docs/operations/local_runbook.md)의 E2E 전제를 확인합니다.
-
-## 확인 명령
-
-PostgreSQL이 켜진 상태에서 실행합니다.
+검증 명령:
 
 ```powershell
 pnpm.cmd typecheck
@@ -166,86 +108,123 @@ pnpm.cmd lint
 pnpm.cmd format:check
 ```
 
-## 핵심 기능
+상세 실행 절차는 [Local Runbook](docs/operations/local_runbook.md), API 계약은 [Backend API](docs/api/backend_api.md), 데이터 모델은 [ERD](docs/database/erd.md)를 참고합니다.
 
-- 회원가입, 로그인, refresh token cookie, JWT access token, CSRF 보호
-- YouTube URL 기반 게시글 작성과 Video row 재사용
-- 서버 내부 비동기 영상 metadata/transcript/embedding 처리
-- 댓글/대댓글 작성, 최대 2단계 댓글 구조, soft delete placeholder
-- 댓글 작성/수정 후 AI 댓글 유형 분석과 moderation 상태 관리
-- FACT_CLAIM 댓글에 대한 자막 기반 RAG 근거 후보 검색
-- MCP JSON-RPC endpoint와 Agent tool boundary
-- MCP tool을 사용하는 Agent run 생성/조회
-- 루트 댓글 스레드 단위 AI 요약 생성/조회
-- 관리자 주의 필요 댓글 조회/삭제와 실패한 AI 댓글 분석 retry
-- backend E2E 테스트 하네스
+## 4. 각 AI 활용 기능, 기술, 아키텍처 구조
 
-AI 분석, RAG, Agent는 토론 맥락 이해를 돕는 보조 기능입니다. RAG 결과는 관련 있을 수 있는 자막 구간 후보이며 사실 여부를 최종 판정하지 않습니다.
+### RAG
 
-## API
+RAG는 사실 주장 댓글에 대해 영상 자막에서 관련 있을 수 있는 구간을 찾는 기능입니다.
 
-주요 endpoint:
+- 모든 댓글에 RAG를 수행하지 않습니다.
+- AI 댓글 분석 결과가 `FACT_CLAIM`인 댓글만 RAG 대상입니다.
+- YouTube transcript를 청크로 나누고 embedding을 저장합니다.
+- PostgreSQL pgvector similarity search를 사용합니다.
+- similarity는 `1 - cosineDistance`로 계산합니다.
+- 기본 threshold는 `0.70`입니다.
+- 기본 topK는 댓글 근거 후보 3개입니다.
+- threshold 이상 결과가 없으면 `NO_RESULT`로 기록합니다.
+- 결과는 참/거짓 판정이 아니라 "근거 후보"로 표시합니다.
 
-```http
-POST   /api/v1/auth/signup
-POST   /api/v1/auth/login
-GET    /api/v1/users/me
-GET    /api/v1/posts
-POST   /api/v1/posts
-GET    /api/v1/posts/:postId/comments
-POST   /api/v1/posts/:postId/comments
-GET    /api/v1/comments/:commentId/evidences
-POST   /api/v1/mcp
-POST   /api/v1/posts/:postId/agent/runs
-GET    /api/v1/agent/runs/:runId
-POST   /api/v1/comments/:rootCommentId/summary
-GET    /api/v1/admin/comments
-```
-
-상세 인증/CSRF/응답 shape는 [Backend API](docs/api/backend_api.md)를 참고합니다.
-
-## 관리자 계정
-
-관리자 endpoint는 `UserRole.ADMIN`만 접근할 수 있습니다. Admin 생성 public API는 만들지 않습니다. 로컬/데모 환경에서는 DB에서 role을 수동으로 변경합니다.
-
-```sql
-UPDATE users
-SET role = 'ADMIN'
-WHERE email = 'admin@example.com'
-  AND deleted_at IS NULL;
-```
-
-지원 API:
+관련 API:
 
 ```http
-GET    /api/v1/admin/comments?moderationStatus=NEEDS_REVIEW&page=1&limit=20
-DELETE /api/v1/admin/comments/:commentId
-POST   /api/v1/admin/comments/:commentId/analysis/retry
+GET /api/v1/comments/:commentId/evidences
 ```
 
-GET 목록은 `JwtAuthGuard + RolesGuard`, DELETE/retry POST는 `JwtAuthGuard + CsrfGuard + RolesGuard`를 사용합니다.
+관련 구현 위치:
 
-## shadcn/ui 사용 방식
+- `backend/src/ai/comment-analysis/`
+- `backend/src/ai/rag/`
+- `backend/src/videos/transcript-chunking.service.ts`
+- `backend/src/videos/providers/embedding.provider.ts`
+- `backend/src/videos/entities/transcript-chunk.entity.ts`
+- `backend/src/ai/rag/entities/rag-evidence.entity.ts`
 
-컴포넌트를 추가할 때는 `frontend/components.json`을 기준으로 실행합니다.
+### MCP
 
-```powershell
-pnpm.cmd shadcn:add button
-pnpm.cmd shadcn:add dialog
+MCP는 Agent가 사용할 tool boundary입니다. 일반 사용자용 REST API를 모두 대체하지 않고, Agent가 필요한 기능을 제한된 allowlist로 호출할 때만 JSON-RPC endpoint를 통과합니다.
+
+Endpoint:
+
+```http
+POST /api/v1/mcp
 ```
 
-프론트엔드에서는 `@/components/ui` 경로로 가져옵니다.
+지원 method:
 
-```tsx
-import { Button } from '@/components/ui/button';
+- `tools/list`
+- `tools/call`
+
+주요 tool:
+
+- `post.getContext`: 게시글, 영상, 댓글 맥락 조회
+- `video.getProcessingStatus`: 영상 처리 상태 조회
+- `transcript.searchChunks`: 자막 청크 검색, 기본 `limit=5`, 최대 `limit=10`, threshold `0.70`
+- `youtube.fetchMetadata`: YouTube metadata 조회, DB 수정 없음
+- `video.retryProcessing`: 실패한 영상 처리 재시도, 게시글 작성자 또는 관리자만 허용
+
+MCP 응답은 `content`, `structuredContent`, `isError` 구조를 사용합니다. protocol 오류는 JSON-RPC error envelope로 반환하고, provider/business failure는 정제된 `isError: true` tool result로 반환합니다.
+
+관련 구현 위치:
+
+- `backend/src/mcp/mcp.controller.ts`
+- `backend/src/mcp/mcp-server.service.ts`
+- `backend/src/mcp/tools/`
+- `backend/src/mcp/mcp.validation.ts`
+- `backend/src/mcp/mcp.types.ts`
+
+### Agent
+
+Agent는 게시글 상세 화면의 토론 보조자입니다. 사용자 대신 게시글이나 댓글을 작성하지 않고, 게시글 맥락, 영상 처리 상태, 자막 검색 결과를 바탕으로 질문에 답합니다.
+
+Agent 흐름:
+
+```text
+POST /api/v1/posts/:postId/agent/runs
+  -> AgentRun PENDING 생성
+  -> RUNNING 전환
+  -> LLM decision 생성
+  -> 필요한 MCP tool 호출
+  -> tool result를 AgentStep으로 저장
+  -> 최종 answer, evidenceCandidates, limitations 저장
+
+GET /api/v1/agent/runs/:runId
+  -> run 상태, 답변, 사용 tool, 근거 후보, 한계 조회
 ```
 
-## MVP 한계
+운영 정책:
 
-- 서버 내부 비동기 작업은 서버 재시작 시 유실될 수 있습니다.
-- Redis/BullMQ는 MVP 범위에서 제외했고, 운영 고도화 시 PostgreSQL jobs table 또는 Redis/BullMQ를 검토합니다.
-- frontend UI는 placeholder입니다.
-- YouTube transcript provider는 비공식 CLI 기반이라 차단이나 변경 위험이 있습니다.
-- 자동 E2E는 외부 provider를 mock하며, 실제 provider smoke test는 별도 환경에서 수행해야 합니다.
+- 생성 API는 로그인 사용자와 CSRF를 요구합니다.
+- run 조회는 생성자 본인만 허용합니다.
+- 자동 loop 기본 allowlist는 `post.getContext`, `video.getProcessingStatus`, `transcript.searchChunks`, `youtube.fetchMetadata`입니다.
+- `video.retryProcessing`은 자동 loop에 넣지 않습니다.
+- 초기 loop 제한은 `maxSteps=4`, 전체 timeout 30초, tool timeout 10초입니다.
+- API key, token, cookie, raw provider error, stack trace는 Agent step에 저장하지 않습니다.
+- LangChain은 LLM decision provider 내부 adapter로만 사용하고, Agent 상태 머신과 MCP JSON-RPC boundary는 유지합니다.
 
-자세한 내용은 [MVP 한계와 개선 방향](docs/implementation/mvp_limitations_and_next_steps.md)을 참고합니다.
+관련 구현 위치:
+
+- `backend/src/agent/agent.controller.ts`
+- `backend/src/agent/agent.service.ts`
+- `backend/src/agent/agent-llm.provider.ts`
+- `backend/src/agent/agent-mcp-caller.service.ts`
+- `backend/src/agent/entities/agent-run.entity.ts`
+- `backend/src/agent/entities/agent-step.entity.ts`
+
+### 댓글 스레드 요약
+
+댓글 스레드 요약은 Agent loop가 아니라 별도의 AI 요약 기능입니다.
+
+- 로그인 사용자가 요청할 때만 생성합니다.
+- 루트 댓글 스레드 기준으로 최신 요약 1개를 유지합니다.
+- 댓글 수가 10개 미만이면 생성하지 않습니다.
+- 삭제된 댓글은 입력에서 제외합니다.
+- 새 댓글이 추가되면 기존 요약을 stale 상태로 볼 수 있게 합니다.
+
+관련 구현 위치:
+
+- `backend/src/ai/summary/summary.controller.ts`
+- `backend/src/ai/summary/summary.service.ts`
+- `backend/src/ai/summary/openai-summary.provider.ts`
+- `backend/src/ai/summary/entities/ai-summary.entity.ts`
