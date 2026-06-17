@@ -43,6 +43,7 @@ const KNOWN_INGREDIENTS = [
   '파스타',
   '우유',
   '치즈',
+  '버터',
   '감자',
   '고구마',
   '당근',
@@ -323,6 +324,16 @@ export class ExtractIngredientsTool {
       '해먹고',
       '해먹으면',
       '조리',
+      '늦게',
+      '들어와서',
+      '들어오기',
+      '들어오면',
+      '나가기',
+      '나가서',
+      '나가면',
+      '외출',
+      '퇴근',
+      '출근',
       '싶어요',
     ].some((stopWord) => token.includes(stopWord));
   }
@@ -337,7 +348,7 @@ export class ExtractIngredientsTool {
   }
 
   private looksLikeActionOrRequest(token: string) {
-    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|싶|주세요|해줘)(고|어|으면|는데|다|기|게|요)?$/.test(
+    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|들어오|들어와|나가|외출|퇴근|출근|싶|주세요|해줘)(고|어|아서|와서|으면|는데|다|기|게|요)?$/.test(
       token,
     );
   }

@@ -133,6 +133,25 @@ describe('AiAgentService', () => {
     expect(result.ingredients).not.toContain('만들고');
   });
 
+  it('keeps schedule and movement words out of extracted ingredients', async () => {
+    const result = await service.assistPostDraft({
+      title: '버터 계란',
+      content:
+        '집에 버터랑 계란 있어요. 너무 늦게 들어와서 나가기 전에 먹어도 괜찮은 메뉴 추천해주세요.',
+    });
+
+    expect(result.ingredients).toContain('버터');
+    expect(result.ingredients).toContain('계란');
+    expect(result.ingredients).not.toEqual(
+      expect.arrayContaining(['늦게', '들어와서', '나가기']),
+    );
+    expect(
+      foodMetadataService.analyzeIngredientsNutrition,
+    ).toHaveBeenLastCalledWith(
+      expect.not.arrayContaining(['늦게', '들어와서', '나가기']),
+    );
+  });
+
   it('reflects attention-grabbing requests without replacing the community post', async () => {
     const result = await service.assistPostDraft({
       title: '계란 김치 밥',

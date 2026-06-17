@@ -307,7 +307,9 @@ describe('AiRecommendationsService', () => {
     } as never);
 
     await expect(service.findLatest(21)).resolves.toBeNull();
-    expect(prismaService.aiRecipeRecommendation.findFirst).not.toHaveBeenCalled();
+    expect(
+      prismaService.aiRecipeRecommendation.findFirst,
+    ).not.toHaveBeenCalled();
   });
 
   it('should prefer tip and recipe board posts over question-only posts for board chat', async () => {
@@ -364,7 +366,8 @@ describe('AiRecommendationsService', () => {
       missingIngredients: [],
       estimatedCookingTime: 10,
       difficulty: '쉬움',
-      content: '1. 족발을 팬에 넣고 물을 조금 더해 데웁니다. 2. 밥 위에 올려 먹습니다.',
+      content:
+        '1. 족발을 팬에 넣고 물을 조금 더해 데웁니다. 2. 밥 위에 올려 먹습니다.',
     });
 
     const response = await service.createBoardChat({
@@ -411,8 +414,7 @@ describe('AiRecommendationsService', () => {
         postTags: [{ tag: { name: '햄' } }, { tag: { name: '계란' } }],
         comments: [
           {
-            content:
-              '햄은 계란물에 묻혀 부치면 도시락 반찬으로 먹기 좋아요.',
+            content: '햄은 계란물에 묻혀 부치면 도시락 반찬으로 먹기 좋아요.',
           },
         ],
         _count: {
@@ -505,7 +507,7 @@ describe('AiRecommendationsService', () => {
     );
   });
 
-  it('should keep a single-ingredient reference when it matches the requested main ingredient', async () => {
+  it('should reject a single-ingredient reference for multi-ingredient board chat requests', async () => {
     jest.spyOn(prismaService.post, 'findMany').mockResolvedValue([
       {
         id: 30,
@@ -568,24 +570,9 @@ describe('AiRecommendationsService', () => {
       message: '메인재료: 또띠아 부재료: 햄, 치즈, 당근, 오이, 양상추',
     });
 
-    expect(recipeLlmService.createRecommendation).toHaveBeenCalledWith(
-      expect.any(Object),
-      [
-        expect.objectContaining({
-          title: '또띠아 잘 말리는 기본 팁',
-          matchedIngredients: ['또띠아'],
-        }),
-      ],
-      'COMMUNITY_RAG',
-      null,
-      'BALANCED',
-    );
-    expect(response.references).toEqual([
-      expect.objectContaining({
-        post_id: 31,
-        title: '또띠아 잘 말리는 기본 팁',
-      }),
-    ]);
+    expect(recipeLlmService.createRecommendation).not.toHaveBeenCalled();
+    expect(response.references).toEqual([]);
+    expect(response.grounding).toBe('GENERAL_AI');
   });
 
   it('should remove missing ingredients that are not mentioned in the recommendation', async () => {
@@ -858,7 +845,7 @@ describe('AiRecommendationsService', () => {
         id: 10,
         title: '병아리콩 샐러드 만들기',
         content:
-          '병아리콩, 토마토, 치즈, 올리브오일로 가볍게 먹는 샐러드를 만들었어요.',
+          '아보카도, 병아리콩, 토마토, 치즈, 올리브오일로 가볍게 먹는 샐러드를 만들었어요.',
         viewCount: 0,
         createdAt: new Date('2026-06-13T00:00:00.000Z'),
         updatedAt: new Date('2026-06-13T00:00:00.000Z'),
@@ -866,7 +853,7 @@ describe('AiRecommendationsService', () => {
         comments: [
           {
             content:
-              '병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
+              '아보카도와 병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
           },
         ],
         _count: {
@@ -886,7 +873,7 @@ describe('AiRecommendationsService', () => {
     ] as never);
     jest.spyOn(recipeLlmService, 'createRecommendation').mockResolvedValue({
       menuName: '아보카도 병아리콩 샐러드',
-      reason: '병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
+      reason: '아보카도와 병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
       availableIngredients: ['아보카도', '병아리콩'],
       missingIngredients: ['토마토', '치즈'],
       estimatedCookingTime: 15,
@@ -900,7 +887,7 @@ describe('AiRecommendationsService', () => {
         postId: null,
         requestedById: 1,
         menuName: '아보카도 병아리콩 샐러드',
-        reason: '병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
+        reason: '아보카도와 병아리콩이 겹치는 커뮤니티 글을 참고했습니다.',
         availableIngredients: ['아보카도', '병아리콩'],
         missingIngredients: ['토마토', '치즈'],
         estimatedCookingTime: 15,
@@ -943,14 +930,14 @@ describe('AiRecommendationsService', () => {
         expect.objectContaining({
           title: '병아리콩 샐러드 만들기',
           summary:
-            '병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
+            '아보카도와 병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
           questionSummary:
-            '병아리콩, 토마토, 치즈, 올리브오일로 가볍게 먹는 샐러드를 만들었어요.',
+            '아보카도, 병아리콩, 토마토, 치즈, 올리브오일로 가볍게 먹는 샐러드를 만들었어요.',
           commentEvidence: [
-            '병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
+            '아보카도와 병아리콩은 레몬, 올리브오일, 토마토, 치즈를 더하면 샐러드처럼 먹기 좋아요.',
           ],
           similarity: 0.72,
-          matchedIngredients: ['병아리콩'],
+          matchedIngredients: ['아보카도', '병아리콩'],
           missingIngredients: expect.arrayContaining(['토마토', '치즈']),
         }),
       ],
@@ -1004,7 +991,8 @@ describe('AiRecommendationsService', () => {
         postTags: [],
         comments: [
           {
-            content: '명란과 크래미 조합이면 밥만 더해서 주먹밥으로 먹기 좋아요.',
+            content:
+              '명란과 크래미 조합이면 밥만 더해서 주먹밥으로 먹기 좋아요.',
           },
         ],
         _count: {

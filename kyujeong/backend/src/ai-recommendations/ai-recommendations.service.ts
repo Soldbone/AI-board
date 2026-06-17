@@ -340,6 +340,15 @@ const NON_INGREDIENT_TERMS = new Set([
   '괜찮을까요',
   '퇴근',
   '출근',
+  '늦게',
+  '들어와서',
+  '들어와',
+  '들어오기',
+  '들어오면',
+  '나가기',
+  '나가서',
+  '나가면',
+  '외출',
   '오늘',
   '내일',
   '어제',
@@ -1387,14 +1396,14 @@ export class AiRecommendationsService {
       return post.semanticSimilarity >= this.getRagMinSimilarity();
     }
 
-    if (post.matchedIngredients.length >= this.getRagMinIngredientOverlap()) {
+    const minimumIngredientOverlap =
+      this.getRequiredIngredientOverlap(targetIngredients);
+
+    if (post.matchedIngredients.length >= minimumIngredientOverlap) {
       return true;
     }
 
-    return (
-      post.semanticSimilarity >= this.getRagMinSimilarity() &&
-      this.isKnowledgeSourceCategory(post.category)
-    );
+    return false;
   }
 
   private getRagMinSimilarity() {
@@ -1419,6 +1428,17 @@ export class AiRecommendationsService {
     }
 
     return DEFAULT_RAG_MIN_INGREDIENT_OVERLAP;
+  }
+
+  private getRequiredIngredientOverlap(targetIngredients: string[]) {
+    if (targetIngredients.length === 0) {
+      return 0;
+    }
+
+    const baselineOverlap = this.getRagMinIngredientOverlap();
+    const dynamicOverlap = targetIngredients.length >= 3 ? 2 : 1;
+
+    return Math.max(baselineOverlap, dynamicOverlap);
   }
 
   private async getPgvectorStatus() {
@@ -1580,13 +1600,13 @@ export class AiRecommendationsService {
 
     return Math.min(
       1,
-      semanticSimilarity * 0.35 +
-        Math.min(directMatchScore, 1) * 0.3 +
-        Math.min(aliasMatchScore, 1) * 0.15 +
+      semanticSimilarity * 0.25 +
+        Math.min(directMatchScore, 1) * 0.4 +
+        Math.min(aliasMatchScore, 1) * 0.18 +
         categoryScore * 0.1 +
-        situationScore * 0.08 +
-        recencyScore * 0.04 +
-        popularityScore * 0.03,
+        situationScore * 0.04 +
+        recencyScore * 0.02 +
+        popularityScore * 0.01,
     );
   }
 
@@ -1708,7 +1728,8 @@ export class AiRecommendationsService {
     }
 
     const primaryIngredientSet = new Set(primaryIngredients);
-    const minimumMatchedIngredients = extractedIngredients.length >= 4 ? 2 : 1;
+    const minimumMatchedIngredients =
+      this.getRequiredIngredientOverlap(extractedIngredients);
 
     return similarPosts
       .filter((post) => {
@@ -2231,7 +2252,7 @@ export class AiRecommendationsService {
       return false;
     }
 
-    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|싶)(고|어|으면|는데|다|기|게|요)?$/.test(
+    return /(만들|먹|해먹|추천|요리|조리|볶|끓|굽|썰|넣|남았|가지고|갖고|들어오|들어와|나가|외출|퇴근|출근|싶)(고|어|아서|와서|으면|는데|다|기|게|요)?$/.test(
       token,
     );
   }

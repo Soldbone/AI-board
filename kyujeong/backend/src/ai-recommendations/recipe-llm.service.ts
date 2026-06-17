@@ -198,7 +198,9 @@ export class RecipeLlmService {
         'Use nutritionMetadata only as factual support for nutrition balance, not as the source of the dish choice.',
         'Prefer community RAG evidence over nutrition metadata when explaining why this dish was chosen.',
         'Mention simple nutrition points such as protein, carbohydrates, fat, sugar, or sodium only when the provided metadata supports them.',
-        'Follow recommendationGoals as combined requested directions, but keep the recipe practical with the owned ingredients.',
+        'Follow recommendationGoals and any additional request in targetPost.content as first-class constraints, not just as explanatory text.',
+        'When recommendationGoals or additional requests change, change the cooking method, seasoning direction, portions, or dish type so the result is meaningfully different.',
+        'Do not reuse the same dish if the user asks for a different direction such as quick, filling, light, low-sodium, budget, or vegetable-heavy.',
         'Do not give medical, diet-treatment, disease, or weight-loss prescriptions.',
         'If sodium metadata is high, suggest mild seasoning in practical Korean.',
         'Do not invent too many missing ingredients.',
@@ -240,7 +242,12 @@ export class RecipeLlmService {
     const ingredients = this.extractIngredients(targetPost);
     const primaryIngredient =
       ingredients[0] ?? targetPost.tags[0] ?? '남은 재료';
-    const menuName = this.pickFallbackMenuName(primaryIngredient, targetPost);
+    const fallbackPlan = this.buildFallbackRecipePlan(
+      primaryIngredient,
+      ingredients,
+      targetPost,
+      recommendationGoals,
+    );
     const hasSimilarPosts =
       grounding === 'COMMUNITY_RAG' && similarPosts.length > 0;
     const nutritionPoint = this.buildNutritionPoint(nutritionMetadata);
@@ -250,11 +257,12 @@ export class RecipeLlmService {
     );
 
     return {
-      menuName,
+      menuName: fallbackPlan.menuName,
       reason: [
         hasSimilarPosts
           ? `비슷한 게시글에서 ${primaryIngredient}를 빠르게 활용하는 흐름이 보여서, 현재 재료로 부담 없이 만들 수 있는 메뉴로 추천합니다.`
           : `아직 참고할 만한 유사 게시글이 적어서, 현재 글에 적힌 재료와 조건을 중심으로 간단한 메뉴를 추천합니다.`,
+        fallbackPlan.reason,
         goalPoint,
         nutritionPoint,
       ]
@@ -263,10 +271,11 @@ export class RecipeLlmService {
       availableIngredients: ingredients.slice(0, 6),
       usedIngredients: ingredients.slice(0, 6),
       missingIngredients: [],
-      estimatedCookingTime: this.extractMinutes(targetPost.content) ?? 10,
+      estimatedCookingTime:
+        this.extractMinutes(targetPost.content) ?? fallbackPlan.estimatedMinutes,
       difficulty: '쉬움',
       content: [
-        `${primaryIngredient}를 중심으로 가진 재료를 한입 크기로 준비한 뒤, 팬에 볶거나 데워서 간을 맞춰보세요. 밥이나 면이 있다면 함께 넣어 한 끼 메뉴로 만들기 좋습니다.`,
+        fallbackPlan.content,
         this.shouldMentionMildSeasoning(nutritionMetadata)
           ? '나트륨이 높은 재료가 포함될 수 있으니 간장이나 소금은 마지막에 조금씩 더해 간을 맞추는 쪽이 좋습니다.'
           : '',
@@ -428,25 +437,81 @@ export class RecipeLlmService {
       .slice(0, 8);
   }
 
-  private pickFallbackMenuName(
+  private buildFallbackRecipePlan(
     primaryIngredient: string,
+    ingredients: string[],
     targetPost: RecipeContext,
+    recommendationGoals: AiRecommendationGoal[],
   ) {
-    const text = `${targetPost.title} ${targetPost.content}`;
+    const requestDirection = this.buildRequestDirection(
+      targetPost,
+      recommendationGoals,
+    );
+    const supportingIngredients = ingredients
+      .filter((ingredient) => ingredient !== primaryIngredient)
+      .slice(0, 3);
+    const ingredientPhrase = [primaryIngredient, ...supportingIngredients]
+      .filter(Boolean)
+      .join(', ');
+    const directionForTitle = requestDirection.titleModifier
+      ? ` ${requestDirection.titleModifier}`
+      : '';
+    const directionSentence = requestDirection.displayText
+      ? `추가 요청인 "${requestDirection.displayText}" 방향을 우선 반영해 맛과 조리 방식을 조절합니다.`
+      : '현재 글에 적힌 재료와 조건을 우선 반영해 조리 방식을 정합니다.';
 
-    if (text.includes('밥') || text.includes('김치') || text.includes('계란')) {
-      return `${primaryIngredient} 볶음밥`;
+    return {
+      menuName: `${primaryIngredient}${directionForTitle} 냉파 요리`,
+      reason: requestDirection.displayText
+        ? `요청한 방향(${requestDirection.displayText})이 결과에 반영되도록 구성했습니다.`
+        : '',
+      estimatedMinutes: requestDirection.estimatedMinutes,
+      content: `${ingredientPhrase}를 중심으로 가진 재료를 한입 크기로 준비합니다. ${directionSentence} 팬에 볶거나 데워서 기본 맛을 잡고, 마지막에 맛을 보며 양념의 강도와 양을 요청 방향에 맞게 조절하세요.`,
+    };
+  }
+
+  private buildRequestDirection(
+    targetPost: RecipeContext,
+    recommendationGoals: AiRecommendationGoal[],
+  ) {
+    const explicitRequest = this.extractExplicitRequest(targetPost.content);
+    const goalLabels = recommendationGoals
+      .filter((goal) => goal !== 'BALANCED')
+      .map((goal) => AI_RECOMMENDATION_GOAL_LABELS[goal]);
+    const displayText = [explicitRequest, ...goalLabels]
+      .filter(Boolean)
+      .join(', ');
+    const titleModifier = this.toTitleModifier(explicitRequest || goalLabels[0]);
+
+    return {
+      displayText,
+      titleModifier,
+      estimatedMinutes: recommendationGoals.includes('QUICK') ? 10 : 15,
+    };
+  }
+
+  private extractExplicitRequest(content: string) {
+    const additionalRequestMatch = content.match(
+      /\[추가 요청\]\s*([\s\S]*?)(?=\n\[|$)/,
+    );
+    const conditionMatch = content.match(/조건:\s*([^\n]+)/);
+    const request = additionalRequestMatch?.[1] ?? conditionMatch?.[1] ?? '';
+
+    return request.replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  private toTitleModifier(value?: string) {
+    if (!value) {
+      return '';
     }
 
-    if (text.includes('국') || text.includes('찌개')) {
-      return `${primaryIngredient} 간단국`;
-    }
-
-    if (text.includes('면') || text.includes('파스타')) {
-      return `${primaryIngredient} 볶음면`;
-    }
-
-    return `${primaryIngredient} 냉파 한 접시`;
+    return value
+      .replace(/["'`]/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/(?:으로|하게)?\s*(?:해\s*줘|해주세요|부탁해요|만들어\s*줘|먹고\s*싶어요?)$/u, '')
+      .replace(/[.!?。]+$/u, '')
+      .trim()
+      .slice(0, 18);
   }
 
   private extractMinutes(content: string) {
