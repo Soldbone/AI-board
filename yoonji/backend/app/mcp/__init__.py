@@ -1,0 +1,1 @@
+"""Backend MCP integration helpers."""

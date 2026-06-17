@@ -1,0 +1,39 @@
+:root {
+  font-family:
+    'Pretendard Variable',
+    Pretendard,
+    'SUIT Variable',
+    SUIT,
+    'Noto Sans KR',
+    'Apple SD Gothic Neo',
+    'Malgun Gothic',
+    system-ui,
+    sans-serif;
+  color: #111827;
+  background: #f7faf8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 32px;
+  line-height: 1.2;
+}

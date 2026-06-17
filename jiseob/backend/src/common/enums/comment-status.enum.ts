@@ -1,0 +1,6 @@
+export enum ModerationStatus {
+  NORMAL = 'NORMAL',
+  NEEDS_REVIEW = 'NEEDS_REVIEW',
+  DELETED_BY_USER = 'DELETED_BY_USER',
+  DELETED_BY_ADMIN = 'DELETED_BY_ADMIN',
+}

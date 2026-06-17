@@ -1,0 +1,475 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { AiRecommendationsService } from '../ai-recommendations/ai-recommendations.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
+
+const POST_CATEGORIES = [
+  'QUESTION',
+  'RECIPE_SHARE',
+  'COOKING_TIP_REVIEW',
+  'TREND',
+] as const;
+
+type PostCategory = (typeof POST_CATEGORIES)[number];
+
+@Injectable()
+export class PostsService {
+  constructor(
+    private readonly prismaService: PrismaService,
+    @Optional()
+    private readonly aiRecommendationsService?: AiRecommendationsService,
+  ) {}
+
+  async findAll(
+    page: number,
+    size: number,
+    search?: string,
+    tag?: string,
+    category?: string,
+  ) {
+    const currentPage = Math.max(page, 1);
+    const pageSize = Math.max(size, 1);
+    const keyword = search?.trim();
+    const tagName = tag?.trim();
+    const postCategory = this.normalizePostCategory(category);
+    const where: Prisma.PostWhereInput | undefined =
+      keyword || tagName || postCategory
+        ? {
+            ...(keyword
+              ? {
+                  title: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                }
+              : {}),
+            ...(tagName
+              ? {
+                  postTags: {
+                    some: {
+                      tag: {
+                        name: tagName,
+                      },
+                    },
+                  },
+                }
+              : {}),
+            ...(postCategory
+              ? {
+                  category: postCategory,
+                }
+              : {}),
+          }
+        : undefined;
+
+    const [posts, total] = await Promise.all([
+      this.prismaService.post.findMany({
+        where,
+        skip: (currentPage - 1) * pageSize,
+        take: pageSize,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+	        select: {
+		          id: true,
+		          title: true,
+		          content: true,
+		          imageUrl: true,
+		          category: true,
+		          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              nickname: true,
+            },
+          },
+          postTags: {
+            select: {
+              tag: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              comments: true,
+            },
+          },
+          aiRecommendations: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+	            take: 1,
+	            select: {
+	              id: true,
+	              status: true,
+	              thumbnailUrl: true,
+	            },
+          },
+        },
+      }),
+      this.prismaService.post.count({ where }),
+    ]);
+
+    return {
+	      items: posts.map((post) => this.mapPostListItem(post)),
+      total,
+      page: currentPage,
+      size: pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  async findOne(id: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const updatedPost = await this.prismaService.post.update({
+      where: { id },
+      data: {
+        viewCount: {
+          increment: 1,
+        },
+      },
+      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return this.mapPostTagsToTags(updatedPost);
+  }
+
+  async create(createPostDto: CreatePostDto, authorId: number) {
+    const tagNames = this.normalizeTagNames(createPostDto.tagNames);
+
+    const post = await this.prismaService.post.create({
+      data: {
+        title: createPostDto.title,
+        content: createPostDto.content,
+        category: this.normalizePostCategory(createPostDto.category) ?? 'QUESTION',
+        authorId,
+        ...(tagNames.length > 0
+          ? {
+              postTags: {
+                create: tagNames.map((tagName) => ({
+                  tag: {
+                    connectOrCreate: {
+                      where: {
+                        name: tagName,
+                      },
+                      create: {
+                        name: tagName,
+                      },
+                    },
+                  },
+                })),
+              },
+            }
+          : {}),
+      },
+    });
+
+    await this.aiRecommendationsService?.syncRagDocumentForPost(post.id);
+
+    return post;
+  }
+
+  async update(id: number, updatePostDto: UpdatePostDto, userId: number) {
+    const shouldUpdateTags = Array.isArray(updatePostDto.tagNames);
+    const tagNames = shouldUpdateTags
+      ? this.normalizeTagNames(updatePostDto.tagNames)
+      : [];
+    const postCategory = this.normalizePostCategory(updatePostDto.category);
+
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only update your own post');
+    }
+
+    const updatedPost = await this.prismaService.post.update({
+      where: { id },
+      data: {
+        title: updatePostDto.title,
+        content: updatePostDto.content,
+        ...(postCategory ? { category: postCategory } : {}),
+        ...(shouldUpdateTags
+          ? {
+              postTags: {
+                deleteMany: {},
+                ...(tagNames.length > 0
+                  ? {
+                      create: tagNames.map((tagName) => ({
+                        tag: {
+                          connectOrCreate: {
+                            where: {
+                              name: tagName,
+                            },
+                            create: {
+                              name: tagName,
+                            },
+                          },
+                        },
+                      })),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+	        id: true,
+	        title: true,
+	        content: true,
+	        imageUrl: true,
+	        category: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+          },
+        },
+        postTags: {
+          select: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    await this.markAiRecommendationStale(id);
+    await this.aiRecommendationsService?.syncRagDocumentForPost(id);
+
+    return this.mapPostTagsToTags(updatedPost);
+  }
+
+  async remove(id: number, userId: number) {
+    const post = await this.prismaService.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own post');
+    }
+
+    await this.prismaService.post.delete({
+      where: { id },
+    });
+
+    return { id };
+  }
+
+  private normalizeTagNames(tagNames?: string[]) {
+    const normalizedTagNames = [
+      ...new Set((tagNames ?? []).map((tagName) => tagName.trim())),
+    ].filter(Boolean);
+
+    if (normalizedTagNames.length > 5) {
+      throw new BadRequestException('Tags can be up to 5');
+    }
+
+    if (normalizedTagNames.some((tagName) => tagName.length > 20)) {
+      throw new BadRequestException('Tag name can be up to 20 characters');
+    }
+
+    return normalizedTagNames;
+  }
+
+  private normalizePostCategory(category?: string): PostCategory | null {
+    const normalizedCategory = category?.trim();
+
+    if (!normalizedCategory) {
+      return null;
+    }
+
+    if (!POST_CATEGORIES.includes(normalizedCategory as PostCategory)) {
+      throw new BadRequestException('Invalid post category');
+    }
+
+    return normalizedCategory as PostCategory;
+  }
+
+  private async markAiRecommendationStale(postId: number) {
+    await this.prismaService.$transaction([
+      this.prismaService.postRagDocument.updateMany({
+        where: { postId },
+        data: { isStale: true },
+      }),
+      this.prismaService.aiRecipeRecommendation.updateMany({
+        where: { postId },
+        data: { status: 'STALE' },
+      }),
+    ]);
+  }
+
+	  private mapPostListItem<
+	    T extends {
+	      category?: PostCategory;
+	      content: string;
+	      postTags: {
+	        tag: {
+	          name: string;
+	        };
+	      }[];
+	      _count?: {
+	        comments: number;
+	      };
+	      aiRecommendations?: {
+	        id: number;
+	        status: 'ACTIVE' | 'STALE';
+	        thumbnailUrl: string | null;
+	      }[];
+	    },
+	  >(post: T) {
+	    const { content, postTags, _count, aiRecommendations, ...postWithoutPostTags } =
+	      post;
+	    const isQuestionPost = post.category === 'QUESTION';
+
+	    return {
+	      ...postWithoutPostTags,
+	      contentPreview: this.createContentPreview(content),
+	      tags: postTags.map((postTag) => postTag.tag.name),
+	      commentsCount: _count?.comments ?? 0,
+	      ...(aiRecommendations
+	        ? {
+	            hasAiRecommendation: isQuestionPost && aiRecommendations.length > 0,
+	            aiRecommendationStatus: isQuestionPost
+	              ? (aiRecommendations[0]?.status ?? null)
+	              : null,
+	            aiThumbnailUrl: isQuestionPost
+	              ? (aiRecommendations[0]?.thumbnailUrl ?? null)
+	              : null,
+	          }
+	        : {}),
+	    };
+	  }
+
+	  private mapPostTagsToTags<
+	    T extends {
+	      content?: string;
+	      postTags: {
+	        tag: {
+          name: string;
+        };
+      }[];
+      _count?: {
+        comments: number;
+      };
+      aiRecommendations?: {
+        id: number;
+        status: 'ACTIVE' | 'STALE';
+      }[];
+    },
+	  >(post: T) {
+	    const { content, postTags, _count, aiRecommendations, ...postWithoutPostTags } =
+	      post;
+
+	    return {
+	      ...postWithoutPostTags,
+	      ...(typeof content === 'string' ? { content } : {}),
+	      tags: postTags.map((postTag) => postTag.tag.name),
+      commentsCount: _count?.comments ?? 0,
+      ...(aiRecommendations
+        ? {
+            hasAiRecommendation: aiRecommendations.length > 0,
+            aiRecommendationStatus: aiRecommendations[0]?.status ?? null,
+          }
+        : {}),
+	    };
+	  }
+
+	  private createContentPreview(content: string) {
+	    const normalizedContent = content.replace(/\s+/g, ' ').trim();
+
+	    if (normalizedContent.length <= 96) {
+	      return normalizedContent;
+	    }
+
+	    return `${normalizedContent.slice(0, 96)}...`;
+	  }
+	}

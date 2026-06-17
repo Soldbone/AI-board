@@ -1,0 +1,39 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=24.16.0",
+    "pnpm": ">=10.12.1"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @arena/backend --filter @arena/frontend dev",
+    "dev:backend": "pnpm --filter @arena/backend dev",
+    "dev:api": "pnpm --filter @arena/backend dev",
+    "dev:frontend": "pnpm --filter @arena/frontend dev",
+    "dev:web": "pnpm --filter @arena/frontend dev",
+    "build": "pnpm -r --if-present build",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test:e2e": "pnpm --filter @arena/backend test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "seed:demo": "pnpm --filter @arena/backend seed:demo",
+    "shadcn:add": "pnpm dlx shadcn@latest add -c frontend",
+    "shadcn:web:add": "pnpm dlx shadcn@latest add -c frontend"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.28.0",
+    "eslint": "^9.28.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.2.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.33.1"
+  }
+}

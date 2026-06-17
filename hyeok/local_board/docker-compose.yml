@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: local_board_postgres
+    environment:
+      POSTGRES_USER: local_board
+      POSTGRES_PASSWORD: local_board_pw
+      POSTGRES_DB: local_board_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - local_board_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  local_board_postgres_data:

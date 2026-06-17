@@ -1,0 +1,83 @@
+import {
+  Controller,
+  Body,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { Request } from 'express';
+import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
+import { AiRecommendationsService } from './ai-recommendations.service';
+import { CreateBoardChatDto } from './dto/create-board-chat.dto';
+import { CreateDirectRecommendationDto } from './dto/create-direct-recommendation.dto';
+import { CreateRecommendationDto } from './dto/create-recommendation.dto';
+
+type AuthenticatedRequest = Request & {
+  user: {
+    sub: number;
+    email: string;
+  };
+};
+
+@Controller()
+export class AiRecommendationsController {
+  constructor(
+    private readonly aiRecommendationsService: AiRecommendationsService,
+  ) {}
+
+  @Get(['agent/status', 'api/agent/status'])
+  getStatus() {
+    return this.aiRecommendationsService.getStatus();
+  }
+
+  @Post(['agent/board-chat', 'api/agent/board-chat'])
+  createBoardChat(@Body() createBoardChatDto: CreateBoardChatDto) {
+    return this.aiRecommendationsService.createBoardChat(createBoardChatDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(['agent/rag-documents/rebuild', 'api/agent/rag-documents/rebuild'])
+  rebuildRagDocuments() {
+    return this.aiRecommendationsService.rebuildRagDocuments();
+  }
+
+  @Get([
+    'agent/posts/:postId/recommendation',
+    'api/agent/posts/:postId/recommendation',
+  ])
+  findLatest(@Param('postId', ParseIntPipe) postId: number) {
+    return this.aiRecommendationsService.findLatest(postId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post([
+    'agent/posts/:postId/recommendation',
+    'api/agent/posts/:postId/recommendation',
+  ])
+  create(
+    @Param('postId', ParseIntPipe) postId: number,
+    @Body() createRecommendationDto: CreateRecommendationDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.aiRecommendationsService.create(
+      postId,
+      request.user.sub,
+      createRecommendationDto,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(['agent/recommendation', 'api/agent/recommendation'])
+  createDirect(
+    @Body() createDirectRecommendationDto: CreateDirectRecommendationDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.aiRecommendationsService.createDirect(
+      createDirectRecommendationDto,
+      request.user.sub,
+    );
+  }
+}

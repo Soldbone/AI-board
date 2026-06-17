@@ -1,0 +1,31 @@
+:root {
+  font-family:
+    "Mona12 Text KR", "Mona12", "Mona10x12", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #202733;
+  background:
+    #e9fffb url("/background-dots.jpg") top center / 368px auto repeat;
+  font-feature-settings: "locl" 1;
+  font-language-override: "KOR ";
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    #e9fffb url("/background-dots.jpg") top center / 368px auto repeat;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
