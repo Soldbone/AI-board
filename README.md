@@ -13,3 +13,10 @@ AI-board는 각 하위 폴더에서 서로 다른 주제의 게시판 서비스�
 | `yoonji` | 피규어 커뮤니티 게시판입니다. 후기, 질문, 구매 도움 게시판을 중심으로 이미지, 태그, 검색, RAG 기반 후기 추천, 구매 요약, MCP 상품 후보 검색, 게시글 맥락 Agent를 제공합니다. |
 
 각 프로젝트의 상세 구조와 실행 방법은 각 하위 폴더의 README를 참고합니다.
+
+## 데모 사진
+### 요리 정보 게시판
+![recipe board](./img/recipe_board_kyujeong.png)
+
+### 피규어 커뮤니티 게시판
+![figure board](./img/figure_board_yoonji.png)
